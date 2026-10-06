@@ -7,7 +7,7 @@
 
 // Bison Declarations Section
 %code provides {
-    yy::LpcParser::symbol_type yylex();
+    yy::LpcParser::symbol_type yylex (yyscan_t yyscanner);
 }
 
 %code requires {
@@ -18,6 +18,10 @@
     #include <string>
     #include <cstdint>
 
+    #ifndef YY_TYPEDEF_YY_SCANNER_T
+    #define YY_TYPEDEF_YY_SCANNER_T
+    typedef void* yyscan_t;
+    #endif
     enum class LpcType: uint32_t {
         T_VOID = 0,
         T_DOUBLE,
@@ -55,6 +59,9 @@
         GREATER_EQUAL,
     };
 }
+
+// expected parameter for yylex()
+%param { yyscan_t yyscanner }
 
 %token L_INHERIT
 %token L_IF L_ELSE

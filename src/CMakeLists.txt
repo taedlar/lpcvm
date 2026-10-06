@@ -13,6 +13,14 @@ flex_target(LPC_LEXER
     DEFINES_FILE ${CMAKE_BINARY_DIR}/lpc_lexer.hpp
 )
 
-add_library(lpcvm ${BISON_LPC_PARSER_OUTPUTS} ${FLEX_LPC_LEXER_OUTPUTS})
+add_library(lpcvm
+    ${BISON_LPC_PARSER_OUTPUTS}
+    ${FLEX_LPC_LEXER_OUTPUTS}
+    lpc_compiler.cpp
+    lpc_compiler.hpp
+)
 
-target_include_directories(lpcvm PUBLIC ${CMAKE_BINARY_DIR})
+target_include_directories(lpcvm PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR}
+)
