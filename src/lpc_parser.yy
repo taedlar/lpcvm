@@ -53,7 +53,7 @@
     };
 
     enum class LpcOrder: int {
-        LESS = '<',
+        LESS = 0,
         LESS_EQUAL,
         GREATER,
         GREATER_EQUAL,
@@ -100,10 +100,6 @@
 %nonassoc L_INC L_DEC
 
 %token L_ELLIPSIS
-
-%code {
-    #include <iostream>
-}
 
 %type <uint32_t> type_modifier_list optional_type type optional_star
 %type <std::string> str_literal str_const
@@ -332,6 +328,3 @@ expr_list
 %%
 
 // User subroutines section
-void yy::LpcParser::error (const std::string& message) {
-    std::cerr << message << '\n';
-}
