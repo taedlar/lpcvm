@@ -3,6 +3,7 @@
 
 add_executable(test_lpcvm
     test_lpc_compiler.cpp
+    test_lpc_lexer.cpp
 )
 
 target_link_libraries(test_lpcvm PRIVATE lpcvm GTest::gtest_main)

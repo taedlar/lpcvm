@@ -5,6 +5,12 @@
 %define api.value.type variant
 %define api.parser.class {LpcParser}
 
+%code {
+    #include "lpc_compiler.hpp"
+    #include "lpc_lexer.hpp"
+    #include <stdexcept>
+}
+
 // Bison Declarations Section
 %code provides {
     yy::LpcParser::symbol_type yylex (yyscan_t yyscanner);
@@ -361,6 +367,6 @@ arg_list
 
 // User subroutines section
 void yy::LpcParser::error(const std::string &msg) {
-    // Handle parse errors here
-    throw std::runtime_error(msg);
+    const auto* context = yyget_extra(yyscanner);
+    throw std::runtime_error("Line " + std::to_string(context->line_number) + ": " + msg);
 }

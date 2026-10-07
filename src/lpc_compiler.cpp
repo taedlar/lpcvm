@@ -26,7 +26,8 @@ public:
         if (!file) {
             throw std::runtime_error("Failed to open memory stream for parsing");
         }
-        yyset_in(file, scanner);
+        context.line_number = 1;
+        yyrestart(file, scanner);
 
         // Parse the input
         using namespace yy;
@@ -47,4 +48,8 @@ LpcCompiler::~LpcCompiler() { delete pimpl; }
 
 void LpcCompiler::compile(const std::string& source) {
     pimpl->parse(source);
+}
+
+std::size_t LpcCompiler::get_line_number() const {
+    return pimpl->get_context().line_number;
 }
