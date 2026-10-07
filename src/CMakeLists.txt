@@ -18,6 +18,9 @@ add_library(lpcvm
     ${FLEX_LPC_LEXER_OUTPUTS}
     lpc_compiler.cpp
     lpc_compiler.hpp
+    vm_executor.hpp
+    vm_executor.cpp
+    vm_opcodes.hpp
 )
 
 target_include_directories(lpcvm PUBLIC
