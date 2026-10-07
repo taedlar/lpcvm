@@ -7,9 +7,6 @@
 #include <string>
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
-#undef YY_DECL
-#define YY_DECL yy::LpcParser::symbol_type yylex (yyscan_t yyscanner)
-#define YY_EXTRA_TYPE LpcCompiler::Context*
 
 static unsigned int parse_escape (const char* digits, int length,
                                   unsigned int base, unsigned int limit) {
@@ -98,9 +95,11 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "object"        { return yy::LpcParser::make_L_TYPE(LpcType::T_OBJECT); }
 "string"        { return yy::LpcParser::make_L_TYPE(LpcType::T_STRING); }
 "mixed"         { return yy::LpcParser::make_L_TYPE(LpcType::T_MIXED); }
+"auto"          { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_AUTO); }
 "static"        { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_STATIC); }
 "private"       { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_PRIVATE); }
 "public"        { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_PUBLIC); }
+"virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_VIRTUAL); }
 "nomask"        { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_NOMASK); }
 
 "true"          { return yy::LpcParser::make_L_INTEGER(1); }
@@ -199,10 +198,10 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
     throw yy::LpcParser::syntax_error("Unterminated raw string literal");
 }
 
-"[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?" { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
-"[0-9]+[eE][+-]?[0-9]+" { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
+[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)? { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
+[0-9]+[eE][+-]?[0-9]+ { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
 
-"[0-9]+"        { return yy::LpcParser::make_L_INTEGER(std::stoi(yytext)); }
+[0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stoi(yytext)); }
 
 "+"|"-"|"*"|"/"|"%"|"&"|"|"|"^" {
     /* binary operators */
