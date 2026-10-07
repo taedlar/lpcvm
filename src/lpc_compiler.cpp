@@ -3,7 +3,6 @@
 
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
-#define YY_DECL yy::LpcParser::symbol_type yylex (yyscan_t yyscanner)
 #include "lpc_lexer.hpp"
 #include <stdio.h>
 #include <stdexcept>

@@ -22,8 +22,10 @@
     #define YY_TYPEDEF_YY_SCANNER_T
     typedef void* yyscan_t;
     #endif
+
+    // bit-OR flags for variable or function return types and modifiers
     enum class LpcType: uint32_t {
-        T_VOID = 0,
+        T_VOID = 0, // function only
         T_DOUBLE,
         T_FLOAT,
         T_INT,
@@ -32,10 +34,12 @@
         T_STRING,
         T_MIXED = 127,
         T_ARRAY = 1 << 7,
-        T_STATIC = 1 << 8,
-        T_PRIVATE = 1 << 9,
-        T_PUBLIC = 1 << 10,
-        T_NOMASK = 1 << 11,
+        T_AUTO = 0,
+        T_STATIC = 1 << 8, // on: blueprint-owned, shared by all clones; off: clone-specific or local variables
+        T_PRIVATE = 0,
+        T_PUBLIC = 1 << 9, // on: visible to `->` operator; off: not visible to `->` operator
+        T_VIRTUAL = 0,
+        T_NOMASK = 1 << 10, // on: cannot be overridden by inheritance; off: can be overridden by inheritance
     };
 
     enum class LpcAssign: int {
@@ -101,7 +105,8 @@
 
 %token L_ELLIPSIS
 
-%type <uint32_t> type_modifier_list optional_type type optional_star
+%type <uint32_t> storage_or_type typed_storage function_head
+%type <uint32_t> type_modifier_list opt_star
 %type <std::string> str_literal str_const
 
 %%
@@ -118,31 +123,39 @@ extra_semicolon
     ;
 
 def
-    : type_modifier_list optional_type optional_star L_IDENTIFIER
+    : function_head
         {
-            /* combine the type modifiers, optional type, and optional star into a single type representation */
-            uint32_t combined_type = static_cast<uint32_t>($1) | static_cast<uint32_t>($2) | static_cast<uint32_t>($3);
+            uint32_t combined_type = $1;
         }
-      '(' optional_argument_list ')'
+      '(' opt_parameter_list ')'
         {
-            /* handle function arguments */
+            /* handle function parameters */
         }
       block_or_semicolon
         {
             /* handle forward declaration or definition for the function */
         }
+    | storage_or_type var_list ';' { /* variable declarations */ }
     | inheritance
     ;
 
-inheritance
-    : type_modifier_list L_INHERIT str_const ';'
+storage_or_type
+    : type_modifier_list
+        { $$ = $1 | static_cast<uint32_t>(LpcType::T_MIXED); /* implicit variable type: mixed*/ }
+    | typed_storage
+        { $$ = $1; }
+    ;
+
+typed_storage
+    : L_TYPE
+        { $$ = static_cast<uint32_t>($1); }
+    | type_modifier_list L_TYPE
+        { $$ = $1 | static_cast<uint32_t>($2); }
     ;
 
 type_modifier_list
-    : /* empty */
-        {
-            $$ = 0;
-        }
+    : L_TYPE_MODIFIER
+        { $$ = static_cast<uint32_t>($1); }
     | type_modifier_list L_TYPE_MODIFIER
         {
             /* combine the type modifiers using bitwise OR */
@@ -150,28 +163,36 @@ type_modifier_list
         }
     ;
 
-optional_type
-    : /* empty */
+function_head
+    : opt_star L_IDENTIFIER
         {
-            /* implicit rule: if no type is specified, default to int */
-            $$ = static_cast<uint32_t>(LpcType::T_INT);
+            /* implicit function return type: void */
+            $$ = static_cast<uint32_t>(LpcType::T_VOID) | $1;
         }
-    | type
-        {
-            $$ = static_cast<uint32_t>($1);
-        }
+    | storage_or_type opt_star L_IDENTIFIER
+        { $$ = $1 | $2; }
     ;
 
-type
-    : L_TYPE
-        { $$ = static_cast<uint32_t>($1); }
-    ;
-
-optional_star
+opt_star
     : /* empty */
         { $$ = 0; }
     | '*'
         { $$ = static_cast<uint32_t>(LpcType::T_ARRAY); }
+    ;
+
+var_list
+    : new_var
+    | var_list ',' new_var
+    ;
+
+new_var
+    : opt_star L_IDENTIFIER
+    | opt_star L_IDENTIFIER L_ASSIGN expr0
+    ;
+
+inheritance
+    : L_INHERIT str_const ';'
+    | type_modifier_list L_INHERIT str_const ';'
     ;
 
 str_const
@@ -204,20 +225,21 @@ str_literal
     | str_literal L_STRING_LITERAL
     ;
 
-optional_argument_list
+opt_parameter_list
     : /* empty */
-    | argument_list
+    | parameter_list
     ;
 
-argument_list
-    : one_argument
-    | argument_list ',' one_argument
-    | argument_list L_ELLIPSIS
+parameter_list
+    : parameter_decl
+    | parameter_list ',' parameter_decl
+    | parameter_list L_ELLIPSIS
     ;
 
-one_argument
-    : type optional_star
-    | type optional_star L_IDENTIFIER
+parameter_decl
+    : L_TYPE opt_star L_IDENTIFIER
+    | L_TYPE opt_star { /* anonymous parameter */ }
+    | L_IDENTIFIER { /* implicit mixed type parameter */ }
     ;
 
 block_or_semicolon
@@ -236,6 +258,7 @@ stmt_list
 
 stmt
     : comma_expr ';'
+    | local_decl
     | if_stmt
     | while_stmt
     | do_stmt
@@ -294,6 +317,10 @@ expr4
     | expr4 '[' comma_expr ']'
     ;
 
+local_decl
+    : storage_or_type var_list ';'
+    ;
+
 if_stmt
     : L_IF '(' comma_expr ')' stmt optional_else_stmt
     ;
@@ -317,14 +344,23 @@ return_stmt
     ;
 
 function_call
-    : L_IDENTIFIER '(' expr_list ')'
+    : L_IDENTIFIER '(' opt_arg_list ')'
     ;
 
-expr_list
+opt_arg_list
     : /* empty */
-    | expr_list ',' expr0
+    | arg_list
+    ;
+
+arg_list
+    : expr0
+    | arg_list ',' expr0
     ;
 
 %%
 
 // User subroutines section
+void yy::LpcParser::error(const std::string &msg) {
+    // Handle parse errors here
+    throw std::runtime_error(msg);
+}

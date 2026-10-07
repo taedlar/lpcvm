@@ -4,6 +4,10 @@
 #pragma once
 #include <string>
 
+#undef YY_DECL
+#define YY_DECL yy::LpcParser::symbol_type yylex (yyscan_t yyscanner)
+#define YY_EXTRA_TYPE LpcCompiler::Context*
+
 class LpcCompiler {
 public:
     LpcCompiler();
