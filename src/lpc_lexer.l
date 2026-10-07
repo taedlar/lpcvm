@@ -3,10 +3,16 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
  */
+#include <algorithm>
 #include <climits>
 #include <string>
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
+
+// Count source newlines in every start condition, before executing its action.
+// The raw-string rules using yyless only put back text without newlines.
+#define YY_USER_ACTION \
+    yyextra->line_number += std::count(yytext, yytext + yyleng, '\n');
 
 static unsigned int parse_escape (const char* digits, int length,
                                   unsigned int base, unsigned int limit) {
@@ -63,7 +69,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 <MULTILINE_COMMENT>"*/"     { BEGIN(INITIAL); }
 <MULTILINE_COMMENT>[^*\n]+  { /* Eat comment body in chunks */ }
 <MULTILINE_COMMENT>"*"      { /* Eat lone asterisks inside the comment */ }
-<MULTILINE_COMMENT>\n       { /* Preserve newlines so compiler error lines stay accurate */ }
+<MULTILINE_COMMENT>\n       { /* Line tracking is handled by YY_USER_ACTION. */ }
 <MULTILINE_COMMENT><<EOF>> {
     BEGIN(INITIAL);
     throw yy::LpcParser::syntax_error("Unterminated multiline comment");
