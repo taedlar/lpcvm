@@ -9,11 +9,6 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 
-// Count source newlines in every start condition, before executing its action.
-// The raw-string rules using yyless only put back text without newlines.
-#define YY_USER_ACTION \
-    yyextra->line_number += std::count(yytext, yytext + yyleng, '\n');
-
 static unsigned int parse_escape (const char* digits, int length,
                                   unsigned int base, unsigned int limit) {
     unsigned int value = 0;
@@ -53,6 +48,7 @@ static void append_utf8 (std::string& out, unsigned int value) {
 
 %option reentrant
 %option noyywrap
+%option yylineno
 
 %x MULTILINE_COMMENT
 %x RAW_STRING_LITERAL

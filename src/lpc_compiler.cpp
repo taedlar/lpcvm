@@ -10,15 +10,13 @@
 // Wrapper class for the yyscan_t
 class LpcCompiler::Impl {
 public:
-    Impl() {
-        yylex_init_extra (&context, &scanner);
+    Impl(): scanner(nullptr) {
     }
     ~Impl() {
-        yylex_destroy (scanner);
-    }
-
-    LpcCompiler::Context& get_context() {
-        return context;
+        if (scanner) {
+            yylex_destroy (scanner);
+            scanner = nullptr;
+        }
     }
 
     void parse (const std::string& source) {
@@ -26,7 +24,14 @@ public:
         if (!file) {
             throw std::runtime_error("Failed to open memory stream for parsing");
         }
-        context.line_number = 1;
+
+        // Reinitialize the scanner for the new parse session.
+        if (scanner) {
+            yylex_destroy (scanner);
+            scanner = nullptr;
+        }
+        LpcCompiler::Context context;
+        yylex_init_extra (&context, &scanner);
         yyrestart(file, scanner);
 
         // Parse the input
@@ -38,9 +43,11 @@ public:
         fclose(file);
     }
 
+    int get_lineno() const { return yyget_lineno(scanner); }
+    int get_column() const { return yyget_column(scanner); }
+
 private:
     yyscan_t scanner;
-    LpcCompiler::Context context;
 };
 
 LpcCompiler::LpcCompiler() : pimpl(new Impl()) {}
@@ -50,6 +57,10 @@ void LpcCompiler::compile(const std::string& source) {
     pimpl->parse(source);
 }
 
-std::size_t LpcCompiler::get_line_number() const {
-    return pimpl->get_context().line_number;
+int LpcCompiler::current_lineno() const {
+    return pimpl->get_lineno();
+}
+
+int LpcCompiler::current_column() const {
+    return pimpl->get_column();
 }

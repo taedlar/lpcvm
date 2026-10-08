@@ -49,7 +49,7 @@ TEST(LpcCompilerTest, ErrorsIncludeCurrentSourceLine) {
             compiler.compile(source);
             FAIL() << "Expected a compilation error";
         } catch (const std::runtime_error& error) {
-            EXPECT_EQ (compiler.get_line_number(), line);
+            EXPECT_EQ (compiler.current_lineno(), line);
         }
     };
 

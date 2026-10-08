@@ -8,7 +8,6 @@
 %code {
     #include "lpc_compiler.hpp"
     #include "lpc_lexer.hpp"
-    #include <stdexcept>
 }
 
 // Bison Declarations Section
@@ -21,7 +20,10 @@
     * SPDX-License-Identifier: MIT
     * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
     */
+    #include "ast_builder.hpp"
+    #include <stdexcept>
     #include <string>
+    #include <memory>
     #include <cstdint>
 
     #ifndef YY_TYPEDEF_YY_SCANNER_T
@@ -68,10 +70,17 @@
         GREATER,
         GREATER_EQUAL,
     };
+
+    /// AST node representing the entire program.
+    class AstProgramNode: public AstNode {
+    public:
+        AstProgramNode(int line): AstNode(line, AstNode::Type::Program) {}
+        void generate_code(std::vector<uint8_t>& code) override {}
+    };
 }
 
-// expected parameter for yylex()
-%param { yyscan_t yyscanner }
+%lex-param { yyscan_t yyscanner }
+%parse-param { yyscan_t yyscanner }
 
 %token L_INHERIT
 %token L_IF L_ELSE
@@ -115,22 +124,51 @@
 %type <uint32_t> type_modifier_list opt_star
 %type <std::string> str_literal str_const
 
+%type <std::shared_ptr<AstNode>> program def
 %%
 
-// Grammar rules section
+/*
+ * LPC grammar rules section
+ *
+ * $$: product of the rule's right-hand side symbols.
+ * $n: value of the nth symbol on the right-hand side of the rule.
+ *
+ * NOTE: The grammar is not from original LPMud source code. It is designed for the
+ * LPCVM project with some enhancements and simplifications for this implementation.
+ *
+ * Use yyget_extra(yyscanner) to access compiler context data (e.g., symbol tables,
+ * constant pool, and current program state) in the parser actions.
+ *
+ * Use std::shared_ptr for dynamically allocated AST nodes to manage memory
+ * automatically when exceptions are thrown at parse time.
+ *
+ * Keep the parser actions concise and focused on AST construction by delegating
+ * details to the methods in the AST builder classes. The AstProgramNode represents
+ * the root of the AST for the entire program if parsing is successful.
+ */
+
+all:
+    program { yyget_extra(yyscanner)->prog = $1; }
+    ;
+
 program
     : program def extra_semicolon
-    | /* empty */
+        { ($$ = $1)->add_child($def); }
+    | program inheritance
+        { $$ = $1; }
+    | %empty
+        { $$ = std::make_shared<AstProgramNode>(yyget_lineno(yyscanner)); }
     ;
 
 extra_semicolon
-    : /*empty*/
-    | ';' { /* ignore extra semicolon(s) between definitions */ }
+    : %empty
+    | extra_semicolon ';' { /* ignore extra semicolon(s) between definitions */ }
     ;
 
 def
     : function_head
         {
+            /* function declaration */
             uint32_t combined_type = $1;
         }
       '(' opt_parameter_list ')'
@@ -141,8 +179,11 @@ def
         {
             /* handle forward declaration or definition for the function */
         }
-    | storage_or_type var_list ';' { /* variable declarations */ }
-    | inheritance
+    | storage_or_type var_list ';'
+        {
+            /* variable declarations */
+            uint32_t combined_type = $1;
+        }
     ;
 
 storage_or_type
@@ -180,7 +221,7 @@ function_head
     ;
 
 opt_star
-    : /* empty */
+    : %empty
         { $$ = 0; }
     | '*'
         { $$ = static_cast<uint32_t>(LpcType::T_ARRAY); }
@@ -232,7 +273,7 @@ str_literal
     ;
 
 opt_parameter_list
-    : /* empty */
+    : %empty
     | parameter_list
     ;
 
@@ -258,7 +299,7 @@ block
     ;
 
 stmt_list
-    : /* empty */
+    : %empty
     | stmt_list stmt
     ;
 
@@ -270,7 +311,7 @@ stmt
     | do_stmt
     | return_stmt
     | block
-    | /* empty */ ';'
+    | /* no-op */ ';'
     | L_BREAK ';'
     | L_CONTINUE ';'
     ;
@@ -332,7 +373,7 @@ if_stmt
     ;
 
 optional_else_stmt
-    : /* empty */ %prec LOWER_THAN_ELSE
+    : %empty %prec LOWER_THAN_ELSE
     | L_ELSE stmt
     ;
 
@@ -354,7 +395,7 @@ function_call
     ;
 
 opt_arg_list
-    : /* empty */
+    : %empty
     | arg_list
     ;
 
@@ -368,5 +409,5 @@ arg_list
 // User subroutines section
 void yy::LpcParser::error(const std::string &msg) {
     const auto* context = yyget_extra(yyscanner);
-    throw std::runtime_error("Line " + std::to_string(context->line_number) + ": " + msg);
+    throw std::runtime_error("Line " + std::to_string(yyget_lineno(yyscanner)) + ": " + msg);
 }
