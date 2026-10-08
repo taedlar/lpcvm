@@ -7,15 +7,15 @@
 #include <stdio.h>
 #include <stdexcept>
 
-// Wrapper class for the yyscan_t
+// Wrapper class for the lexer (yyscan_t) and parser (LpcParser)
 class LpcCompiler::Impl {
 public:
-    Impl(): scanner(nullptr) {
+    Impl(): scanner_(nullptr) {
     }
     ~Impl() {
-        if (scanner) {
-            yylex_destroy (scanner);
-            scanner = nullptr;
+        if (scanner_) {
+            yylex_destroy (scanner_);
+            scanner_ = nullptr;
         }
     }
 
@@ -26,41 +26,42 @@ public:
         }
 
         // Reinitialize the scanner for the new parse session.
-        if (scanner) {
-            yylex_destroy (scanner);
-            scanner = nullptr;
+        if (scanner_) {
+            yylex_destroy (scanner_);
+            scanner_ = nullptr;
         }
-        LpcCompiler::Context context;
-        yylex_init_extra (&context, &scanner);
-        yyrestart(file, scanner);
+        context_ = std::make_unique<LpcCompiler::Context>();
+        yylex_init_extra (context_.get(), &scanner_);
+        yyrestart(file, scanner_);
 
         // Parse the input
         using namespace yy;
-        LpcParser parser{scanner};
+        LpcParser parser{scanner_};
         parser.parse();
 
         // Remember to close the memory stream after parsing
         fclose(file);
     }
 
-    int get_lineno() const { return yyget_lineno(scanner); }
-    int get_column() const { return yyget_column(scanner); }
+    int get_lineno() const { return yyget_lineno(scanner_); }
+    int get_column() const { return yyget_column(scanner_); }
 
 private:
-    yyscan_t scanner;
+    yyscan_t scanner_;
+    std::unique_ptr<LpcCompiler::Context> context_;
 };
 
-LpcCompiler::LpcCompiler() : pimpl(new Impl()) {}
-LpcCompiler::~LpcCompiler() { delete pimpl; }
+LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
+LpcCompiler::~LpcCompiler() { delete pimpl_; }
 
 void LpcCompiler::compile(const std::string& source) {
-    pimpl->parse(source);
+    pimpl_->parse(source);
 }
 
 int LpcCompiler::current_lineno() const {
-    return pimpl->get_lineno();
+    return pimpl_->get_lineno();
 }
 
 int LpcCompiler::current_column() const {
-    return pimpl->get_column();
+    return pimpl_->get_column();
 }

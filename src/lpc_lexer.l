@@ -89,20 +89,20 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "catch"         { return yy::LpcParser::make_L_CATCH(); }
 "new"           { return yy::LpcParser::make_L_NEW(); }
 
-"void"          { return yy::LpcParser::make_L_TYPE(LpcType::T_VOID); }
-"double"        { return yy::LpcParser::make_L_TYPE(LpcType::T_DOUBLE); }
-"float"         { return yy::LpcParser::make_L_TYPE(LpcType::T_FLOAT); }
-"int"|"bool"    { return yy::LpcParser::make_L_TYPE(LpcType::T_INT); }
-"mapping"       { return yy::LpcParser::make_L_TYPE(LpcType::T_MAPPING); }
-"object"        { return yy::LpcParser::make_L_TYPE(LpcType::T_OBJECT); }
-"string"        { return yy::LpcParser::make_L_TYPE(LpcType::T_STRING); }
-"mixed"         { return yy::LpcParser::make_L_TYPE(LpcType::T_MIXED); }
-"auto"          { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_AUTO); }
-"static"        { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_STATIC); }
-"private"       { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_PRIVATE); }
-"public"        { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_PUBLIC); }
-"virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_VIRTUAL); }
-"nomask"        { return yy::LpcParser::make_L_TYPE_MODIFIER(LpcType::T_NOMASK); }
+"void"          { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_VOID); }
+"double"        { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_DOUBLE); }
+"float"         { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_FLOAT); }
+"int"|"bool"    { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_INT); }
+"mapping"       { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_MAPPING); }
+"object"        { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_OBJECT); }
+"string"        { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_STRING); }
+"mixed"         { return yy::LpcParser::make_L_TYPE(yy::LpcType::T_MIXED); }
+"auto"          { return yy::LpcParser::make_L_TYPE_MODIFIER(yy::LpcType::T_AUTO); }
+"static"        { return yy::LpcParser::make_L_TYPE_MODIFIER(yy::LpcType::T_STATIC); }
+"private"       { return yy::LpcParser::make_L_TYPE_MODIFIER(yy::LpcType::T_PRIVATE); }
+"public"        { return yy::LpcParser::make_L_TYPE_MODIFIER(yy::LpcType::T_PUBLIC); }
+"virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER(yy::LpcType::T_VIRTUAL); }
+"nomask"        { return yy::LpcParser::make_L_TYPE_MODIFIER(yy::LpcType::T_NOMASK); }
 
 "true"          { return yy::LpcParser::make_L_INTEGER(1); }
 "false"         { return yy::LpcParser::make_L_INTEGER(0); }
@@ -219,19 +219,19 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "!"     { return yy::LpcParser::make_L_NOT(); }
 "<<"    { return yy::LpcParser::make_L_LSH(); }
 ">>"    { return yy::LpcParser::make_L_RSH(); }
-">="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(LpcOrder::GREATER_EQUAL)); }
-">"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(LpcOrder::GREATER)); }
-"<="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(LpcOrder::LESS_EQUAL)); }
-"<"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(LpcOrder::LESS)); }
-"="     { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::ASSIGN)); }
-"+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::ADD_ASSIGN)); }
-"-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::SUB_ASSIGN)); }
-"*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::MUL_ASSIGN)); }
-"/="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::DIV_ASSIGN)); }
-"%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::MOD_ASSIGN)); }
-"&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::AND_ASSIGN)); }
-"|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::OR_ASSIGN)); }
-"^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(LpcAssign::XOR_ASSIGN)); }
+">="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER_EQUAL)); }
+">"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER)); }
+"<="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS_EQUAL)); }
+"<"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS)); }
+"="     { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ASSIGN)); }
+"+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ADD_ASSIGN)); }
+"-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::SUB_ASSIGN)); }
+"*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MUL_ASSIGN)); }
+" /="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::DIV_ASSIGN)); }
+"%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MOD_ASSIGN)); }
+"&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::AND_ASSIGN)); }
+"|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::OR_ASSIGN)); }
+"^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::XOR_ASSIGN)); }
 
 "..."   { return yy::LpcParser::make_L_ELLIPSIS(); }
 

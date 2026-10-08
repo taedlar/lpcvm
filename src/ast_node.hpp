@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <utility>
 #include <vector>
 
 /**
@@ -24,7 +25,8 @@ public:
     virtual ~AstNode() = default;
 
     inline AstNode& add_child(std::shared_ptr<AstNode> child) {
-        children_.push_back(std::move(child));
+        if (child)
+            children_.push_back(std::move(child));
         return *this;
     }
 

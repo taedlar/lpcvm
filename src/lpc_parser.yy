@@ -4,83 +4,97 @@
 %define api.token.constructor
 %define api.value.type variant
 %define api.parser.class {LpcParser}
-
-%code {
-    #include "lpc_compiler.hpp"
-    #include "lpc_lexer.hpp"
-}
-
-// Bison Declarations Section
-%code provides {
-    yy::LpcParser::symbol_type yylex (yyscan_t yyscanner);
-}
+%lex-param { yyscan_t yyscanner }
+%parse-param { yyscan_t yyscanner }
 
 %code requires {
     /*
     * SPDX-License-Identifier: MIT
     * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
     */
-    #include "ast_builder.hpp"
-    #include <stdexcept>
-    #include <string>
-    #include <memory>
     #include <cstdint>
 
+    namespace yy {
+        // bit-OR flags for variable or function return types and modifiers
+        enum class LpcType: uint32_t {
+            T_VOID = 0, // function only
+            T_DOUBLE,
+            T_FLOAT,
+            T_INT,
+            T_MAPPING,
+            T_OBJECT,
+            T_STRING,
+            T_MIXED = 127,
+            T_ARRAY = 1 << 7,
+            T_AUTO = 0,
+            T_STATIC = 1 << 8, // on: blueprint-owned, shared by all clones; off: clone-specific or local variables
+            T_PRIVATE = 0,
+            T_PUBLIC = 1 << 9, // on: visible to `->` operator; off: not visible to `->` operator
+            T_VIRTUAL = 0,
+            T_NOMASK = 1 << 10, // on: cannot be overridden by inheritance; off: can be overridden by inheritance
+        };
+
+        enum class LpcAssign: int {
+            ASSIGN = 0,
+            ADD_ASSIGN,
+            SUB_ASSIGN,
+            MUL_ASSIGN,
+            DIV_ASSIGN,
+            MOD_ASSIGN,
+            LSH_ASSIGN,
+            RSH_ASSIGN,
+            AND_ASSIGN,
+            XOR_ASSIGN,
+            OR_ASSIGN,
+        };
+
+        enum class LpcOrder: int {
+            LESS = 0,
+            LESS_EQUAL,
+            GREATER,
+            GREATER_EQUAL,
+        };
+    } // namespace yy
+
+    // typedef yyscan_t for the reentrant lexer handle
     #ifndef YY_TYPEDEF_YY_SCANNER_T
     #define YY_TYPEDEF_YY_SCANNER_T
     typedef void* yyscan_t;
     #endif
+}
 
-    // bit-OR flags for variable or function return types and modifiers
-    enum class LpcType: uint32_t {
-        T_VOID = 0, // function only
-        T_DOUBLE,
-        T_FLOAT,
-        T_INT,
-        T_MAPPING,
-        T_OBJECT,
-        T_STRING,
-        T_MIXED = 127,
-        T_ARRAY = 1 << 7,
-        T_AUTO = 0,
-        T_STATIC = 1 << 8, // on: blueprint-owned, shared by all clones; off: clone-specific or local variables
-        T_PRIVATE = 0,
-        T_PUBLIC = 1 << 9, // on: visible to `->` operator; off: not visible to `->` operator
-        T_VIRTUAL = 0,
-        T_NOMASK = 1 << 10, // on: cannot be overridden by inheritance; off: can be overridden by inheritance
-    };
+%code provides {
+    // forward declarations for lexer functions (reentrant)
+    #undef YY_DECL
+    #define YY_DECL yy::LpcParser::symbol_type yylex (yyscan_t yyscanner)
+    extern yy::LpcParser::symbol_type yylex (yyscan_t yyscanner);
 
-    enum class LpcAssign: int {
-        ASSIGN = 0,
-        ADD_ASSIGN,
-        SUB_ASSIGN,
-        MUL_ASSIGN,
-        DIV_ASSIGN,
-        MOD_ASSIGN,
-        LSH_ASSIGN,
-        RSH_ASSIGN,
-        AND_ASSIGN,
-        XOR_ASSIGN,
-        OR_ASSIGN,
-    };
+    // forward declarations for lexer helper functions
+    #undef YY_EXTRA_TYPE
+    #define YY_EXTRA_TYPE LpcCompiler::Context*
+    extern YY_EXTRA_TYPE yyget_extra(yyscan_t yyscanner);
 
-    enum class LpcOrder: int {
-        LESS = 0,
-        LESS_EQUAL,
-        GREATER,
-        GREATER_EQUAL,
-    };
+    extern int yyget_lineno (yyscan_t yyscanner);
+    extern int yyget_column (yyscan_t yyscanner);
+}
 
-    /// AST node representing the entire program.
+%code top {
+    /*
+    * SPDX-License-Identifier: MIT
+    * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
+    */
+    #include "ast_builder.hpp"
+    #include "lpc_compiler.hpp"
+    #include <stdexcept>
+    #include <string>
+    #include <memory>
+
     class AstProgramNode: public AstNode {
     public:
-        AstProgramNode(int line): AstNode(line, AstNode::Type::Program) {}
+        AstProgramNode();
         void generate_code(std::vector<uint8_t>& code) override {}
     };
 }
-
-%lex-param { yyscan_t yyscanner }
-%parse-param { yyscan_t yyscanner }
 
 %token L_INHERIT
 %token L_IF L_ELSE
@@ -99,7 +113,7 @@
 %token <int> L_INTEGER
 %token <double> L_REAL_NUMBER
 %token <std::string> L_STRING_LITERAL
-%token <LpcType> L_TYPE L_TYPE_MODIFIER
+%token <yy::LpcType> L_TYPE L_TYPE_MODIFIER
 %token <int> L_ASSIGN L_ORDER
 
 // Operator precedence and associativity
@@ -157,7 +171,7 @@ program
     | program inheritance
         { $$ = $1; }
     | %empty
-        { $$ = std::make_shared<AstProgramNode>(yyget_lineno(yyscanner)); }
+        { $$ = std::make_shared<AstProgramNode>(); }
     ;
 
 extra_semicolon
@@ -410,4 +424,8 @@ arg_list
 void yy::LpcParser::error(const std::string &msg) {
     const auto* context = yyget_extra(yyscanner);
     throw std::runtime_error("Line " + std::to_string(yyget_lineno(yyscanner)) + ": " + msg);
+}
+
+AstProgramNode::AstProgramNode()
+    : AstNode(0, AstNode::Type::Program) {
 }
