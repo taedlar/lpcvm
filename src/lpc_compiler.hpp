@@ -3,11 +3,10 @@
 
 #pragma once
 #include <cstddef>
+#include <memory>
 #include <string>
 
-#undef YY_DECL
-#define YY_DECL yy::LpcParser::symbol_type yylex (yyscan_t yyscanner)
-#define YY_EXTRA_TYPE LpcCompiler::Context*
+class AstNode;
 
 class LpcCompiler {
 public:
@@ -16,16 +15,16 @@ public:
 
     // context data used by the lexer and parser
     struct Context {
-        // One-based source line at the lexer's current position.
-        std::size_t line_number = 1;
+        std::shared_ptr<AstNode> prog;
         std::string current_string;
         std::string raw_string_delimiter;
     };
 
-    void compile(const std::string& source);
-    std::size_t get_line_number() const;
+    void compile (const std::string& source);
+    int current_lineno() const;
+    int current_column() const;
 
 private:
     class Impl;
-    Impl* pimpl;
+    Impl* pimpl_;
 };

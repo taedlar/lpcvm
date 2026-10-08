@@ -21,6 +21,8 @@ add_library(lpcvm
     vm_executor.hpp
     vm_executor.cpp
     vm_opcodes.hpp
+    ast_node.hpp
+    ast_builder.hpp
 )
 
 target_include_directories(lpcvm PUBLIC
