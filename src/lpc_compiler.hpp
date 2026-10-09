@@ -7,6 +7,7 @@
 #include <string>
 
 class AstNode;
+class SymbolTable;
 
 class LpcCompiler {
 public:
@@ -16,6 +17,7 @@ public:
     // context data used by the lexer and parser
     struct Context {
         std::shared_ptr<AstNode> prog;
+        std::shared_ptr<SymbolTable> current_scope;
         std::string current_string;
         std::string raw_string_delimiter;
     };

@@ -11,7 +11,7 @@
 /// the actual opcode.
 #define ALL_OPCODES(X) \
     X(F_RETURN) \
-    X(F_EXTENDED_ARG)
+    X(F_EXTENDED_ARG) \
 
 /// \brief The enum definition for opcodes using the X-macro technique. This enum must be 0-based,
 /// with the first opcode having the value 0.
