@@ -205,7 +205,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 [0-9]+\\.[0-9]+([eE][+-]?[0-9]+)? { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
 [0-9]+[eE][+-]?[0-9]+ { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
 
-[0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stoi(yytext)); }
+[0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stol(yytext)); }
 
 "+"|"-"|"*"|"/"|"%"|"&"|"|"|"^" {
     /* binary operators */

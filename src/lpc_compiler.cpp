@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
+#include "config.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
@@ -20,7 +21,7 @@ public:
         }
     }
 
-    void parse (const std::string& source, std::shared_ptr<SymbolTable> current_scope, ConstPool& const_pool) {
+    void parse (const std::string& source, std::shared_ptr<SymbolTable> current_scope, ConstTable& consts) {
         FILE* file = fmemopen((void*)source.c_str(), source.size(), "r");
         if (!file) {
             throw std::runtime_error("Failed to open memory stream for parsing");
@@ -33,7 +34,7 @@ public:
         }
         context_ = std::make_unique<LpcCompiler::Context>();
         context_->current_scope = current_scope;
-        context_->const_pool = &const_pool;
+        context_->consts = &consts;
         yylex_init_extra (context_.get(), &scanner_);
         yyrestart(file, scanner_);
 
@@ -58,13 +59,14 @@ LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
 LpcCompiler::~LpcCompiler() { delete pimpl_; }
 
 bool LpcCompiler::compile (const std::string& source) {
-    ConstPool const_pool; // not scoped, one pool per-blueprint
+    ConstTable consts; // not scoped, one pool per-blueprint
     std::vector<uint8_t> bytecode;
     try {
-        pimpl_->parse(source, nullptr, const_pool);
-    } catch (const std::exception& e) {
+        pimpl_->parse(source, nullptr, consts);
+    }
+    catch (const std::exception& e) {
         // Handle parsing errors here if needed
-        fprintf(stderr, "Parsing error: %s\n", e.what());
+        SPDLOG_ERROR("parsing error: {}", e.what());
         return false;
     }
     return true;

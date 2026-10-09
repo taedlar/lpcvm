@@ -33,6 +33,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(argparse spdlog)
 
+# generate configuration header and add source directories
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/config.hpp.in
+    ${CMAKE_BINARY_DIR}/config.hpp
+)
+include_directories(${CMAKE_BINARY_DIR})
 add_subdirectory(src)
 
 # unit tests

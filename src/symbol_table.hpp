@@ -12,12 +12,12 @@
 /// @brief Enumerates the basic data types available in the LPC language.
 enum LpcDataType {
     T_VOID = 0, // for function return type
-    T_DOUBLE,
-    T_FLOAT,
     T_INT,
+    T_FLOAT,
+    T_DOUBLE,
+    T_STRING,
     T_MAPPING,
     T_OBJECT,
-    T_STRING,
     T_MIXED
 };
 
@@ -46,7 +46,7 @@ public:
     const std::string& get_name() const { return name_; }
     SymbolSignature get_signature() const { return signature_; }
 
-    using ValueType = std::variant<int, size_t, double, float, std::string>;
+    using ValueType = std::variant<size_t, long, double, float, std::string>;
 
     /// @brief Assigns a value to the symbol. For example: runtime index of variables or methods.
     /// @param value The value to assign to the symbol.
