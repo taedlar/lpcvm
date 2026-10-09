@@ -85,6 +85,7 @@
     * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
     */
     #include "ast_builder.hpp"
+    #include "const_pool.hpp"
     #include "lpc_compiler.hpp"
     #include <stdexcept>
     #include <string>
@@ -112,7 +113,7 @@
 %token <int> L_TYPE
 %token <int> L_ASSIGN L_ORDER
 
-%token <int> L_INTEGER
+%token <long> L_INTEGER
 %token <double> L_REAL_NUMBER
 
 %token <std::string> L_IDENTIFIER
@@ -271,32 +272,18 @@ inheritance
 
 str_const
     : L_STRING_LITERAL
-        {
-            $$ = $1;
-        }
+        { $$ = $1; }
     | '(' str_const ')'
-        {
-            /* handle parentheses around string constants */
-            $$ = $2;
-        }
+        { $$ = $2; }
     | str_const L_STRING_LITERAL
-        {
-            /* append the string literal to the existing string */
-            $$ += $2;
-        }
-    ;
-
-integer
-    : L_INTEGER
-    ;
-
-real_number
-    : L_REAL_NUMBER
+        { $$ += $2; /* string literals concatenation */ }
     ;
 
 str_literal
     : L_STRING_LITERAL
+        { $$ = $1; }
     | str_literal L_STRING_LITERAL
+        { $$ = $1 + $2; /* string literals concatenation */ }
     ;
 
 opt_parameter_list
@@ -375,9 +362,12 @@ expr0
     | '~' expr0
     | '-' expr0 %prec L_NOT
     | expr4
-    | integer
-    | real_number
+    | L_INTEGER
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); }
+    | L_REAL_NUMBER
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); }    
     | str_literal
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); }
     ;
 
 lvalue

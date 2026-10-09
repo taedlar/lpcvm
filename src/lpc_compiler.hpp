@@ -7,7 +7,7 @@
 #include <string>
 
 class AstNode;
-class ConstPool;
+class ConstTable;
 class SymbolTable;
 
 class LpcCompiler {
@@ -19,7 +19,7 @@ public:
     struct Context {
         std::shared_ptr<AstNode> prog;
         std::shared_ptr<SymbolTable> current_scope;
-        ConstPool* const_pool;
+        ConstTable* consts;
 
         int current_lineno;
         int current_column;
