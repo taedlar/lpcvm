@@ -8,7 +8,7 @@
 
 TEST(VMExecutorTest, BasicExecution) {
     std::vector<uint8_t> bytecode = {
-        static_cast<uint8_t>(Opcode::F_RETURN)
+        static_cast<uint8_t>(Opcode::F_RETURN), 0,
     };
     // Example test for basic execution
     BytecodeView bytecode_view(bytecode.data(), bytecode.size());

@@ -4,13 +4,13 @@
 bison_target(LPC_PARSER
     lpc_parser.yy
     ${CMAKE_CURRENT_BINARY_DIR}/lpc_parser.cpp
-    DEFINES_FILE ${CMAKE_BINARY_DIR}/lpc_parser.hpp
+    DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/lpc_parser.hpp
 )
 
 flex_target(LPC_LEXER
     lpc_lexer.l
     ${CMAKE_CURRENT_BINARY_DIR}/lpc_lexer.cpp
-    DEFINES_FILE ${CMAKE_BINARY_DIR}/lpc_lexer.hpp
+    DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/lpc_lexer.hpp
 )
 
 add_library(lpcvm
@@ -23,9 +23,13 @@ add_library(lpcvm
     vm_opcodes.hpp
     ast_node.hpp
     ast_builder.hpp
+    symbol_table.hpp
+    symbol_table.cpp
 )
 
 target_include_directories(lpcvm PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+target_link_libraries(lpcvm PUBLIC spdlog)

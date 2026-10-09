@@ -18,6 +18,7 @@ public:
     enum class Type {
         Unknown,
         Program,
+        Function,
         // Add other AST node types here
     };
 

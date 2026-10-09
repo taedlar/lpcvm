@@ -13,27 +13,9 @@
     * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
     */
     #include <cstdint>
+    #include "symbol_table.hpp"
 
     namespace yy {
-        // bit-OR flags for variable or function return types and modifiers
-        enum class LpcType: uint32_t {
-            T_VOID = 0, // function only
-            T_DOUBLE,
-            T_FLOAT,
-            T_INT,
-            T_MAPPING,
-            T_OBJECT,
-            T_STRING,
-            T_MIXED = 127,
-            T_ARRAY = 1 << 7,
-            T_AUTO = 0,
-            T_STATIC = 1 << 8, // on: blueprint-owned, shared by all clones; off: clone-specific or local variables
-            T_PRIVATE = 0,
-            T_PUBLIC = 1 << 9, // on: visible to `->` operator; off: not visible to `->` operator
-            T_VIRTUAL = 0,
-            T_NOMASK = 1 << 10, // on: cannot be overridden by inheritance; off: can be overridden by inheritance
-        };
-
         enum class LpcAssign: int {
             ASSIGN = 0,
             ADD_ASSIGN,
@@ -108,13 +90,16 @@
 %nonassoc LOWER_THAN_ELSE
 %nonassoc L_ELSE
 
-%token <std::string> L_IDENTIFIER
+%token <int> L_TYPE
+%token <int> L_ASSIGN L_ORDER
 
 %token <int> L_INTEGER
 %token <double> L_REAL_NUMBER
+
+%token <std::string> L_IDENTIFIER
 %token <std::string> L_STRING_LITERAL
-%token <yy::LpcType> L_TYPE L_TYPE_MODIFIER
-%token <int> L_ASSIGN L_ORDER
+
+%token <SymbolSignature> L_TYPE_MODIFIER
 
 // Operator precedence and associativity
 %right L_ASSIGN
@@ -134,11 +119,14 @@
 
 %token L_ELLIPSIS
 
-%type <uint32_t> storage_or_type typed_storage function_head
-%type <uint32_t> type_modifier_list opt_star
+%type <std::shared_ptr<AstNode>> program def
+%type <std::shared_ptr<AstNode>> function_head
+
+%type <SymbolSignature> storage_or_type typed_storage
+%type <SymbolSignature> type_modifier_list opt_star
+
 %type <std::string> str_literal str_const
 
-%type <std::shared_ptr<AstNode>> program def
 %%
 
 /*
@@ -183,7 +171,6 @@ def
     : function_head
         {
             /* function declaration */
-            uint32_t combined_type = $1;
         }
       '(' opt_parameter_list ')'
         {
@@ -192,53 +179,53 @@ def
       block_or_semicolon
         {
             /* handle forward declaration or definition for the function */
+            $$ = $1;
         }
     | storage_or_type var_list ';'
         {
             /* variable declarations */
-            uint32_t combined_type = $1;
         }
     ;
 
 storage_or_type
     : type_modifier_list
-        { $$ = $1 | static_cast<uint32_t>(LpcType::T_MIXED); /* implicit variable type: mixed*/ }
+        { $$ = $1; $$.b.data_type = LpcDataType::T_INT; };
     | typed_storage
         { $$ = $1; }
     ;
 
 typed_storage
     : L_TYPE
-        { $$ = static_cast<uint32_t>($1); }
+        { $$.b.data_type = $1; }
     | type_modifier_list L_TYPE
-        { $$ = $1 | static_cast<uint32_t>($2); }
+        { $$ = $1; $$.b.data_type = $2; }
     ;
 
 type_modifier_list
     : L_TYPE_MODIFIER
-        { $$ = static_cast<uint32_t>($1); }
+        { $$ = $1; }
     | type_modifier_list L_TYPE_MODIFIER
-        {
-            /* combine the type modifiers using bitwise OR */
-            $$ = $1 | static_cast<uint32_t>($2);
-        }
+        { $$.value = $1.value | $2.value; }
     ;
 
 function_head
     : opt_star L_IDENTIFIER
         {
-            /* implicit function return type: void */
-            $$ = static_cast<uint32_t>(LpcType::T_VOID) | $1;
+            $1.b.data_type = LpcDataType::T_INT; // implicit function return type
+            $$ = std::make_shared<AstFunctionNode>(yyget_lineno(yyscanner), $2, $1);
         }
     | storage_or_type opt_star L_IDENTIFIER
-        { $$ = $1 | $2; }
+        {
+            $1.value |= $2.value;
+            $$ = std::make_shared<AstFunctionNode>(yyget_lineno(yyscanner), $3, $1);
+        }
     ;
 
 opt_star
     : %empty
-        { $$ = 0; }
+        { $$.value = 0; }
     | '*'
-        { $$ = static_cast<uint32_t>(LpcType::T_ARRAY); }
+        { $$.b.is_array = 1; }
     ;
 
 var_list
