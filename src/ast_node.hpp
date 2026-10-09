@@ -19,6 +19,7 @@ public:
         Unknown,
         Program,
         Function,
+        VariableDeclaration,
         // Add other AST node types here
     };
 

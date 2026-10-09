@@ -58,6 +58,25 @@
 
     extern int yyget_lineno (yyscan_t yyscanner);
     extern int yyget_column (yyscan_t yyscanner);
+
+    struct ast_builder_context_s {
+        YY_EXTRA_TYPE lpcc;
+    };
+
+    /// @brief Helper function to create a new AST node.
+    /// @tparam T The type of the AST node to create.
+    /// @tparam Args The types of the arguments to forward to the AST node constructor.
+    /// @param yyscanner The reentrant lexer handle.
+    /// @param args The arguments to forward to the AST node constructor.
+    /// @return A shared pointer to the newly created AST node.
+    template<typename T, typename... Args>
+    static std::shared_ptr<T> new_node(yyscan_t yyscanner, Args&&... args) {
+        ast_builder_context_s astctx;
+        astctx.lpcc = yyget_extra(yyscanner);
+        astctx.lpcc->current_lineno = yyget_lineno(yyscanner);
+        astctx.lpcc->current_column = yyget_column(yyscanner);
+        return std::make_shared<T>(astctx, std::forward<Args>(args)...);
+    }
 }
 
 %code top {
@@ -121,9 +140,12 @@
 
 %type <std::shared_ptr<AstNode>> program def
 %type <std::shared_ptr<AstNode>> function_head
+%type <std::shared_ptr<AstNode>> var_list
 
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
+
+%type <std::shared_ptr<SymbolEntry>> new_var
 
 %type <std::string> str_literal str_const
 
@@ -212,12 +234,12 @@ function_head
     : opt_star L_IDENTIFIER
         {
             $1.b.data_type = LpcDataType::T_INT; // implicit function return type
-            $$ = std::make_shared<AstFunctionNode>(yyget_lineno(yyscanner), $2, $1);
+            $$ = new_node<AstFunctionNode>(yyscanner, $2, $1);
         }
     | storage_or_type opt_star L_IDENTIFIER
         {
             $1.value |= $2.value;
-            $$ = std::make_shared<AstFunctionNode>(yyget_lineno(yyscanner), $3, $1);
+            $$ = new_node<AstFunctionNode>(yyscanner, $3, $1);
         }
     ;
 
@@ -230,12 +252,16 @@ opt_star
 
 var_list
     : new_var
+        { $$ = new_node<AstVarDeclNode>(yyscanner, $1->get_name(), $1->get_signature()); }
     | var_list ',' new_var
+        { ($$ = $1)->add_child(new_node<AstVarDeclNode>(yyscanner, $3->get_name(), $3->get_signature())); }
     ;
 
 new_var
     : opt_star L_IDENTIFIER
+        { $$ = std::make_shared<SymbolEntry>($2, $1); }
     | opt_star L_IDENTIFIER L_ASSIGN expr0
+        { $$ = std::make_shared<SymbolEntry>($2, $1); }
     ;
 
 inheritance
@@ -409,7 +435,7 @@ arg_list
 
 // User subroutines section
 void yy::LpcParser::error(const std::string &msg) {
-    const auto* context = yyget_extra(yyscanner);
+    // YY_EXTRA_TYPE lpcc = yyget_extra(yyscanner);
     throw std::runtime_error("Line " + std::to_string(yyget_lineno(yyscanner)) + ": " + msg);
 }
 

@@ -25,6 +25,9 @@ add_library(lpcvm
     ast_builder.hpp
     symbol_table.hpp
     symbol_table.cpp
+    const_pool.hpp
+    const_pool.cpp
+    ast_builder.cpp
 )
 
 target_include_directories(lpcvm PUBLIC

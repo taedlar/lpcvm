@@ -7,6 +7,7 @@
 #include <string>
 
 class AstNode;
+class ConstPool;
 class SymbolTable;
 
 class LpcCompiler {
@@ -18,11 +19,15 @@ public:
     struct Context {
         std::shared_ptr<AstNode> prog;
         std::shared_ptr<SymbolTable> current_scope;
+        ConstPool* const_pool;
+
+        int current_lineno;
+        int current_column;
         std::string current_string;
         std::string raw_string_delimiter;
     };
 
-    void compile (const std::string& source);
+    bool compile (const std::string& source);
     int current_lineno() const;
     int current_column() const;
 

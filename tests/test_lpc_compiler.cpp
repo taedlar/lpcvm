@@ -21,7 +21,7 @@ TEST(LpcCompilerTest, NonemptyDeclarationPrefixes) {
     }) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
-        EXPECT_NO_THROW(compiler.compile(source));
+        EXPECT_TRUE(compiler.compile(source));
     }
 }
 
@@ -37,7 +37,7 @@ TEST(LpcCompilerTest, RejectMissingOrRepeatedDeclarationTypes) {
     }) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
-        EXPECT_THROW(compiler.compile(source), std::runtime_error);
+        EXPECT_FALSE(compiler.compile(source));
     }
 }
 
@@ -45,12 +45,8 @@ TEST(LpcCompilerTest, ErrorsIncludeCurrentSourceLine) {
     LpcCompiler compiler;
     const auto expect_error_line = [&compiler](const char* source, std::size_t line) {
         SCOPED_TRACE(source);
-        try {
-            compiler.compile(source);
-            FAIL() << "Expected a compilation error";
-        } catch (const std::runtime_error& error) {
-            EXPECT_EQ (compiler.current_lineno(), line);
-        }
+        EXPECT_FALSE(compiler.compile(source));
+        EXPECT_EQ (compiler.current_lineno(), line);
     };
 
     expect_error_line ("/* comment\nmore */\nint string x;", 3);
