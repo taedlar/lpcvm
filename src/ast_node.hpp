@@ -20,6 +20,14 @@ public:
         Program,
         Function,
         VariableDeclaration,
+        Assign,
+        UnaryOp,
+        BinaryOp,
+        TernaryOp,
+        Expression,
+        Constant,
+        Variable,
+        FunctionCall,
         // Add other AST node types here
     };
 

@@ -16,7 +16,7 @@ public:
     ConstPool() = default;
     ~ConstPool() {};
 
-    using ValueType = std::variant<long, float, double, std::string>;
+    using ValueType = std::variant<int64_t, uint64_t, float, double, std::string>;
     using IndexType = uint32_t; // runtime index (this is the max width, extended from 8-bit via F_EXTENDED_ARG in bytecode)
 
     const ValueType& operator[](IndexType index) const {
