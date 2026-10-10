@@ -31,7 +31,9 @@
         };
 
         enum class LpcOrder: int {
-            LESS = 0,
+            EQUAL = 0,
+            NOT_EQUAL,
+            LESS,
             LESS_EQUAL,
             GREATER,
             GREATER_EQUAL,
@@ -129,7 +131,6 @@
 %left '|'
 %left '^'
 %left '&'
-%left L_EQ L_NE
 %left L_ORDER '<'
 %left L_LSH L_RSH
 %left '+' '-'
@@ -141,7 +142,11 @@
 
 %type <std::shared_ptr<AstNode>> program def
 %type <std::shared_ptr<AstNode>> function_head
+%type <std::shared_ptr<AstNode>> local_decl
 %type <std::shared_ptr<AstNode>> var_list
+%type <std::shared_ptr<AstNode>> comma_expr lvalue expr0 expr4
+%type <std::shared_ptr<AstNode>> function_call
+%type <std::vector<std::shared_ptr<AstNode>>> arg_list
 
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
@@ -212,7 +217,7 @@ def
 
 storage_or_type
     : type_modifier_list
-        { $$ = $1; $$.b.data_type = LpcDataType::T_INT; };
+        { ($$ = $1).b.data_type = LpcDataType::T_INT; };
     | typed_storage
         { $$ = $1; }
     ;
@@ -332,57 +337,83 @@ stmt
 
 comma_expr
     : expr0
+        { $$ = $1; }
     | comma_expr ',' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     ;
 
 expr0
     : lvalue L_ASSIGN expr0
+        { $$ = new_node<AstAssignNode>(yyscanner, $1, $3); }
     | expr0 '?' expr0 ':' expr0 %prec '?'
+        { $$ = new_node<AstTernaryOpNode>(yyscanner, $1, $3, $5); }
     | expr0 L_LOR expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 L_LAND expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '|' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '^' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '&' expr0
-    | expr0 L_EQ expr0
-    | expr0 L_NE expr0
-    | expr0 L_ORDER expr0
-    | expr0 '<' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 L_LSH expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 L_RSH expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '+' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '-' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '*' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '/' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | expr0 '%' expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
+    | expr0 L_ORDER expr0
+        { $$ = new_node<AstBinaryOpNode>(yyscanner, $1, $3); }
     | L_INC lvalue %prec L_NOT
+        { $$ = new_node<AstAssignNode>(yyscanner, nullptr, $2); }
     | L_DEC lvalue %prec L_NOT
+        { $$ = new_node<AstAssignNode>(yyscanner, nullptr, $2); }
     | lvalue L_INC
+        { $$ = new_node<AstAssignNode>(yyscanner, $1, nullptr); }
     | lvalue L_DEC
+        { $$ = new_node<AstAssignNode>(yyscanner, $1, nullptr); }
     | L_NOT expr0
+        { $$ = new_node<AstUnaryOpNode>(yyscanner, $2); }
     | '~' expr0
+        { $$ = new_node<AstUnaryOpNode>(yyscanner, $2); }
     | '-' expr0 %prec L_NOT
+        { $$ = new_node<AstUnaryOpNode>(yyscanner, $2); }
     | expr4
     | L_INTEGER
-        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); }
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); $$ = new_node<AstConstantNode>(yyscanner, idx); }
     | L_REAL_NUMBER
-        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); }    
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); $$ = new_node<AstConstantNode>(yyscanner, idx); }    
     | str_literal
-        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); }
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($1); $$ = new_node<AstConstantNode>(yyscanner, idx); }
     ;
 
 lvalue
     : expr4
+        { $$ = $1; }
     ;
 
 expr4
     : '(' comma_expr ')'
+        { $$ = $2; }
     | L_IDENTIFIER
+        { $$ = new_node<AstVariableNode>(yyscanner, $1); }
     | function_call
+        { $$ = $1; }    
     | expr4 '[' comma_expr ']'
     ;
 
 local_decl
     : storage_or_type var_list ';'
+        { $$ = $2; }
     ;
 
 if_stmt
@@ -408,17 +439,22 @@ return_stmt
     ;
 
 function_call
-    : L_IDENTIFIER '(' opt_arg_list ')'
-    ;
-
-opt_arg_list
-    : %empty
-    | arg_list
+    : L_IDENTIFIER '(' arg_list ')'
+        {
+            $$ = new_node<AstFunctionCallNode>(yyscanner, $1);
+            for (auto& arg : $3) {
+                $$->add_child(arg);
+            }
+        }
     ;
 
 arg_list
-    : expr0
+    : %empty
+        { $$ = std::vector<std::shared_ptr<AstNode>>(); }
+    | expr0
+        { $$ = std::vector<std::shared_ptr<AstNode>>({$1}); }
     | arg_list ',' expr0
+        { ($$ = $1).push_back($3); }
     ;
 
 %%
