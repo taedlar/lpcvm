@@ -18,8 +18,8 @@ public:
     enum class Type {
         Unknown,
         Program,
-        Function,
-        VariableDeclaration,
+        FunctionDecl,
+        NewLocal,
         Assign,
         UnaryOp,
         BinaryOp,
@@ -31,7 +31,7 @@ public:
         // Add other AST node types here
     };
 
-    AstNode(int line, Type type) : line_number_(line), type_(type) {}
+    AstNode(Type type) : type_(type) {}
     virtual ~AstNode() = default;
 
     inline AstNode& add_child(std::shared_ptr<AstNode> child) {
@@ -41,12 +41,10 @@ public:
     }
 
     Type get_type() const { return type_; }
-    int get_line_number() const { return line_number_; }
 
     virtual void generate_code(std::vector<uint8_t>& bytecode) = 0;
 
 private:
-    int line_number_ = 0;
     Type type_ = Type::Unknown;
 
 protected:

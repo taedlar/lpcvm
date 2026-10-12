@@ -5,51 +5,51 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 
-AstFunctionNode::AstFunctionNode(AstBuilderContext& astctx, std::string name, SymbolSignature signature)
-    : AstNode(astctx.lpcc->current_lineno, Type::Function), name_(std::move(name)), signature_(signature) {
+AstFunctionNode::AstFunctionNode(yy::ast_context& astctx, std::string name, SymbolSignature signature)
+    : AstNode(Type::FunctionDecl), name_(std::move(name)), signature_(signature) {
 
 }
 
-AstVarDeclNode::AstVarDeclNode(AstBuilderContext& astctx, std::string name, SymbolSignature signature)
-    : AstNode(astctx.lpcc->current_lineno, Type::VariableDeclaration), name_(std::move(name)), signature_(signature) {
+AstVarDeclNode::AstVarDeclNode(yy::ast_context& astctx, std::string name, SymbolSignature signature)
+    : AstNode(Type::NewLocal), name_(std::move(name)), signature_(signature) {
 
 }
 
-AstAssignNode::AstAssignNode(AstBuilderContext& astctx, std::shared_ptr<AstNode> lhs, std::shared_ptr<AstNode> rhs)
-    : AstNode(astctx.lpcc->current_lineno, Type::Assign) {
+AstAssignNode::AstAssignNode(yy::ast_context& astctx, std::shared_ptr<AstNode> lhs, std::shared_ptr<AstNode> rhs)
+    : AstNode(Type::Assign) {
     add_child(lhs);
     add_child(rhs);
 }
 
-AstUnaryOpNode::AstUnaryOpNode(AstBuilderContext& astctx, std::shared_ptr<AstNode> operand)
-    : AstNode(astctx.lpcc->current_lineno, Type::UnaryOp) {
+AstUnaryOpNode::AstUnaryOpNode(yy::ast_context& astctx, std::shared_ptr<AstNode> operand)
+    : AstNode(Type::UnaryOp) {
     add_child(operand);
 }
 
-AstBinaryOpNode::AstBinaryOpNode(AstBuilderContext& astctx, std::shared_ptr<AstNode> lhs, std::shared_ptr<AstNode> rhs)
-    : AstNode(astctx.lpcc->current_lineno, Type::BinaryOp) {
+AstBinaryOpNode::AstBinaryOpNode(yy::ast_context& astctx, std::shared_ptr<AstNode> lhs, std::shared_ptr<AstNode> rhs)
+    : AstNode(Type::BinaryOp) {
     add_child(lhs);
     add_child(rhs);
 }
 
-AstTernaryOpNode::AstTernaryOpNode(AstBuilderContext& astctx, std::shared_ptr<AstNode> condition, std::shared_ptr<AstNode> true_expr, std::shared_ptr<AstNode> false_expr)
-    : AstNode(astctx.lpcc->current_lineno, Type::TernaryOp) {
+AstTernaryOpNode::AstTernaryOpNode(yy::ast_context& astctx, std::shared_ptr<AstNode> condition, std::shared_ptr<AstNode> true_expr, std::shared_ptr<AstNode> false_expr)
+    : AstNode(Type::TernaryOp) {
     add_child(condition);
     add_child(true_expr);
     add_child(false_expr);
 }
 
-AstConstantNode::AstConstantNode(AstBuilderContext& astctx, ConstPool::IndexType index)
-    : AstNode(astctx.lpcc->current_lineno, Type::Constant), index_(index) {
+AstConstantNode::AstConstantNode(yy::ast_context& astctx, ConstPool::IndexType index)
+    : AstNode(Type::Constant), index_(index) {
 
 }
 
-AstVariableNode::AstVariableNode(AstBuilderContext& astctx, std::string name)
-    : AstNode(astctx.lpcc->current_lineno, Type::Variable), name_(std::move(name)) {
+AstVariableNode::AstVariableNode(yy::ast_context& astctx, std::string name)
+    : AstNode(Type::Variable), name_(std::move(name)) {
 
 }
 
-AstFunctionCallNode::AstFunctionCallNode(AstBuilderContext& astctx, std::string name)
-    : AstNode(astctx.lpcc->current_lineno, Type::FunctionCall), name_(std::move(name)) {
+AstFunctionCallNode::AstFunctionCallNode(yy::ast_context& astctx, std::string name)
+    : AstNode(Type::FunctionCall), name_(std::move(name)) {
 
 }

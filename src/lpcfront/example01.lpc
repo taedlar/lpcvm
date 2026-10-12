@@ -1,0 +1,7 @@
+// Example LPC source file for testing the parser
+
+inherit "/std/object";
+
+void create() {
+    write ("Hello, world!\n");
+}

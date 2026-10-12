@@ -36,3 +36,5 @@ target_include_directories(lpcvm PUBLIC
 )
 
 target_link_libraries(lpcvm PUBLIC spdlog)
+
+add_subdirectory(lpcfront)

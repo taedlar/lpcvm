@@ -21,7 +21,7 @@ public:
         }
     }
 
-    void parse (const std::string& source, std::shared_ptr<SymbolTable> current_scope, ConstTable& consts) {
+    void parse (const std::string& source, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope = nullptr) {
         FILE* file = fmemopen((void*)source.c_str(), source.size(), "r");
         if (!file) {
             throw std::runtime_error("Failed to open memory stream for parsing");
@@ -59,14 +59,19 @@ LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
 LpcCompiler::~LpcCompiler() { delete pimpl_; }
 
 bool LpcCompiler::compile (const std::string& source) {
-    ConstTable consts; // not scoped, one pool per-blueprint
-    std::vector<uint8_t> bytecode;
+    ConstTable consts;
     try {
-        pimpl_->parse(source, nullptr, consts);
+        pimpl_->parse(source, consts);
+        SPDLOG_INFO("parsing succeeded");
+    }
+    catch (const yy::parse_error& e) {
+        // Handle parsing errors
+        SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
+        return false;
     }
     catch (const std::exception& e) {
-        // Handle parsing errors here if needed
-        SPDLOG_ERROR("parsing error: {}", e.what());
+        // Handle other exceptions
+        SPDLOG_ERROR("failed: {}", e.what());
         return false;
     }
     return true;
