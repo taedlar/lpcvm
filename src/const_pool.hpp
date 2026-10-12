@@ -16,7 +16,10 @@ public:
     ConstPool() = default;
     ~ConstPool() {};
 
-    using ValueType = std::variant<int64_t, uint64_t, float, double, std::string>;
+    /**
+     * @brief The type of values stored in the constant pool.
+     */
+    using ValueType = std::variant<int64_t, uint64_t, float, double, std::string_view>;
     using IndexType = uint32_t; // runtime index (this is the max width, extended from 8-bit via F_EXTENDED_ARG in bytecode)
 
     const ValueType& operator[](IndexType index) const {
@@ -24,7 +27,9 @@ public:
     }
 
 protected:
+    using NonPtrValueType = std::variant<int64_t, uint64_t, float, double>;
     std::vector<ValueType> pool_; // runtime random access at O(1)
+    std::vector<char> string_data_; // storage for string literals (std::string_view in pool_)
 };
 
 /**

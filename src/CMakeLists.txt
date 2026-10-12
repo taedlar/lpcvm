@@ -28,6 +28,7 @@ add_library(lpcvm
     const_pool.hpp
     const_pool.cpp
     ast_builder.cpp
+    vm_runtime_class.hpp
 )
 
 target_include_directories(lpcvm PUBLIC
