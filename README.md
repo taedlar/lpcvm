@@ -42,13 +42,16 @@ The sandboxed virtual machine (object loader and sandbox runner) is provided as 
 - Variables
 
 ## LPC Language
-> [NOTE!]
+> [!NOTE]
 > LPC language was designed decades ago and lacks a published standard.
 > The LPMud implementation also suffer from out-dated architecture and non-reentrant program structures.
 
 LPCVM starts from a minimal set of [LPC grammar](src/lpc_parser.yy) with basic programmings and leave fancy features for efuns.
 The goal is to proivde an east-to-use LPC language that LPMud wizards are already familiar with.
 Some enhancements and simplifications are added to the LPC language with the help of modern Bison/Flex/C++ capabilities.
+
+### LPC frontend CLI
+- A command-line tool for LPC parsing frontend.
 
 ### C++ Lexer and Parser
 - Reentrant lexer and parser with `yyscan_t`.
