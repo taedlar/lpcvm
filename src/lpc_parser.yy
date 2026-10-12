@@ -7,13 +7,24 @@
 %lex-param { yyscan_t yyscanner }
 %parse-param { yyscan_t yyscanner }
 
+%code top {
+    #include "config.hpp"
+}
+
 %code requires {
     /*
     * SPDX-License-Identifier: MIT
     * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
     */
     #include <cstdint>
+    #include <stdexcept>
+    #include <string>
+    #include <memory>
+
     #include "symbol_table.hpp"
+    #include "ast_builder.hpp"
+    #include "const_pool.hpp"
+    #include "lpc_compiler.hpp"
 
     namespace yy {
         enum class LpcAssign: int {
@@ -61,37 +72,38 @@
     extern int yyget_lineno (yyscan_t yyscanner);
     extern int yyget_column (yyscan_t yyscanner);
 
-    struct ast_builder_context_s {
-        YY_EXTRA_TYPE lpcc;
-    };
+    namespace yy {
+        // Context information for AST node creation.
+        struct ast_context {
+            YY_EXTRA_TYPE lpcc;
+            int current_lineno;
+            int current_column;
+        };
 
-    /// @brief Helper function to create a new AST node.
-    /// @tparam T The type of the AST node to create.
-    /// @tparam Args The types of the arguments to forward to the AST node constructor.
-    /// @param yyscanner The reentrant lexer handle.
-    /// @param args The arguments to forward to the AST node constructor.
-    /// @return A shared pointer to the newly created AST node.
-    template<typename T, typename... Args>
-    static std::shared_ptr<T> new_node(yyscan_t yyscanner, Args&&... args) {
-        ast_builder_context_s astctx;
-        astctx.lpcc = yyget_extra(yyscanner);
-        astctx.lpcc->current_lineno = yyget_lineno(yyscanner);
-        astctx.lpcc->current_column = yyget_column(yyscanner);
-        return std::make_shared<T>(astctx, std::forward<Args>(args)...);
+        /// @brief Helper function to create a new AST node.
+        /// @tparam T The type of the AST node to create.
+        /// @tparam Args The types of the arguments to forward to the AST node constructor.
+        /// @param yyscanner The reentrant lexer handle.
+        /// @param args The arguments to forward to the AST node constructor.
+        /// @return A shared pointer to the newly created AST node.
+        template<typename T, typename... Args>
+        static std::shared_ptr<T> new_node(yyscan_t yyscanner, Args&&... args) {
+            ast_context astctx;
+            astctx.lpcc = yyget_extra(yyscanner);
+            astctx.current_lineno = yyget_lineno(yyscanner);
+            astctx.current_column = yyget_column(yyscanner);
+            return std::make_shared<T>(astctx, std::forward<Args>(args)...);
+        }
+
+        // Exception type for parse errors.
+        struct parse_error: std::runtime_error {
+            parse_error(const std::string& message, int lineno, int column, YY_EXTRA_TYPE lpcc = nullptr)
+                : std::runtime_error(message), lineno(lineno), column(column), lpcc(lpcc) {}
+            int lineno;
+            int column;
+            YY_EXTRA_TYPE lpcc;
+        };
     }
-}
-
-%code top {
-    /*
-    * SPDX-License-Identifier: MIT
-    * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
-    */
-    #include "ast_builder.hpp"
-    #include "const_pool.hpp"
-    #include "lpc_compiler.hpp"
-    #include <stdexcept>
-    #include <string>
-    #include <memory>
 
     class AstProgramNode: public AstNode {
     public:
@@ -461,10 +473,9 @@ arg_list
 
 // User subroutines section
 void yy::LpcParser::error(const std::string &msg) {
-    // YY_EXTRA_TYPE lpcc = yyget_extra(yyscanner);
-    throw std::runtime_error("Line " + std::to_string(yyget_lineno(yyscanner)) + ": " + msg);
+    throw parse_error(msg, yyget_lineno(yyscanner), yyget_column(yyscanner), yyget_extra(yyscanner));
 }
 
 AstProgramNode::AstProgramNode()
-    : AstNode(0, AstNode::Type::Program) {
+    : AstNode(AstNode::Type::Program) {
 }
