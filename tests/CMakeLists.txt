@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 add_executable(test_lpcvm
+    test_const_pool.cpp
     test_lpc_compiler.cpp
     test_lpc_lexer.cpp
     test_vm_executor.cpp

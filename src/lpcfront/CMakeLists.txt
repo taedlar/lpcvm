@@ -3,4 +3,4 @@
 
 add_executable(lpcfront main.cpp)
 
-target_link_libraries(lpcfront PRIVATE argparse lpcvm)
+target_link_libraries(lpcfront PRIVATE spdlog argparse lpcvm)

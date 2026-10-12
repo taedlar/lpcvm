@@ -284,7 +284,9 @@ new_var
 
 inheritance
     : L_INHERIT str_const ';'
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($2); }
     | type_modifier_list L_INHERIT str_const ';'
+        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($3); }
     ;
 
 str_const
