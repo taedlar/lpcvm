@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include "config.hpp"
 #include <argparse/argparse.hpp>
+#include <fstream>
+#include <sstream>
 #include "lpc_compiler.hpp"
 
 int main(int argc, char* argv[]) {
@@ -19,6 +21,19 @@ int main(int argc, char* argv[]) {
     }
     
     const std::string source_file = program.get<std::string>("source");
+    std::ifstream input(source_file, std::ios::binary);
+    if (!input) {
+        std::cerr << "Failed to open source file: " << source_file << std::endl;
+        return 1;
+    }
+
+    std::ostringstream source;
+    source << input.rdbuf();
+    if (input.bad() || source.bad()) {
+        std::cerr << "Failed to read source file: " << source_file << std::endl;
+        return 1;
+    }
+
     LpcCompiler compiler;
-    compiler.compile(source_file);
+    return compiler.compile(source.str()) ? 0 : 1;
 }
