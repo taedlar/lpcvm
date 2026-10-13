@@ -109,6 +109,12 @@ void BytecodeView::execute() {
         VM_DISPATCH();
     }
 
+    VM_HANDLER(F_PUSH_LOCALS) {
+        uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to push onto the VM stack
+        // TODO: push num_locals onto the VM stack
+        VM_DISPATCH();
+    }
+
     VM_LOOP_END()
 
 invalid_opcode:

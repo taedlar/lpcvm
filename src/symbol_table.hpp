@@ -89,7 +89,13 @@ public:
      * \return A pointer to the corresponding SymbolEntry if found, or nullptr if not found.
      */
     SymbolEntry* lookup (const std::string& mangled_name) const;
-    void insert (const std::string& mangled_name, const std::shared_ptr<SymbolEntry>& entry);
+
+    /**
+     * \brief Inserts a new symbol entry into the current scope of the symbol table.
+     * \param mangled_name The mangled name of the symbol to insert.
+     * \param entry A shared pointer to the SymbolEntry to be inserted.
+     */
+    void emplace (const std::string& mangled_name, const std::shared_ptr<SymbolEntry>& entry);
 
 private:
     std::shared_ptr<SymbolTable> enclosing_scope_;

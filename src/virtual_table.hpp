@@ -25,6 +25,7 @@ public:
         int32_t base_index;
         int32_t bytecode_offset;
         uint32_t bytecode_length;
+        // we don't need to store number of local variables, as it is created via opcode F_PUSH_LOCALS at runtime.
     };
 
     /**
@@ -48,8 +49,17 @@ public:
      */
     bool lookup (const std::string_view name, Binding& out_binding) const;
 
+private:
+    friend class SymbolTable;
+
+    /**
+     * \brief Adds a new method binding to the virtual table.
+     *
+     * \param name The name of the method to add. The name must be interned
+     * (i.e., stored in a constant pool that outlives the virtual table).
+     * \param binding The binding information for the method.
+     */
     void emplace (const std::string_view name, const Binding& binding);
 
-private:
     std::vector<std::pair<std::string_view, Binding>> bindings_; // sorted by method name
 };

@@ -14,6 +14,6 @@ SymbolEntry* SymbolTable::lookup(const std::string& key) const {
     return nullptr;
 }
 
-void SymbolTable::insert(const std::string& key, const std::shared_ptr<SymbolEntry>& entry) {
+void SymbolTable::emplace(const std::string& key, const std::shared_ptr<SymbolEntry>& entry) {
     symbols_[key] = entry;
 }

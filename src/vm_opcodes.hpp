@@ -18,7 +18,8 @@
     X(F_CONST_U8) \
     X(F_CONST_F4) \
     X(F_CONST_F8) \
-    X(F_CONST_STR)
+    X(F_CONST_STR) \
+    X(F_PUSH_LOCALS)
 
 /// \brief The enum definition for opcodes using the X-macro technique. This enum must be 0-based,
 /// with the first opcode having the value 0.

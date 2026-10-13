@@ -152,7 +152,7 @@
 
 %token L_ELLIPSIS
 
-%type <std::shared_ptr<AstNode>> program def
+%type <std::shared_ptr<AstNode>> program def inheritance
 %type <std::shared_ptr<AstNode>> function_head
 %type <std::shared_ptr<AstNode>> local_decl
 %type <std::shared_ptr<AstNode>> var_list
