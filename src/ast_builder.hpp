@@ -6,9 +6,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "ast_node.hpp"
 #include "const_pool.hpp"
 #include "symbol_table.hpp"
-#include "ast_node.hpp"
+#include "vm_runtime_class.hpp"
 
 /// @brief Context information passed to AST builder nodes.
 /// @details This structure contains information such as the current line number,
@@ -31,6 +32,14 @@ public:
 private:
     std::string name_;
     SymbolSignature signature_;
+    RuntimeClass::MemberIndexType num_locals_;
+};
+
+/// @brief AST node representing a block of statements.
+class AstBlockNode : public AstNode {
+public:
+    AstBlockNode(yy::ast_context& astctx);
+    void generate_code(std::vector<uint8_t>& code) override {}
 };
 
 /// @brief AST node representing a variable declaration.

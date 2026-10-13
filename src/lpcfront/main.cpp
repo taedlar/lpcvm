@@ -4,7 +4,12 @@
 #include <argparse/argparse.hpp>
 #include <fstream>
 #include <sstream>
+#include "ast_node.hpp"
+#include "const_pool.hpp"
 #include "lpc_compiler.hpp"
+#include "symbol_table.hpp"
+#include "vm_runtime_class.hpp"
+#include "virtual_table.hpp"
 
 static void log_vm_info();
 
@@ -51,5 +56,14 @@ int main(int argc, char* argv[]) {
 }
 
 static void log_vm_info() {
+    SPDLOG_INFO("sizeof RuntimeClass {}", sizeof(RuntimeClass));
+    SPDLOG_INFO("sizeof ConstPool {}", sizeof(ConstPool));
+    SPDLOG_INFO("sizeof VirtualTable {}", sizeof(VirtualTable));
+    SPDLOG_INFO("sizeof AstNode {}", sizeof(AstNode));
+    SPDLOG_INFO("sizeof ConstTable {}", sizeof(ConstTable));
+    SPDLOG_INFO("sizeof SymbolTable {}", sizeof(SymbolTable));
+    SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));
+    SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<RuntimeClass>));
+    SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<RuntimeClass>));
     SPDLOG_INFO("sizeof std::string_view {}", sizeof(std::string_view));
 }

@@ -67,6 +67,18 @@ void BytecodeView::execute() {
         VM_DISPATCH_EXTENDED();
     }
 
+    VM_HANDLER(F_PUSH_N) {
+        uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to push onto the VM stack
+        // TODO: push num_locals onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_POP_N) {
+        uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to pop from the VM stack
+        // TODO: pop num_locals from the VM stack
+        VM_DISPATCH();
+    }
+
     VM_HANDLER(F_CONST_I4) {
         uint32_t index = (extended_arg << 8) | *pc++;
         uint32_t value = const_pool_->fetch<int32_t>(index); // TODO: push an int32_t value onto the VM stack
@@ -106,12 +118,6 @@ void BytecodeView::execute() {
     VM_HANDLER(F_CONST_STR) {
         uint32_t index = (extended_arg << 8) | *pc++;
         auto value = const_pool_->fetch_string(index); // TODO: push a string value onto the VM stack
-        VM_DISPATCH();
-    }
-
-    VM_HANDLER(F_PUSH_LOCALS) {
-        uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to push onto the VM stack
-        // TODO: push num_locals onto the VM stack
         VM_DISPATCH();
     }
 

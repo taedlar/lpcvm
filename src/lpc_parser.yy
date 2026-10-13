@@ -154,11 +154,12 @@
 
 %type <std::shared_ptr<AstNode>> program def inheritance
 %type <std::shared_ptr<AstNode>> function_head
+%type <std::shared_ptr<AstNode>> stmt_list
 %type <std::shared_ptr<AstNode>> local_decl
 %type <std::shared_ptr<AstNode>> var_list
+%type <std::shared_ptr<AstNode>> block_or_semicolon block
 %type <std::shared_ptr<AstNode>> comma_expr lvalue expr0 expr4
 %type <std::shared_ptr<AstNode>> function_call
-%type <std::vector<std::shared_ptr<AstNode>>> arg_list
 
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
@@ -220,6 +221,8 @@ def
         {
             /* handle forward declaration or definition for the function */
             $$ = $1;
+            if ($block_or_semicolon)
+                $$->add_child($block_or_semicolon);
         }
     | storage_or_type var_list ';'
         {
@@ -253,11 +256,13 @@ function_head
         {
             $1.b.data_type = LpcDataType::T_INT; // implicit function return type
             $$ = new_node<AstFunctionNode>(yyscanner, $2, $1);
+            SPDLOG_DEBUG("Creating function node: {}", $2);
         }
     | storage_or_type opt_star L_IDENTIFIER
         {
             $1.value |= $2.value;
             $$ = new_node<AstFunctionNode>(yyscanner, $3, $1);
+            SPDLOG_DEBUG("Creating function node: {}", $3);
         }
     ;
 
@@ -324,16 +329,21 @@ parameter_decl
 
 block_or_semicolon
     : block
+        { $$ = $1; }
     | ';'
+        { $$ = nullptr; }
     ;
 
 block
     : '{' stmt_list '}'
+        { $$ = $2; }
     ;
 
 stmt_list
     : %empty
+        { $$ = new_node<AstBlockNode>(yyscanner); }
     | stmt_list stmt
+        { $$ = $1; /* TODO: add $2 as a child to the block node */ }
     ;
 
 stmt
@@ -456,19 +466,16 @@ function_call
     : L_IDENTIFIER '(' arg_list ')'
         {
             $$ = new_node<AstFunctionCallNode>(yyscanner, $1);
-            for (auto& arg : $3) {
-                $$->add_child(arg);
-            }
+            // for (auto& arg : $3) {
+            //     $$->add_child(arg);
+            // }
         }
     ;
 
 arg_list
     : %empty
-        { $$ = std::vector<std::shared_ptr<AstNode>>(); }
     | expr0
-        { $$ = std::vector<std::shared_ptr<AstNode>>({$1}); }
     | arg_list ',' expr0
-        { ($$ = $1).push_back($3); }
     ;
 
 %%

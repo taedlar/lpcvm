@@ -6,8 +6,12 @@
 #include "lpc_parser.hpp"
 
 AstFunctionNode::AstFunctionNode(yy::ast_context& astctx, std::string name, SymbolSignature signature)
-    : AstNode(Type::FunctionDecl), name_(std::move(name)), signature_(signature) {
+    : AstNode(Type::FunctionDecl), name_(std::move(name)), signature_(signature), num_locals_(0) {
 
+}
+
+AstBlockNode::AstBlockNode(yy::ast_context& astctx)
+    : AstNode(Type::Block) {
 }
 
 AstVarDeclNode::AstVarDeclNode(yy::ast_context& astctx, std::string name, SymbolSignature signature)

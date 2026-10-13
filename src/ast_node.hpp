@@ -19,6 +19,7 @@ public:
         Unknown,
         Program,
         FunctionDecl,
+        Block,
         NewLocal,
         Assign,
         UnaryOp,
