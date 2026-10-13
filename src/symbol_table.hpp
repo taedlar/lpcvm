@@ -73,6 +73,10 @@ private:
  * entries and allows efficient lookup and insertion of symbols.
  *
  * Supports nested scopes through the enclosing_scope_ pointer.
+ * The symbol table contains all compile-time symbols including constants and private members.
+ *
+ * For runtime symbol bindings, see VirtualTable which allows index-based access (for static
+ * bindings) and name-based dynamic dispatch (for virtual methods, aka. call_other).
  */
 class SymbolTable {
 public:
