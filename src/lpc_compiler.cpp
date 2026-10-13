@@ -6,6 +6,7 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 #include "lpc_lexer.hpp"
+#include "vm_runtime_class.hpp"
 #include <stdio.h>
 #include <stdexcept>
 

@@ -14,12 +14,12 @@ TEST(ConstTableTest, NumericRoundTrip) {
     auto f = t.find_or_add(1.5f);
     auto d = t.find_or_add(3.14159);
 
-    EXPECT_EQ(t.as<int32_t>(i32), -42);
-    EXPECT_EQ(t.as<uint32_t>(u32), 42u);
-    EXPECT_EQ(t.as<int64_t>(i64), -1234567890123LL);
-    EXPECT_EQ(t.as<uint64_t>(u64), 0xFFFFFFFFFFFFFFFFULL);
-    EXPECT_FLOAT_EQ(t.as<float>(f), 1.5f);
-    EXPECT_DOUBLE_EQ(t.as<double>(d), 3.14159);
+    EXPECT_EQ(t.fetch<int32_t>(i32), -42);
+    EXPECT_EQ(t.fetch<uint32_t>(u32), 42u);
+    EXPECT_EQ(t.fetch<int64_t>(i64), -1234567890123LL);
+    EXPECT_EQ(t.fetch<uint64_t>(u64), 0xFFFFFFFFFFFFFFFFULL);
+    EXPECT_FLOAT_EQ(t.fetch<float>(f), 1.5f);
+    EXPECT_DOUBLE_EQ(t.fetch<double>(d), 3.14159);
 }
 
 TEST(ConstTableTest, SlotLayout) {
@@ -42,8 +42,8 @@ TEST(ConstTableTest, SameBitsDifferentTypeAreDistinct) {
     auto a = t.find_or_add(int32_t{5});
     auto b = t.find_or_add(uint32_t{5});
     EXPECT_NE(a, b);
-    EXPECT_EQ(t.as<int32_t>(a), 5);
-    EXPECT_EQ(t.as<uint32_t>(b), 5u);
+    EXPECT_EQ(t.fetch<int32_t>(a), 5);
+    EXPECT_EQ(t.fetch<uint32_t>(b), 5u);
 }
 
 TEST(ConstTableTest, StringRoundTripAndDedup) {
@@ -52,14 +52,14 @@ TEST(ConstTableTest, StringRoundTripAndDedup) {
     auto b = t.find_or_add(std::string_view("world"));
     EXPECT_NE(a, b);
     EXPECT_EQ(t.find_or_add(std::string_view("hello")), a);
-    EXPECT_EQ(t.as_string(a), "hello");
-    EXPECT_EQ(t.as_string(b), "world");
+    EXPECT_EQ(t.fetch_string(a), "hello");
+    EXPECT_EQ(t.fetch_string(b), "world");
 }
 
 TEST(ConstTableTest, EmptyString) {
     ConstTable t;
     auto a = t.find_or_add(std::string_view(""));
-    EXPECT_EQ(t.as_string(a), "");
+    EXPECT_EQ(t.fetch_string(a), "");
     EXPECT_EQ(t.find_or_add(std::string_view("")), a);
 }
 
@@ -69,7 +69,7 @@ TEST(ConstTableTest, StringsSurviveGrowth) {
     for (int i = 0; i < 1000; ++i)
         idx.push_back(t.find_or_add(std::string_view(std::to_string(i))));
     for (int i = 0; i < 1000; ++i) {
-        EXPECT_EQ(t.as_string(idx[i]), std::to_string(i));
+        EXPECT_EQ(t.fetch_string(idx[i]), std::to_string(i));
         EXPECT_EQ(t.find_or_add(std::string_view(std::to_string(i))), idx[i]);
     }
 }
@@ -78,8 +78,8 @@ TEST(ConstTableTest, StringAndNumberCoexist) {
     ConstTable t;
     auto s = t.find_or_add(std::string_view("abc"));
     auto n = t.find_or_add(int64_t{99});
-    EXPECT_EQ(t.as_string(s), "abc");
-    EXPECT_EQ(t.as<int64_t>(n), 99);
+    EXPECT_EQ(t.fetch_string(s), "abc");
+    EXPECT_EQ(t.fetch<int64_t>(n), 99);
 }
 
 TEST(ConstPoolTest, ReadableThroughConstBasePointer) {
@@ -87,6 +87,6 @@ TEST(ConstPoolTest, ReadableThroughConstBasePointer) {
     auto n = t.find_or_add(2.5);
     auto s = t.find_or_add(std::string_view("x"));
     const ConstPool& pool = t;
-    EXPECT_DOUBLE_EQ(pool.as<double>(n), 2.5);
-    EXPECT_EQ(pool.as_string(s), "x");
+    EXPECT_DOUBLE_EQ(pool.fetch<double>(n), 2.5);
+    EXPECT_EQ(pool.fetch_string(s), "x");
 }

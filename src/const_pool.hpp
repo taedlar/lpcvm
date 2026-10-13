@@ -12,10 +12,18 @@
 #include <vector>
 
 /** 
- * @brief A flattened array of constant values, used by the VM runtime to retrieve constants.
+ * @brief A flattened array of constant values, used by the VM runtime to
+ * retrieve constants.
  *
- * Numeric values occupy sizeof(T)/sizeof(SlotType) consecutive slots. Strings occupy two
- * slots {offset, length} referring to string_data_, so the pool stays relocatable.
+ * The minimum allocation unit is SlotType. The pool stores all constants
+ * in terms of these slots, ensuring alignment and relocatability.
+ *
+ * Numeric values occupy sizeof(T)/sizeof(SlotType) consecutive slots.
+ * Strings occupy two slots {offset, length} referring to string_data_, so
+ * the pool stays relocatable.
+ *
+ * Type of value is not stored explicitly; it is encoded with opcodes that
+ * loads the constant from the pool.
  */
 class ConstPool {
 public:
@@ -27,7 +35,7 @@ public:
 
     /** @brief Read a numeric constant at slot @p index (alignment-safe). */
     template<typename T>
-    T as(IndexType index) const {
+    T fetch(IndexType index) const {
         static_assert(std::is_arithmetic_v<T>, "use as_string() for strings");
         static_assert(sizeof(T) % sizeof(SlotType) == 0);
         T value;
@@ -36,7 +44,7 @@ public:
     }
 
     /** @brief Read a string constant at slot @p index; the view is valid for the pool's lifetime. */
-    std::string_view as_string(IndexType index) const {
+    std::string_view fetch_string(IndexType index) const {
         return std::string_view(string_data_.data() + pool_[index], pool_[index + 1]);
     }
 
