@@ -5,50 +5,97 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <variant>
 #include <vector>
+#include "const_pool.hpp"
+#include "symbol_table.hpp"
 
-/**
- * \brief Abstract base class for all AST nodes.
- *
- * An AST (Abstract Syntax Tree) node represents a single element in the hierarchical structure
- * of source code.
- */
-class AstNode {
-public:
-    enum class Type {
-        Unknown,
-        Program,
-        FunctionDef,
-        ParameterList,
-        Block,
-        NewLocal,
-        Assign,
-        UnaryOp,
-        BinaryOp,
-        TernaryOp,
-        Expression,
-        Constant,
-        Variable,
-        FunctionCall,
-        // Add other AST node types here
+struct ASTNode;
+
+namespace AST {
+    struct Program {
+        std::vector<ASTNode> defs;
     };
+    struct FunctionDef {
+        std::shared_ptr<SymbolTable::Entry> entry;
+        std::unique_ptr<ASTNode> body;
+    };
+    struct ParameterList {
+        std::vector<ASTNode> parameters;
+    };
+    struct Block {
+        std::vector<ASTNode> statements;
+    };
+    struct VariableDecl {
+        std::shared_ptr<SymbolTable::Entry> entry;
+        std::unique_ptr<ASTNode> init;
+    };
+    struct VariableDeclList {
+        std::vector<ASTNode> declarations;
+    };
+    struct Assign {
+        std::unique_ptr<ASTNode> lhs;
+        std::unique_ptr<ASTNode> rhs;
+    };
+    struct UnaryOp {
+        std::unique_ptr<ASTNode> operand;
+    };
+    struct BinaryOp {
+        std::unique_ptr<ASTNode> lhs;
+        std::unique_ptr<ASTNode> rhs;
+    };
+    struct TernaryOp {
+        std::unique_ptr<ASTNode> condition;
+        std::unique_ptr<ASTNode> true_expr;
+        std::unique_ptr<ASTNode> false_expr;
+    };
+    struct FunctionCall {
+        std::vector<ASTNode> arguments;
+    };
+    struct Constant {
+        ConstTable::NumericType value;
+    };
+    struct StringLiteral {
+        std::vector<char> literal;
+        StringLiteral(const std::string& str)
+            : literal(str.begin(), str.end()) {}
+    };
+    struct Variable {
+        std::shared_ptr<SymbolTable::Entry> entry;
+    };
+}
 
-    AstNode(Type type) : type_(type) {}
-    virtual ~AstNode() = default;
+struct ASTNode {
+    using Storage = std::variant<
+        std::monostate,
+        AST::Program,
+        AST::VariableDecl,
+        AST::VariableDeclList,
+        AST::FunctionDef,
+        AST::ParameterList,
+        AST::Block,
+        AST::Assign,
+        AST::UnaryOp,
+        AST::BinaryOp,
+        AST::TernaryOp,
+        AST::FunctionCall,
+        AST::Constant,
+        AST::StringLiteral,
+        AST::Variable
+    >;
 
-    inline AstNode& add_child(std::shared_ptr<AstNode> child) {
-        if (child)
-            children_.push_back(std::move(child));
-        return *this;
-    }
+    ASTNode() = default;
+    ASTNode(const ASTNode&) = delete;
+    ASTNode& operator=(const ASTNode&) = delete;
+    ASTNode(ASTNode&&) = default;
+    ASTNode& operator=(ASTNode&&) = default;
 
-    Type get_type() const { return type_; }
+    template<typename T>
+    ASTNode(T&& value) : node(std::forward<T>(value)) {}
 
-    virtual void generate_code(std::vector<uint8_t>& bytecode) = 0;
-
-private:
-    Type type_ = Type::Unknown;
-
-protected:
-    std::vector<std::shared_ptr<AstNode>> children_;
+    Storage node;
 };
+
+// some utility for std::visit with multiple lambdas
+template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
+template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;

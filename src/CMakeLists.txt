@@ -22,12 +22,10 @@ add_library(lpcvm
     vm_executor.cpp
     vm_opcodes.hpp
     ast_node.hpp
-    ast_builder.hpp
     symbol_table.hpp
     symbol_table.cpp
     const_pool.hpp
     const_pool.cpp
-    ast_builder.cpp
     vm_runtime_class.hpp
     vm_runtime_class.cpp
     virtual_table.hpp

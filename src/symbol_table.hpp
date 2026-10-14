@@ -56,6 +56,7 @@ public:
         std::optional<ConstTable::ValueType> value; // compile-time constant value if the symbol is constant
         entry_s(std::string name, SymbolSignature signature)
             : name(std::move(name)), signature(signature) {}
+        entry_s() = default;
     };
     using Entry = entry_s;
 
@@ -67,7 +68,7 @@ public:
      * \param mangled_name The mangled name of the symbol to look up.
      * \return A pointer to the corresponding entry if found, or nullptr if not found.
      */
-    Entry* lookup (std::string_view mangled_name) const;
+    std::shared_ptr<Entry> lookup (std::string_view mangled_name) const;
 
     /**
      * \brief Inserts a new symbol entry into the current scope of the symbol table.

@@ -3,7 +3,13 @@
 
 #include <gtest/gtest.h>
 #include <stdexcept>
+#include <type_traits>
 #include "lpc_compiler.hpp"
+
+static_assert(!std::is_copy_constructible_v<ASTNode>);
+static_assert(!std::is_copy_assignable_v<ASTNode>);
+static_assert(std::is_move_constructible_v<ASTNode>);
+static_assert(std::is_move_assignable_v<ASTNode>);
 
 TEST(LpcCompilerTest, NonemptyDeclarationPrefixes) {
     for (const char* source : {
