@@ -9,6 +9,7 @@
 class AstNode;
 class ConstTable;
 class SymbolTable;
+class RuntimeClass;
 
 class LpcCompiler {
 public:
@@ -21,8 +22,6 @@ public:
         std::shared_ptr<SymbolTable> current_scope;
         ConstTable* consts;
 
-        int current_lineno;
-        int current_column;
         std::string current_string;
         std::string raw_string_delimiter;
     };
@@ -34,4 +33,7 @@ public:
 private:
     class Impl;
     Impl* pimpl_;
+
+    // The compiled output of the LPC source code (blueprint), represented as a RuntimeClass instance.
+    std::shared_ptr<RuntimeClass> output_;
 };

@@ -28,6 +28,10 @@ add_library(lpcvm
     const_pool.hpp
     const_pool.cpp
     ast_builder.cpp
+    vm_runtime_class.hpp
+    vm_runtime_class.cpp
+    virtual_table.hpp
+    virtual_table.cpp
 )
 
 target_include_directories(lpcvm PUBLIC

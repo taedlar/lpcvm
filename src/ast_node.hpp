@@ -18,7 +18,9 @@ public:
     enum class Type {
         Unknown,
         Program,
-        FunctionDecl,
+        FunctionDef,
+        ParameterList,
+        Block,
         NewLocal,
         Assign,
         UnaryOp,

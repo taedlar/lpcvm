@@ -6,9 +6,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "ast_node.hpp"
 #include "const_pool.hpp"
 #include "symbol_table.hpp"
-#include "ast_node.hpp"
+#include "vm_runtime_class.hpp"
 
 /// @brief Context information passed to AST builder nodes.
 /// @details This structure contains information such as the current line number,
@@ -22,15 +23,25 @@ namespace yy {
 // =======================================================================
 // AST builder node classes for the LPCVM compiler.
 
-/// @brief AST node representing a function declaration or definition.
-class AstFunctionNode : public AstNode {
+/// @brief AST node representing a function definition.
+class AstFunctionDefNode : public AstNode {
 public:
-    AstFunctionNode (yy::ast_context& astctx, std::string name, SymbolSignature signature);
+    AstFunctionDefNode (yy::ast_context& astctx, std::string name, SymbolSignature signature);
     void generate_code(std::vector<uint8_t>& code) override {}
+
+    const std::string& get_name() const { return name_; }
+    const SymbolSignature& get_signature() const { return signature_; }
 
 private:
     std::string name_;
     SymbolSignature signature_;
+};
+
+/// @brief AST node representing a block of statements.
+class AstBlockNode : public AstNode {
+public:
+    AstBlockNode(yy::ast_context& astctx);
+    void generate_code(std::vector<uint8_t>& code) override {}
 };
 
 /// @brief AST node representing a variable declaration.

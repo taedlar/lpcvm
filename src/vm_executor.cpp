@@ -32,13 +32,13 @@ void BytecodeView::execute() {
     #define VM_HANDLER(op) do_##op:
     #define VM_DISPATCH() \
         extended_arg = 0; \
-        if (pc < end) goto *dispatch_table[*pc++]; else goto end_of_bytecode;
+        if (pc < end_) goto *dispatch_table[*pc++]; else goto end_of_bytecode;
     #define VM_DISPATCH_EXTENDED() \
-        if (pc < end) goto *dispatch_table[*pc++]; else goto end_of_bytecode;
+        if (pc < end_) goto *dispatch_table[*pc++]; else goto end_of_bytecode;
 #else
     // Computed goto is not supported, using switch-case instead
     #define VM_LOOP_START() \
-        while (pc < end) { \
+        while (pc < end_) { \
             switch (*pc++) {
     #define VM_LOOP_END() \
             default: \
@@ -53,18 +53,72 @@ void BytecodeView::execute() {
         break
 #endif
 
-    const uint8_t *pc = bytecode_, *end = bytecode_ + size_;
+    const uint8_t *pc = start_;
     uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
     VM_LOOP_START()
 
     VM_HANDLER(F_RETURN) {
-        uint32_t result = extended_arg | *pc++;
+        uint32_t num_ret = (extended_arg << 8) | *pc++; // number of return values on the stack
         return;
     }
 
     VM_HANDLER(F_EXTENDED_ARG) {
-        extended_arg = (extended_arg << 8) | *pc++;
+        extended_arg = (extended_arg << 8) | *pc++; // extended argument for the next opcode (CPython style)
         VM_DISPATCH_EXTENDED();
+    }
+
+    VM_HANDLER(F_PUSH_N) {
+        uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to push onto the VM stack
+        // TODO: push num_locals onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_POP_N) {
+        uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to pop from the VM stack
+        // TODO: pop num_locals from the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_I4) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        uint32_t value = const_pool_->fetch<int32_t>(index); // TODO: push an int32_t value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_I8) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        uint64_t value = const_pool_->fetch<int64_t>(index); // TODO: push an int64_t value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_U4) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        uint32_t value = const_pool_->fetch<uint32_t>(index); // TODO: push an uint32_t value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_U8) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        uint64_t value = const_pool_->fetch<uint64_t>(index); // TODO: push an uint64_t value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_F4) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        float value = const_pool_->fetch<float>(index); // TODO: push a float value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_F8) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        double value = const_pool_->fetch<double>(index); // TODO: push a double value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CONST_STR) {
+        uint32_t index = (extended_arg << 8) | *pc++;
+        auto value = const_pool_->fetch_string(index); // TODO: push a string value onto the VM stack
+        VM_DISPATCH();
     }
 
     VM_LOOP_END()

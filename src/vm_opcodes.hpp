@@ -12,6 +12,15 @@
 #define ALL_OPCODES(X) \
     X(F_RETURN) \
     X(F_EXTENDED_ARG) \
+    X(F_PUSH_N) \
+    X(F_POP_N) \
+    X(F_CONST_I4) \
+    X(F_CONST_I8) \
+    X(F_CONST_U4) \
+    X(F_CONST_U8) \
+    X(F_CONST_F4) \
+    X(F_CONST_F8) \
+    X(F_CONST_STR) \
 
 /// \brief The enum definition for opcodes using the X-macro technique. This enum must be 0-based,
 /// with the first opcode having the value 0.
