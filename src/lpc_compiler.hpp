@@ -5,8 +5,8 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include "ast_node.hpp"
 
-class AstNode;
 class ConstTable;
 class SymbolTable;
 class RuntimeClass;
@@ -18,7 +18,7 @@ public:
 
     // context data used by the lexer and parser
     struct Context {
-        std::shared_ptr<AstNode> prog;
+        AST::Program prog;
         std::shared_ptr<SymbolTable> current_scope;
         ConstTable* consts;
 

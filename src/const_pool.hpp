@@ -67,6 +67,7 @@ public:
     ~ConstTable() = default;
 
     using ValueType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double, std::string_view>;
+    using NumericType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double>;
 
     /** @brief Return the slot index of @p value, adding it if not present
      * 
@@ -88,7 +89,6 @@ public:
     }
 
 private:
-    using NumericType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double>;
 
     struct NumericHash {
         std::size_t operator()(const NumericType& value) const {
