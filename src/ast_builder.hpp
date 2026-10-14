@@ -23,16 +23,18 @@ namespace yy {
 // =======================================================================
 // AST builder node classes for the LPCVM compiler.
 
-/// @brief AST node representing a function declaration or definition.
-class AstFunctionNode : public AstNode {
+/// @brief AST node representing a function definition.
+class AstFunctionDefNode : public AstNode {
 public:
-    AstFunctionNode (yy::ast_context& astctx, std::string name, SymbolSignature signature);
+    AstFunctionDefNode (yy::ast_context& astctx, std::string name, SymbolSignature signature);
     void generate_code(std::vector<uint8_t>& code) override {}
+
+    const std::string& get_name() const { return name_; }
+    const SymbolSignature& get_signature() const { return signature_; }
 
 private:
     std::string name_;
     SymbolSignature signature_;
-    RuntimeClass::MemberIndexType num_locals_;
 };
 
 /// @brief AST node representing a block of statements.

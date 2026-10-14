@@ -3,8 +3,8 @@
 
 #include "symbol_table.hpp"
 
-SymbolEntry* SymbolTable::lookup(const std::string& key) const {
-    auto it = symbols_.find(key);
+SymbolTable::Entry* SymbolTable::lookup(std::string_view key) const {
+    auto it = symbols_.find(std::string(key));
     if (it != symbols_.end()) {
         return it->second.get();
     }
@@ -14,6 +14,6 @@ SymbolEntry* SymbolTable::lookup(const std::string& key) const {
     return nullptr;
 }
 
-void SymbolTable::emplace(const std::string& key, const std::shared_ptr<SymbolEntry>& entry) {
-    symbols_[key] = entry;
+void SymbolTable::emplace(std::string_view key, const std::shared_ptr<SymbolTable::Entry>& entry) {
+    symbols_[std::string(key)] = entry;
 }

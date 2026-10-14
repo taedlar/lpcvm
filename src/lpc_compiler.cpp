@@ -22,7 +22,7 @@ public:
         }
     }
 
-    void parse (const std::string& source, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope = nullptr) {
+    void parse (const std::string& source, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope) {
         FILE* file = fmemopen((void*)source.c_str(), source.size(), "r");
         if (!file) {
             throw std::runtime_error("Failed to open memory stream for parsing");
@@ -60,10 +60,11 @@ LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
 LpcCompiler::~LpcCompiler() { delete pimpl_; }
 
 bool LpcCompiler::compile (const std::string& source) {
-    ConstTable consts;
+    ConstTable consts; // global constant pool
+    std::shared_ptr<SymbolTable> global_scope = std::make_shared<SymbolTable>(nullptr); // scoped
     try {
-        pimpl_->parse(source, consts);
-        SPDLOG_INFO("parsing succeeded");
+        pimpl_->parse(source, consts, global_scope);
+        SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts.size(), global_scope->size());
     }
     catch (const yy::parse_error& e) {
         // Handle parsing errors

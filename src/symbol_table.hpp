@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <variant>
+#include "const_pool.hpp"
 
 /// @brief Enumerates the basic data types available in the LPC language.
 enum LpcDataType {
@@ -36,37 +37,6 @@ typedef union symbol_signature_u {
 } SymbolSignature;
 
 /**
- * \brief Represents an entry in the symbol table, encapsulating the symbol's name and signature.
- */
-class SymbolEntry {
-public:
-    SymbolEntry (std::string name, SymbolSignature signature)
-        : name_ (std::move(name)), signature_ (signature) {}
-
-    const std::string& get_name() const { return name_; }
-    SymbolSignature get_signature() const { return signature_; }
-
-    using ValueType = std::variant<size_t, long, double, float, std::string>;
-
-    /// @brief Assigns a value to the symbol. For example: runtime index of variables or methods.
-    /// @param value The value to assign to the symbol.
-    void assign_value (ValueType value) {
-        value_ = std::move(value);
-    }
-
-    /// @brief Assigns a declared constant value to the symbol and marks it as constant.
-    void assign_constant (ValueType value) {
-        value_ = std::move(value);
-        signature_.b.is_const = 1;
-    }
-
-private:
-    std::string name_;
-    SymbolSignature signature_;
-    std::optional<ValueType> value_; // compile-time constant value if the symbol is constant
-};
-
-/**
  * \brief Represents a symbol table for managing variable and function symbols within a scope.
  *
  * The symbol table maintains a mapping from mangled symbol name to their corresponding
@@ -78,26 +48,42 @@ private:
  * For runtime symbol bindings, see VirtualTable which allows index-based access (for static
  * bindings) and name-based dynamic dispatch (for virtual methods, aka. call_other).
  */
-class SymbolTable {
+class SymbolTable: public std::enable_shared_from_this<SymbolTable> {
 public:
+    struct entry_s {
+        std::string name;
+        SymbolSignature signature;
+        std::optional<ConstTable::ValueType> value; // compile-time constant value if the symbol is constant
+        entry_s(std::string name, SymbolSignature signature)
+            : name(std::move(name)), signature(signature) {}
+    };
+    using Entry = entry_s;
+
     SymbolTable (std::shared_ptr<SymbolTable> enclosing_scope)
         : enclosing_scope_ (std::move(enclosing_scope)) {}
 
     /**
      * \brief Looks up a symbol entry by its key in the current scope and enclosing scopes.
      * \param mangled_name The mangled name of the symbol to look up.
-     * \return A pointer to the corresponding SymbolEntry if found, or nullptr if not found.
+     * \return A pointer to the corresponding entry if found, or nullptr if not found.
      */
-    SymbolEntry* lookup (const std::string& mangled_name) const;
+    Entry* lookup (std::string_view mangled_name) const;
 
     /**
      * \brief Inserts a new symbol entry into the current scope of the symbol table.
      * \param mangled_name The mangled name of the symbol to insert.
-     * \param entry A shared pointer to the SymbolEntry to be inserted.
+     * \param entry A shared pointer to the Entry to be inserted.
      */
-    void emplace (const std::string& mangled_name, const std::shared_ptr<SymbolEntry>& entry);
+    void emplace (std::string_view mangled_name, const std::shared_ptr<Entry>& entry);
+
+    std::size_t size() const { return symbols_.size(); }
+    std::shared_ptr<SymbolTable> get_enclosing_scope() const { return enclosing_scope_; }
+    std::shared_ptr<SymbolTable> new_subscope () {
+        auto subscope = std::make_shared<SymbolTable>(shared_from_this());
+        return subscope;
+    }
 
 private:
     std::shared_ptr<SymbolTable> enclosing_scope_;
-    std::unordered_map<std::string, std::shared_ptr<SymbolEntry>> symbols_;
+    std::unordered_map<std::string, std::shared_ptr<Entry>> symbols_;
 };

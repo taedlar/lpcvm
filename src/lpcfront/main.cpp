@@ -59,9 +59,13 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof RuntimeClass {}", sizeof(RuntimeClass));
     SPDLOG_INFO("sizeof ConstPool {}", sizeof(ConstPool));
     SPDLOG_INFO("sizeof VirtualTable {}", sizeof(VirtualTable));
+    SPDLOG_INFO("=======================================================");
     SPDLOG_INFO("sizeof AstNode {}", sizeof(AstNode));
     SPDLOG_INFO("sizeof ConstTable {}", sizeof(ConstTable));
+    SPDLOG_INFO("sizeof ConstTable::ValueType {}", sizeof(ConstTable::ValueType));
     SPDLOG_INFO("sizeof SymbolTable {}", sizeof(SymbolTable));
+    SPDLOG_INFO("sizeof SymbolTable::Entry {}", sizeof(SymbolTable::Entry));
+    SPDLOG_INFO("=======================================================");
     SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));
     SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<RuntimeClass>));
     SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<RuntimeClass>));

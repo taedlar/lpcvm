@@ -5,8 +5,8 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 
-AstFunctionNode::AstFunctionNode(yy::ast_context& astctx, std::string name, SymbolSignature signature)
-    : AstNode(Type::FunctionDecl), name_(std::move(name)), signature_(signature), num_locals_(0) {
+AstFunctionDefNode::AstFunctionDefNode(yy::ast_context& astctx, std::string name, SymbolSignature signature)
+    : AstNode(Type::FunctionDef), name_(std::move(name)), signature_(signature) {
 
 }
 

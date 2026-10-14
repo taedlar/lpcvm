@@ -99,11 +99,13 @@
         struct parse_error: std::runtime_error {
             parse_error(const std::string& message, int lineno, int column, YY_EXTRA_TYPE lpcc = nullptr)
                 : std::runtime_error(message), lineno(lineno), column(column), lpcc(lpcc) {}
+            parse_error(const std::string& message, yyscan_t yyscanner)
+                : parse_error(message, yyget_lineno(yyscanner), yyget_column(yyscanner), yyget_extra(yyscanner)) {}
             int lineno;
             int column;
             YY_EXTRA_TYPE lpcc;
         };
-    }
+    } // namespace yy
 
     class AstProgramNode: public AstNode {
     public:
@@ -153,7 +155,6 @@
 %token L_ELLIPSIS
 
 %type <std::shared_ptr<AstNode>> program def inheritance
-%type <std::shared_ptr<AstNode>> function_head
 %type <std::shared_ptr<AstNode>> stmt_list
 %type <std::shared_ptr<AstNode>> local_decl
 %type <std::shared_ptr<AstNode>> var_list
@@ -164,7 +165,7 @@
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
 
-%type <std::shared_ptr<SymbolEntry>> new_var
+%type <std::shared_ptr<SymbolTable::Entry>> function_head new_var
 
 %type <std::string> str_literal str_const
 
@@ -195,12 +196,12 @@ all:
     ;
 
 program
-    : program def extra_semicolon
-        { ($$ = $1)->add_child($def); }
-    | program inheritance
-        { $$ = $1; }
-    | %empty
+    : %empty
         { $$ = std::make_shared<AstProgramNode>(); }
+    | program inheritance
+        { $$ = $1; /*($$ = $1)->inherit_from(RuntimeClass::get_class($2));*/ }
+    | program def extra_semicolon
+        { ($$ = $1)->add_child($2); }
     ;
 
 extra_semicolon
@@ -209,20 +210,32 @@ extra_semicolon
     ;
 
 def
-    : function_head
+    : function_head '('
         {
-            /* function declaration */
+            auto lpcc = yyget_extra(yyscanner);
+            if (auto se = lpcc->current_scope->lookup($1->name); se && se->signature.b.is_const) {
+                throw parse_error("Function already defined: " + $1->name, yyscanner);
+            }
+            lpcc->current_scope->emplace($1->name, $1); // add the function to the current scope
+            lpcc->current_scope = lpcc->current_scope->new_subscope();
         }
-      '(' opt_parameter_list ')'
+      opt_parameter_list[params] ')'
         {
-            /* handle function parameters */
+            // TODO: add formal parameters to the symbol table before processing local declarations in the function body
         }
-      block_or_semicolon
+      block_or_semicolon[body]
         {
-            /* handle forward declaration or definition for the function */
-            $$ = $1;
-            if ($block_or_semicolon)
-                $$->add_child($block_or_semicolon);
+            auto lpcc = yyget_extra(yyscanner);
+            if ($body) {
+                $1->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
+                $$ = new_node<AstFunctionDefNode>(yyscanner, $1->name, $1->signature);
+                SPDLOG_DEBUG("Added definition of function: {}", $1->name);
+            }
+            else {
+                // no function body => a forward declaration (allows calling a function before its definition)
+                SPDLOG_DEBUG("Forward declaration of function: {}", $1->name);
+            }
+            lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
         }
     | storage_or_type var_list ';'
         {
@@ -254,15 +267,14 @@ type_modifier_list
 function_head
     : opt_star L_IDENTIFIER
         {
-            $1.b.data_type = LpcDataType::T_INT; // implicit function return type
-            $$ = new_node<AstFunctionNode>(yyscanner, $2, $1);
-            SPDLOG_DEBUG("Creating function node: {}", $2);
+            SymbolSignature sig{0};
+            sig.b.data_type = LpcDataType::T_INT; // implicit function return type
+            $$ = std::make_shared<SymbolTable::Entry>($2, sig);
         }
     | storage_or_type opt_star L_IDENTIFIER
         {
             $1.value |= $2.value;
-            $$ = new_node<AstFunctionNode>(yyscanner, $3, $1);
-            SPDLOG_DEBUG("Creating function node: {}", $3);
+            $$ = std::make_shared<SymbolTable::Entry>($3, $1);
         }
     ;
 
@@ -275,16 +287,16 @@ opt_star
 
 var_list
     : new_var
-        { $$ = new_node<AstVarDeclNode>(yyscanner, $1->get_name(), $1->get_signature()); }
+        { $$ = new_node<AstVarDeclNode>(yyscanner, $1->name, $1->signature); }
     | var_list ',' new_var
-        { ($$ = $1)->add_child(new_node<AstVarDeclNode>(yyscanner, $3->get_name(), $3->get_signature())); }
+        { ($$ = $1)->add_child(new_node<AstVarDeclNode>(yyscanner, $3->name, $3->signature)); }
     ;
 
 new_var
     : opt_star L_IDENTIFIER
-        { $$ = std::make_shared<SymbolEntry>($2, $1); }
+        { $$ = std::make_shared<SymbolTable::Entry>($2, $1); }
     | opt_star L_IDENTIFIER L_ASSIGN expr0
-        { $$ = std::make_shared<SymbolEntry>($2, $1); }
+        { $$ = std::make_shared<SymbolTable::Entry>($2, $1); }
     ;
 
 inheritance
@@ -318,7 +330,7 @@ opt_parameter_list
 parameter_list
     : parameter_decl
     | parameter_list ',' parameter_decl
-    | parameter_list L_ELLIPSIS
+    | parameter_list ',' L_ELLIPSIS
     ;
 
 parameter_decl
@@ -328,10 +340,10 @@ parameter_decl
     ;
 
 block_or_semicolon
-    : block
-        { $$ = $1; }
-    | ';'
+    : ';'
         { $$ = nullptr; }
+    | block
+        { $$ = $1; }
     ;
 
 block

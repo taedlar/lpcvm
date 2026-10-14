@@ -36,10 +36,6 @@ public:
      */
     using Binding = binding_s;
 
-    const std::vector<std::pair<std::string_view, Binding>>& bindings() const {
-        return bindings_;
-    }
-
     /**
      * \brief Looks up a method binding by its name (binary search).
      *
@@ -61,5 +57,9 @@ private:
      */
     void emplace (const std::string_view name, const Binding& binding);
 
-    std::vector<std::pair<std::string_view, Binding>> bindings_; // sorted by method name
+    /**
+     * \brief The list of method bindings in the virtual table, sorted by
+     * method name.
+     */
+    std::vector<std::pair<std::string_view, Binding>> bindings_;
 };

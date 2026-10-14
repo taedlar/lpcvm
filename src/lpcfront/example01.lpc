@@ -2,6 +2,13 @@
 
 inherit "/std/object";
 
+void get_name();
+
 void create() {
     write ("Hello, world!\n");
+    get_name();
+}
+
+void get_name() {
+    
 }

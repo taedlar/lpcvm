@@ -48,7 +48,9 @@ public:
         return std::string_view(string_data_.data() + pool_[index], pool_[index + 1]);
     }
 
-    size_t slot_count() const { return pool_.size(); }
+    size_t slot_count() const {
+        return pool_.size();
+    }
 
 protected:
     std::vector<SlotType> pool_; // runtime random access at O(1)
@@ -81,6 +83,10 @@ public:
      */
     IndexType find_or_add(const ValueType& value);
 
+    std::size_t size() const {
+        return numeric_to_index_.size() + string_to_index_.size();
+    }
+
 private:
     using NumericType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double>;
 
@@ -92,7 +98,17 @@ private:
         }
     };
 
-    // Deduplicated mapping from numeric and string constants to their slot indices.
+    /**
+     * @brief Mapping from numeric constants to their slot indices.
+     */
     std::unordered_map<NumericType, IndexType, NumericHash> numeric_to_index_;
+
+    /**
+     * @brief Mapping from string constants to their slot indices.
+     * @note The string is stored in the string_data_ member, and the pool_
+     * contains the offset and length. Using map-owned std::string is required
+     * because the ConstTable allows addition of new strings, which may reallocate
+     * the string_data_ buffer, invalidating any existing string_view references.
+     */
     std::unordered_map<std::string, IndexType> string_to_index_;
 };
