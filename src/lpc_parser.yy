@@ -160,7 +160,7 @@
 
 %type <SymbolTable::Entry> function_head
 
-%type <std::string> str_literal str_const
+%type <std::string> str_literal
 
 %%
 
@@ -324,26 +324,23 @@ new_var
     ;
 
 inheritance
-    : L_INHERIT str_const ';'
-        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($2); }
-    | type_modifier_list L_INHERIT str_const ';'
-        { auto idx = yyget_extra(yyscanner)->consts->find_or_add($3); }
-    ;
-
-str_const
-    : L_STRING_LITERAL
-        { $$ = $1; }
-    | '(' str_const ')'
-        { $$ = $2; }
-    | str_const L_STRING_LITERAL
-        { $$ += $2; /* string literals concatenation */ }
+    : L_INHERIT str_literal ';'
+        {
+            auto idx = yyget_extra(yyscanner)->consts->find_or_add($2);
+            $$ = ASTNode{ AST::Inheritance{ idx, nullptr } };
+        }
+    | type_modifier_list L_INHERIT str_literal ';'
+        {
+            auto idx = yyget_extra(yyscanner)->consts->find_or_add($3);
+            $$ = ASTNode{ AST::Inheritance{ idx, nullptr } };
+        }
     ;
 
 str_literal
     : L_STRING_LITERAL
         { $$ = $1; }
     | str_literal L_STRING_LITERAL
-        { $$ = $1 + $2; /* string literals concatenation */ }
+        { $$ = $1 + $2; /* compile-time string concatenation */ }
     ;
 
 opt_parameter_list
@@ -454,7 +451,7 @@ expr0
     | L_REAL_NUMBER
         { $$ = ASTNode{ AST::Constant{ $1 } }; }    
     | str_literal
-        { $$ = ASTNode{ AST::StringLiteral{$1} }; }
+        { $$ = ASTNode{ AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts} }; }
     ;
 
 lvalue

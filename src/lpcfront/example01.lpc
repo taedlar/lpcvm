@@ -5,10 +5,10 @@ inherit "/std/object";
 void get_name();
 
 void create() {
-    write ("Hello, world!\n");
+    write ("Hello,\tworld!");
     get_name();
 }
 
-void get_name() {
-    
+string get_name() {
+    return "Example Name";
 }

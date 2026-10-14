@@ -10,11 +10,17 @@
 #include "const_pool.hpp"
 #include "symbol_table.hpp"
 
+class RuntimeClass;
+
 struct ASTNode;
 
 namespace AST {
     struct Program {
         std::vector<ASTNode> defs;
+    };
+    struct Inheritance {
+        ConstPool::IndexType idx_name;
+        std::shared_ptr<RuntimeClass> runtime_class;
     };
     struct FunctionDef {
         std::shared_ptr<SymbolTable::Entry> entry;
@@ -56,9 +62,9 @@ namespace AST {
         ConstTable::NumericType value;
     };
     struct StringLiteral {
-        std::vector<char> literal;
-        StringLiteral(const std::string& str)
-            : literal(str.begin(), str.end()) {}
+        ConstPool::IndexType idx;
+        StringLiteral(const std::string& str, ConstTable& const_table)
+            : idx(const_table.find_or_add(str)) {}
     };
     struct Variable {
         std::shared_ptr<SymbolTable::Entry> entry;
@@ -69,6 +75,7 @@ struct ASTNode {
     using Storage = std::variant<
         std::monostate,
         AST::Program,
+        AST::Inheritance,
         AST::VariableDecl,
         AST::VariableDeclList,
         AST::FunctionDef,
