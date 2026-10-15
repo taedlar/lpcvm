@@ -14,23 +14,41 @@ class RuntimeClass;
 
 struct ASTNode;
 
+/**
+ * Abstract Syntax Tree (AST) node definitions for the LPC virtual machine.
+ * Each struct represents a different kind of AST node.
+ *
+ * To keep the std::variant ASTNode within 32 bytes, each node may consists
+ * of an variant index and:
+ * - three std::unique_ptr (8 bytes each)
+ * - a std::shared_ptr (16 bytes) and a std::unique_ptr (8 bytes)
+ * - a std::vector (24 bytes)
+ *
+ * Always use std::move when assigning or passing ASTNode
+ */
 namespace AST {
     struct Program {
-        std::vector<ASTNode> defs; // FunctionDef | Inheritance
+        std::vector<ASTNode> defs; // *(FunctionDecl | FunctionDef | Inheritance)
     };
     struct Inheritance {
         std::shared_ptr<SymbolTable::Entry> entry; // a pseudo entry mangled from the file path
     };
-    struct FunctionDef {
+    struct FunctionDecl {
         std::shared_ptr<SymbolTable::Entry> entry;
         std::unique_ptr<ASTNode> param_list; // ParameterList
-        std::unique_ptr<ASTNode> body; // Block
     };
     struct ParameterList {
-        std::vector<ASTNode> parameters; // VariableDecl
+        std::vector<ASTNode> parameters; // *VariableDecl
+    };
+    struct FunctionDef {
+        std::unique_ptr<ASTNode> decl; // FunctionDecl
+        std::unique_ptr<ASTNode> body; // Block
     };
     struct Block {
-        std::vector<ASTNode> statements;
+        std::vector<ASTNode> stmts;
+    };
+    struct Return {
+        std::unique_ptr<ASTNode> value;
     };
     struct VariableDecl {
         std::shared_ptr<SymbolTable::Entry> entry;
@@ -55,8 +73,12 @@ namespace AST {
         std::unique_ptr<ASTNode> true_expr;
         std::unique_ptr<ASTNode> false_expr;
     };
+    struct List {
+        std::vector<ASTNode> elts;
+    };
     struct FunctionCall {
-        std::vector<ASTNode> arguments;
+        std::shared_ptr<SymbolTable::Entry> entry; // the function being called
+        std::unique_ptr<ASTNode> arguments; // List
     };
     struct Constant {
         ConstTable::NumericType value;
@@ -79,12 +101,15 @@ struct ASTNode {
         AST::VariableDecl,
         AST::VariableDeclList,
         AST::FunctionDef,
+        AST::FunctionDecl,
         AST::ParameterList,
         AST::Block,
+        AST::Return,
         AST::Assign,
         AST::UnaryOp,
         AST::BinaryOp,
         AST::TernaryOp,
+        AST::List,
         AST::FunctionCall,
         AST::Constant,
         AST::StringLiteral,
