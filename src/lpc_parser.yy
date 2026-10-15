@@ -201,7 +201,13 @@ def
         }
       formal_parameters[params] ')'
         {
-            // TODO: add formal parameters to the symbol table before processing local declarations in the function body
+            // add formal parameters to current scope before proceed
+            auto lpcc = yyget_extra(yyscanner);
+            for (auto& param : std::get<AST::ParameterList>($params.node).parameters) {
+                auto entry = std::get<AST::VariableDecl>(param.node).entry;
+                if (entry)
+                    lpcc->current_scope->emplace(entry->name, entry);
+            }
         }
       block_or_semicolon[body]
         {
@@ -389,11 +395,20 @@ parameter_list
 
 parameter_decl
     : L_TYPE opt_star L_IDENTIFIER
-        { $$ = AST::VariableDecl{ nullptr, nullptr }; }
+        {
+            SymbolSignature s;
+            s.b.data_type = $1;
+            s.value |= $2.value;
+            auto entry = std::make_shared<SymbolTable::Entry>($3, s);
+            $$ = AST::VariableDecl{ std::move(entry), nullptr };
+        }
     | L_TYPE opt_star
         { $$ = AST::VariableDecl{ nullptr, nullptr }; }
     | L_IDENTIFIER
-        { $$ = AST::VariableDecl{ nullptr, nullptr }; }
+        {
+            auto entry = std::make_shared<SymbolTable::Entry>($1, SymbolSignature{LpcDataType::T_INT});
+            $$ = AST::VariableDecl{ std::move(entry), nullptr };
+        }
     ;
 
 block_or_semicolon
@@ -427,7 +442,9 @@ stmt
         { $$ = std::move($1); }
     | return_stmt
         { $$ = std::move($1); }
-    /*| local_decl_list
+    | local_decl_list
+        { $$ = std::move($1); }
+    /*
     | if_stmt
     | while_stmt
     | do_stmt

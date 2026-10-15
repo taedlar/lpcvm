@@ -2,13 +2,13 @@
 
 inherit "/std/object" as base;
 
-void get_name(object);
+int add(int a, int b);
 
 void create() {
     write ("Hello,\tworld!");
-    get_name(this_player());
+    int result = add(1, 2);
 }
 
-string get_name(object ob) {
-    return "Example Name";
+int add(int a, int b) {
+    return a + b;
 }
