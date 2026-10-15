@@ -86,7 +86,7 @@
     } // namespace yy
 }
 
-%token L_INHERIT
+%token L_INHERIT LAS
 %token L_IF L_ELSE
 %token L_WHILE L_DO L_FOR L_FOREACH L_IN
 %token L_BREAK L_CONTINUE
@@ -138,7 +138,7 @@
 
 %type <SymbolTable::Entry> function_head
 
-%type <std::string> str_literal
+%type <std::string> str_literal opt_as
 
 %%
 
@@ -306,16 +306,41 @@ new_var
         }
     ;
 
+opt_as
+    : %empty
+        { $$ = ""; }
+    | LAS L_IDENTIFIER
+        { $$ = $2; }
+    ;
+
 inheritance
-    : L_INHERIT str_literal ';'
+    : L_INHERIT str_literal opt_as ';'
         {
-            auto idx = yyget_extra(yyscanner)->consts->find_or_add($2);
-            $$ = AST::Inheritance{ idx, nullptr };
+            auto lpcc = yyget_extra(yyscanner);
+            std::string alias{$3.empty() ? $2 : $3};
+            if (!lpcc->current_scope->lookup(alias)) {
+                auto entry = std::make_shared<SymbolTable::Entry>(alias, SymbolSignature{0}); // alias symbol
+                entry->value = $2;
+                lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
+                $$ = AST::Inheritance{ entry };
+            }
+            else if (!$3.empty()) {
+                throw parse_error("Alias already defined: " + alias, yyscanner);
+            }
         }
-    | type_modifier_list L_INHERIT str_literal ';'
+    | type_modifier_list L_INHERIT str_literal opt_as ';'
         {
-            auto idx = yyget_extra(yyscanner)->consts->find_or_add($3);
-            $$ = AST::Inheritance{ idx, nullptr };
+            auto lpcc = yyget_extra(yyscanner);
+            std::string alias{$4.empty() ? $3 : $4};
+            if (!lpcc->current_scope->lookup(alias)) {
+                auto entry = std::make_shared<SymbolTable::Entry>(alias, $1); // alias symbol
+                entry->value = $3;
+                lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
+                $$ = AST::Inheritance{ entry };
+            }
+            else if (!$4.empty()) {
+                throw parse_error("Alias already defined: " + alias, yyscanner);
+            }
         }
     ;
 
@@ -428,23 +453,23 @@ expr0
     | '-' expr0 %prec L_NOT
         { $$ = ASTNode{ AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))} }; }
     | expr4
-        { $$ = ASTNode{ std::move($1) }; }
+        { $$ = std::move($1); }
     | L_INTEGER
-        { $$ = ASTNode{ AST::Constant{ $1 } }; }
+        { $$ = AST::Constant{ $1 }; }
     | L_REAL_NUMBER
-        { $$ = ASTNode{ AST::Constant{ $1 } }; }    
+        { $$ = AST::Constant{ $1 }; }    
     | str_literal
-        { $$ = ASTNode{ AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts} }; }
+        { $$ = AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts}; }
     ;
 
 lvalue
     : expr4
-        { $$ = ASTNode{ std::move($1) }; }
+        { $$ = std::move($1); }
     ;
 
 expr4
     : '(' comma_expr ')'
-        { $$ = ASTNode{ std::move($2) }; }
+        { $$ = std::move($2); }
     | L_IDENTIFIER
         {
             auto entry = yyget_extra(yyscanner)->current_scope->lookup(std::string($1));
@@ -452,17 +477,17 @@ expr4
                 // Handle the error, e.g., throw an exception or report an undefined variable
                 throw parse_error("Undefined variable: " + std::string($1), yyscanner);
             }
-            $$ = ASTNode{ AST::Variable{ entry } };
+            $$ = AST::Variable{ entry };
         }
     | function_call
-        { /*$$ = $1;*/ }    
+        { $$ = std::move($1); }    
     | expr4 '[' comma_expr ']'
-        { $$ = ASTNode{ std::move($1) }; }
+        { $$ = std::move($1); }
     ;
 
 local_decl_list
     : storage_or_type var_list ';'
-        { $$ = ASTNode{ std::move($2) }; }
+        { $$ = std::move($2); }
     ;
 
 if_stmt
@@ -490,7 +515,7 @@ return_stmt
 function_call
     : L_IDENTIFIER '(' arg_list ')'
         {
-            $$ = ASTNode{AST::FunctionCall{}};
+            $$ = AST::FunctionCall{};
         }
     ;
 

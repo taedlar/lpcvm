@@ -72,6 +72,7 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof ASTNode {}", sizeof(ASTNode));
     SPDLOG_INFO("sizeof ConstTable {}", sizeof(ConstTable));
     SPDLOG_INFO("sizeof ConstTable::ValueType {}", sizeof(ConstTable::ValueType));
+    SPDLOG_INFO("sizeof ConstTable::LValueType {}", sizeof(ConstTable::LValueType));
     SPDLOG_INFO("sizeof SymbolTable {}", sizeof(SymbolTable));
     SPDLOG_INFO("sizeof SymbolTable::Entry {}", sizeof(SymbolTable::Entry));
     SPDLOG_INFO("=======================================================");
@@ -106,7 +107,12 @@ static void ast_dump(ASTNode* ast, bool newline) {
         [&](AST::Inheritance& inh) {
             std::cout << "AST::Inheritance(" << std::endl;
             indent_level++;
-            std::cout << std::string(indent_level * 2, ' ') << "idx_name = CONST_STR(" << inh.idx_name << ")";
+            if (inh.entry->value.has_value()) {
+                std::cout << std::string(indent_level * 2, ' ') << "path = \"" << std::get<std::string>(*inh.entry->value) << "\"";
+                if (inh.entry->name != std::get<std::string>(*inh.entry->value)) {
+                    std::cout << comma_sep << std::string(indent_level * 2, ' ') << "alias = \"" << inh.entry->name << "\"";
+                }
+            }
             indent_level--;
             std::cout << ")";
         },

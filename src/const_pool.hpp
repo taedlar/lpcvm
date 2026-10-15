@@ -66,6 +66,7 @@ public:
     ConstTable() = default;
     ~ConstTable() = default;
 
+    using LValueType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double, std::string>;
     using ValueType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double, std::string_view>;
     using NumericType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double>;
 

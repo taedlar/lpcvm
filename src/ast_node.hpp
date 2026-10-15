@@ -16,19 +16,18 @@ struct ASTNode;
 
 namespace AST {
     struct Program {
-        std::vector<ASTNode> defs;
+        std::vector<ASTNode> defs; // FunctionDef | Inheritance
     };
     struct Inheritance {
-        ConstPool::IndexType idx_name;
-        std::shared_ptr<RuntimeClass> runtime_class;
+        std::shared_ptr<SymbolTable::Entry> entry; // a pseudo entry mangled from the file path
     };
     struct FunctionDef {
         std::shared_ptr<SymbolTable::Entry> entry;
-        std::unique_ptr<ASTNode> param_list;
-        std::unique_ptr<ASTNode> body;
+        std::unique_ptr<ASTNode> param_list; // ParameterList
+        std::unique_ptr<ASTNode> body; // Block
     };
     struct ParameterList {
-        std::vector<ASTNode> parameters;
+        std::vector<ASTNode> parameters; // VariableDecl
     };
     struct Block {
         std::vector<ASTNode> statements;
@@ -38,7 +37,7 @@ namespace AST {
         std::unique_ptr<ASTNode> init;
     };
     struct VariableDeclList {
-        std::vector<ASTNode> declarations;
+        std::vector<ASTNode> declarations; // VariableDecl
     };
     struct Assign {
         std::unique_ptr<ASTNode> lhs;
