@@ -50,18 +50,20 @@ typedef union symbol_signature_u {
  */
 class SymbolTable: public std::enable_shared_from_this<SymbolTable> {
 public:
-    struct entry_s {
+    struct Entry {
         std::string name;
         SymbolSignature signature;
         std::optional<ConstTable::ValueType> value; // compile-time constant value if the symbol is constant
-        entry_s(std::string name, SymbolSignature signature)
+        Entry(std::string name, SymbolSignature signature)
             : name(std::move(name)), signature(signature) {}
-        entry_s() = default;
+        Entry() = default;
     };
-    using Entry = entry_s;
 
     SymbolTable (std::shared_ptr<SymbolTable> enclosing_scope)
         : enclosing_scope_ (std::move(enclosing_scope)) {}
+
+    std::shared_ptr<SymbolTable> new_subscope () { return std::make_shared<SymbolTable>(shared_from_this()); }
+    std::shared_ptr<SymbolTable> get_enclosing_scope() const { return enclosing_scope_; }
 
     /**
      * \brief Looks up a symbol entry by its key in the current scope and enclosing scopes.
@@ -78,11 +80,6 @@ public:
     void emplace (std::string_view mangled_name, const std::shared_ptr<Entry>& entry);
 
     std::size_t size() const { return symbols_.size(); }
-    std::shared_ptr<SymbolTable> get_enclosing_scope() const { return enclosing_scope_; }
-    std::shared_ptr<SymbolTable> new_subscope () {
-        auto subscope = std::make_shared<SymbolTable>(shared_from_this());
-        return subscope;
-    }
 
 private:
     std::shared_ptr<SymbolTable> enclosing_scope_;

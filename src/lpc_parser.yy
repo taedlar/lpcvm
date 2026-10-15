@@ -73,28 +73,6 @@
     extern int yyget_column (yyscan_t yyscanner);
 
     namespace yy {
-        // Context information for AST node creation.
-        struct ast_context {
-            YY_EXTRA_TYPE lpcc;
-            int current_lineno;
-            int current_column;
-        };
-
-        /// @brief Helper function to create a new AST node.
-        /// @tparam T The type of the AST node to create.
-        /// @tparam Args The types of the arguments to forward to the AST node constructor.
-        /// @param yyscanner The reentrant lexer handle.
-        /// @param args The arguments to forward to the AST node constructor.
-        /// @return A shared pointer to the newly created AST node.
-        template<typename T, typename... Args>
-        static std::shared_ptr<T> new_node(yyscan_t yyscanner, Args&&... args) {
-            ast_context astctx;
-            astctx.lpcc = yyget_extra(yyscanner);
-            astctx.current_lineno = yyget_lineno(yyscanner);
-            astctx.current_column = yyget_column(yyscanner);
-            return std::make_shared<T>(astctx, std::forward<Args>(args)...);
-        }
-
         // Exception type for parse errors.
         struct parse_error: std::runtime_error {
             parse_error(const std::string& message, int lineno, int column, YY_EXTRA_TYPE lpcc = nullptr)
@@ -185,18 +163,23 @@
  */
 
 all:
-    program { yyget_extra(yyscanner)->prog = std::move(std::get<AST::Program>($1.node)); }
+    program { yyget_extra(yyscanner)->root = std::make_shared<ASTNode>(std::move($1)); }
     ;
 
 program
     : %empty
-        { $$ = ASTNode{ AST::Program{} }; }
+        { $$ = AST::Program{}; }
     | program inheritance
-        { $$ = ASTNode{ std::move($1) }; }
+        {
+            $$ = std::move($1);
+            if ($2.node.index() != 0)
+                std::get<AST::Program>($$.node).defs.push_back(std::move($2));
+        }
     | program def extra_semicolon
         {
-            $$ = ASTNode{ std::move($1) };
-            std::get<AST::Program>($$.node).defs.push_back(std::move($2));
+            $$ = std::move($1);
+            if ($2.node.index() != 0)
+                std::get<AST::Program>($$.node).defs.push_back(std::move($2));
         }
     ;
 
@@ -227,10 +210,10 @@ def
             if ($body.node.index() != 0) {
                 auto entry = lpcc->current_scope->lookup($1.name);
                 entry->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
-                $$ = ASTNode{ AST::FunctionDef{
+                $$ = AST::FunctionDef{
                     std::make_unique<SymbolTable::Entry>(*entry),
                     std::make_unique<ASTNode>(std::move($body))
-                 } };
+                 };
                 SPDLOG_DEBUG("Added definition of function: {}", $1.name);
             }
             else {
@@ -288,10 +271,10 @@ opt_star
 
 var_list
     : new_var
-        { $$ = ASTNode{ std::move($1) }; }
+        { $$ = std::move($1); }
     | var_list ',' new_var
         {
-            $$ = ASTNode{ AST::VariableDeclList{} };
+            $$ = AST::VariableDeclList{};
             auto& decls = std::get<AST::VariableDeclList>($$.node);
             std::visit (overloaded {
                 [&](AST::VariableDecl& decl) { decls.declarations.push_back(std::move($1)); },
@@ -327,12 +310,12 @@ inheritance
     : L_INHERIT str_literal ';'
         {
             auto idx = yyget_extra(yyscanner)->consts->find_or_add($2);
-            $$ = ASTNode{ AST::Inheritance{ idx, nullptr } };
+            $$ = AST::Inheritance{ idx, nullptr };
         }
     | type_modifier_list L_INHERIT str_literal ';'
         {
             auto idx = yyget_extra(yyscanner)->consts->find_or_add($3);
-            $$ = ASTNode{ AST::Inheritance{ idx, nullptr } };
+            $$ = AST::Inheritance{ idx, nullptr };
         }
     ;
 

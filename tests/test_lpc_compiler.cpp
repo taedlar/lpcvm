@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include <stdexcept>
 #include <type_traits>
+#include "ast_node.hpp"
 #include "lpc_compiler.hpp"
 
 static_assert(!std::is_copy_constructible_v<ASTNode>);
@@ -27,7 +28,7 @@ TEST(LpcCompilerTest, NonemptyDeclarationPrefixes) {
     }) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
-        EXPECT_TRUE(compiler.compile(source));
+        EXPECT_TRUE(compiler.frontend(source));
     }
 }
 
@@ -43,7 +44,7 @@ TEST(LpcCompilerTest, RejectMissingOrRepeatedDeclarationTypes) {
     }) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
-        EXPECT_FALSE(compiler.compile(source));
+        EXPECT_FALSE(compiler.frontend(source));
     }
 }
 
@@ -51,8 +52,8 @@ TEST(LpcCompilerTest, ErrorsIncludeCurrentSourceLine) {
     LpcCompiler compiler;
     const auto expect_error_line = [&compiler](const char* source, std::size_t line) {
         SCOPED_TRACE(source);
-        EXPECT_FALSE(compiler.compile(source));
-        EXPECT_EQ (compiler.current_lineno(), line);
+        EXPECT_FALSE(compiler.frontend(source));
+        EXPECT_EQ (compiler.messages().back().lineno, line);
     };
 
     expect_error_line ("/* comment\nmore */\nint string x;", 3);
