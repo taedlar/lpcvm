@@ -22,7 +22,7 @@ public:
         }
     }
 
-    void parse (const std::string& source, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope) {
+    std::shared_ptr<ASTNode> parse (const std::string& source, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope) {
         FILE* file = fmemopen((void*)source.c_str(), source.size(), "r");
         if (!file) {
             throw std::runtime_error("Failed to open memory stream for parsing");
@@ -33,10 +33,10 @@ public:
             yylex_destroy (scanner_);
             scanner_ = nullptr;
         }
-        context_ = std::make_unique<LpcCompiler::Context>();
-        context_->current_scope = current_scope;
-        context_->consts = &consts;
-        yylex_init_extra (context_.get(), &scanner_);
+        LpcCompiler::Context ctx;
+        ctx.current_scope = current_scope;
+        ctx.consts = &consts;
+        yylex_init_extra (&ctx, &scanner_);
         yyrestart(file, scanner_);
 
         // Parse the input
@@ -46,6 +46,7 @@ public:
 
         // Remember to close the memory stream after parsing
         fclose(file);
+        return ctx.root;
     }
 
     int get_lineno() const { return yyget_lineno(scanner_); }
@@ -53,36 +54,31 @@ public:
 
 private:
     yyscan_t scanner_;
-    std::unique_ptr<LpcCompiler::Context> context_;
 };
 
 LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
-LpcCompiler::~LpcCompiler() { delete pimpl_; }
+LpcCompiler::~LpcCompiler() = default;
 
-bool LpcCompiler::compile (const std::string& source) {
-    ConstTable consts; // global constant pool
-    std::shared_ptr<SymbolTable> global_scope = std::make_shared<SymbolTable>(nullptr); // scoped
+ASTNode* LpcCompiler::frontend (const std::string& source) noexcept {
     try {
-        pimpl_->parse(source, consts, global_scope);
-        SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts.size(), global_scope->size());
+        consts_ = std::make_unique<ConstTable>();
+        globals_ = std::make_shared<SymbolTable>(nullptr); // scoped
+        messages_.clear();
+        ast_ = pimpl_->parse(source, *consts_, globals_);
+        SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());
+        messages_.push_back({-1, -1, "parsing succeeded"});
     }
     catch (const yy::parse_error& e) {
         // Handle parsing errors
         SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
-        return false;
+        messages_.push_back({e.lineno, e.column, e.what()});
+        return nullptr;
     }
     catch (const std::exception& e) {
         // Handle other exceptions
         SPDLOG_ERROR("failed: {}", e.what());
-        return false;
+        messages_.push_back({-1, -1, e.what()});
+        return nullptr;
     }
-    return true;
-}
-
-int LpcCompiler::current_lineno() const {
-    return pimpl_->get_lineno();
-}
-
-int LpcCompiler::current_column() const {
-    return pimpl_->get_column();
+    return ast_.get();
 }

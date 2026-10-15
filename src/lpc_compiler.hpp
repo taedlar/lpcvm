@@ -5,8 +5,9 @@
 #include <cstddef>
 #include <memory>
 #include <string>
-#include "ast_node.hpp"
+#include <vector>
 
+struct ASTNode;
 class ConstTable;
 class SymbolTable;
 class RuntimeClass;
@@ -18,7 +19,7 @@ public:
 
     // context data used by the lexer and parser
     struct Context {
-        AST::Program prog;
+        std::shared_ptr<ASTNode> root;
         std::shared_ptr<SymbolTable> current_scope;
         ConstTable* consts;
 
@@ -26,14 +27,23 @@ public:
         std::string raw_string_delimiter;
     };
 
-    bool compile (const std::string& source);
-    int current_lineno() const;
-    int current_column() const;
+    // compiler messages (errors, warnings, etc.)
+    struct Message {
+        int lineno;
+        int column;
+        std::string text;
+    };
+
+    ASTNode* frontend (const std::string& source) noexcept;
+
+    const std::vector<Message>& messages() const { return messages_; }
 
 private:
     class Impl;
-    Impl* pimpl_;
+    std::unique_ptr<Impl> pimpl_;
+    std::vector<Message> messages_;
 
-    // The compiled output of the LPC source code (blueprint), represented as a RuntimeClass instance.
-    std::shared_ptr<RuntimeClass> output_;
+    std::unique_ptr<ConstTable> consts_;
+    std::shared_ptr<SymbolTable> globals_;
+    std::shared_ptr<ASTNode> ast_;
 };

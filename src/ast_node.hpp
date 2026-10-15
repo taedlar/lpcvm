@@ -24,6 +24,7 @@ namespace AST {
     };
     struct FunctionDef {
         std::shared_ptr<SymbolTable::Entry> entry;
+        std::unique_ptr<ASTNode> param_list;
         std::unique_ptr<ASTNode> body;
     };
     struct ParameterList {

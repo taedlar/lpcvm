@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include "config.hpp"
 #include <argparse/argparse.hpp>
+#include <iostream>
 #include <fstream>
 #include <sstream>
 #include "ast_node.hpp"
@@ -12,6 +13,7 @@
 #include "virtual_table.hpp"
 
 static void log_vm_info();
+static void ast_dump(ASTNode* ast, bool newline);
 
 int main(int argc, char* argv[]) {
     int log_level = spdlog::level::warn;
@@ -52,7 +54,14 @@ int main(int argc, char* argv[]) {
     }
 
     LpcCompiler compiler;
-    return compiler.compile(source.str()) ? 0 : 1;
+    ASTNode* ast = compiler.frontend(source.str());
+    if (ast) {
+        ast_dump(ast, true);
+        std::cout << std::endl;
+        return EXIT_SUCCESS;
+    }
+
+    return EXIT_FAILURE;
 }
 
 static void log_vm_info() {
@@ -70,4 +79,63 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<RuntimeClass>));
     SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<RuntimeClass>));
     SPDLOG_INFO("sizeof std::string_view {}", sizeof(std::string_view));
+}
+
+const char* no_sep = "";
+const char* comma_sep = ",\n";
+
+static void ast_dump(ASTNode* ast, bool newline) {
+    static int indent_level = 0;
+    const char* sep = no_sep;
+    if (!ast)
+        return;
+    if (newline)
+        std::cout << std::string(indent_level * 2, ' ');
+    std::visit (overloaded {
+        [&](AST::Program& program) {
+            std::cout << "AST::Program([";
+            indent_level++; sep = "\n";
+            for (auto& def : program.defs) {
+                std::cout << sep;
+                ast_dump(&def, true);
+                sep = comma_sep;
+            }
+            indent_level--;
+            std::cout << "])";
+        },
+        [&](AST::Inheritance& inh) {
+            std::cout << "AST::Inheritance(" << std::endl;
+            indent_level++;
+            std::cout << std::string(indent_level * 2, ' ') << "idx_name = CONST_STR(" << inh.idx_name << ")";
+            indent_level--;
+            std::cout << ")";
+        },
+        [&](AST::FunctionDef& func) {
+            std::cout << "AST::Function(" << std::endl;
+            indent_level++;
+            std::cout << std::string(indent_level * 2, ' ') << "name = \"" << func.entry->name << "\"";
+            if (func.param_list) {
+                std::cout << comma_sep <<std::string(indent_level * 2, ' ') << "param_list = ";
+                ast_dump(func.param_list.get(), false);
+            }
+            if (func.body) {
+                std::cout << comma_sep << std::string(indent_level * 2, ' ') << "body = ";
+                ast_dump(func.body.get(), false);
+            }
+            indent_level--;
+            std::cout << ")";
+        },
+        [&](AST::Block& block) {
+            std::cout << "AST::Block([";
+            indent_level++; sep = "\n";
+            for (auto& stmt : block.statements) {
+                std::cout << sep;
+                ast_dump(&stmt, true);
+                sep = comma_sep;
+            }
+            indent_level--;
+            std::cout << "])";
+        },
+        [&](auto&) {}
+    }, ast->node);
 }
