@@ -53,7 +53,7 @@ public:
     struct Entry {
         std::string name;
         SymbolSignature signature;
-        std::optional<ConstTable::ValueType> value; // compile-time constant value if the symbol is constant
+        std::optional<ConstTable::LValueType> value; // compile-time constant value if the symbol is constant
         Entry(std::string name, SymbolSignature signature)
             : name(std::move(name)), signature(signature) {}
         Entry() = default;

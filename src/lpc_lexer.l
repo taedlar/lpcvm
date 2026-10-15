@@ -72,6 +72,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 }
 
 "inherit"       { return yy::LpcParser::make_L_INHERIT(); }
+"as"            { return yy::LpcParser::make_LAS(); }
 "if"            { return yy::LpcParser::make_L_IF(); }
 "else"          { return yy::LpcParser::make_L_ELSE(); }
 "while"         { return yy::LpcParser::make_L_WHILE(); }

@@ -1,6 +1,6 @@
 // Example LPC source file for testing the parser
 
-inherit "/std/object";
+inherit "/std/object" as base;
 
 void get_name();
 
