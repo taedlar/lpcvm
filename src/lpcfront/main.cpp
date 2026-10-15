@@ -117,12 +117,11 @@ static void ast_dump(ASTNode* ast, bool newline) {
             std::cout << ")";
         },
         [&](AST::FunctionDef& func) {
-            std::cout << "AST::Function(" << std::endl;
+            std::cout << "AST::FunctionDef(" << std::endl;
             indent_level++;
-            std::cout << std::string(indent_level * 2, ' ') << "name = \"" << func.entry->name << "\"";
-            if (func.param_list) {
-                std::cout << comma_sep <<std::string(indent_level * 2, ' ') << "param_list = ";
-                ast_dump(func.param_list.get(), false);
+            if (func.decl) {
+                std::cout << std::string(indent_level * 2, ' ') << "decl = ";
+                ast_dump(func.decl.get(), false);
             }
             if (func.body) {
                 std::cout << comma_sep << std::string(indent_level * 2, ' ') << "body = ";
@@ -131,10 +130,41 @@ static void ast_dump(ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << ")";
         },
+        [&](AST::FunctionDecl& func_decl) {
+            std::cout << "AST::FunctionDecl(" << std::endl;
+            indent_level++;
+            if (func_decl.entry) {
+                std::cout << std::string(indent_level * 2, ' ') << "name = \"" << func_decl.entry->name << "\"";
+            }
+            if (func_decl.param_list) {
+                std::cout << comma_sep << std::string(indent_level * 2, ' ') << "param_list = ";
+                ast_dump(func_decl.param_list.get(), false);
+            }
+            indent_level--;
+            std::cout << ")";
+        },
+        [&](AST::ParameterList& param_list) {
+            std::cout << "AST::ParameterList([";
+            indent_level++; sep = "\n";
+            for (auto& param : param_list.parameters) {
+                std::cout << sep;
+                ast_dump(&param, true);
+                sep = comma_sep;
+            }
+            indent_level--;
+            std::cout << "])";
+        },
+        [&](AST::VariableDecl& var_decl) {
+            std::cout << "AST::VariableDecl(";
+            if (var_decl.entry) {
+                std::cout << "name = \"" << var_decl.entry->name << "\"";
+            }
+            std::cout << ")";
+        },
         [&](AST::Block& block) {
             std::cout << "AST::Block([";
             indent_level++; sep = "\n";
-            for (auto& stmt : block.statements) {
+            for (auto& stmt : block.stmts) {
                 std::cout << sep;
                 ast_dump(&stmt, true);
                 sep = comma_sep;
@@ -142,6 +172,22 @@ static void ast_dump(ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << "])";
         },
-        [&](auto&) {}
+        [&](AST::Return& ret_stmt) {
+            std::cout << "AST::Return(";
+            if (ret_stmt.value) {
+                ast_dump(ret_stmt.value.get(), false);
+            }
+            std::cout << ")";
+        },
+        [&](AST::FunctionCall& func_call) {
+            std::cout << "AST::FunctionCall(" << std::endl;
+            indent_level++;
+            std::cout << std::string(indent_level * 2, ' ') << "name = \"" << func_call.entry->name << "\"";
+            indent_level--;
+            std::cout << ")";
+        },
+        [&](auto&) {
+            std::cout << "<NotImplemented>";
+        }
     }, ast->node);
 }
