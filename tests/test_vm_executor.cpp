@@ -8,6 +8,7 @@
 #include "vm_opcodes.hpp"
 
 TEST(VMExecutorTest, BasicExecution) {
+    EvaluationStack stack;
     ConstTable const_pool;
     const_pool.find_or_add(int32_t{0}); // Add a dummy constant to the pool
     std::vector<uint8_t> bytecode = {
@@ -16,5 +17,5 @@ TEST(VMExecutorTest, BasicExecution) {
     };
     // Example test for basic execution
     BytecodeView bytecode_view(bytecode.data(), bytecode.size(), &const_pool);
-    EXPECT_NO_THROW(bytecode_view.execute());
+    EXPECT_NO_THROW(bytecode_view.execute(stack));
 }

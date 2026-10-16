@@ -12,7 +12,7 @@
  * VM_HANDLER macro is used to define the handler for each opcode.
  * VM_DISPATCH macro is used to jump to the next instruction handler.
  */
-void BytecodeView::execute() {
+void BytecodeView::execute(EvaluationStack& stack) {
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
 #else
