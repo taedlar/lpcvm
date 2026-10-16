@@ -11,6 +11,31 @@ static_assert(!std::is_copy_constructible_v<ASTNode>);
 static_assert(!std::is_copy_assignable_v<ASTNode>);
 static_assert(std::is_move_constructible_v<ASTNode>);
 static_assert(std::is_move_assignable_v<ASTNode>);
+static_assert(std::is_assignable_v<ASTNode&, ASTNode&>);
+
+TEST(ASTNodeTest, MutableAssignmentTransfersOwnership) {
+    ASTNode source{AST::Return{std::make_unique<ASTNode>(AST::Constant{42L})}};
+    auto* child = std::get<AST::Return>(source.node).value.get();
+    ASTNode destination{AST::Block{}};
+
+    EXPECT_EQ(&(destination = source), &destination);
+    EXPECT_EQ(std::get<AST::Return>(destination.node).value.get(), child);
+    EXPECT_EQ(std::get<AST::Return>(source.node).value, nullptr);
+}
+
+TEST(LpcCompilerTest, ImplicitBlockAction) {
+    LpcCompiler compiler;
+    auto* root = compiler.frontend("void f() { { return 42; } }");
+    ASSERT_NE(root, nullptr);
+    auto& defs = std::get<AST::Program>(root->node).defs;
+    ASSERT_EQ(defs.size(), 1);
+    auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
+    auto& stmts = std::get<AST::Block>(body.node).stmts;
+    ASSERT_EQ(stmts.size(), 1);
+    auto& nested = std::get<AST::Block>(stmts.front().node).stmts;
+    ASSERT_EQ(nested.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<AST::Return>(nested.front().node));
+}
 
 TEST(LpcCompilerTest, NonemptyDeclarationPrefixes) {
     for (const char* source : {

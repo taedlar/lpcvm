@@ -131,7 +131,7 @@
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var
-%type <ASTNode> return_stmt
+%type <ASTNode> do_stmt for_stmt if_stmt opt_else_stmt return_stmt while_stmt
 %type <ASTNode> comma_expr lvalue expr0 expr4
 %type <ASTNode> function_call arg_list
 
@@ -169,17 +169,16 @@ all:
     ;
 
 program
-    : %empty
-        { $$ = AST::Program{}; }
+    : %empty { $$ = AST::Program{}; }
     | program inheritance
         {
-            $$ = std::move($1);
+            $$ = $1;
             if ($2.node.index() != 0)
                 std::get<AST::Program>($$.node).defs.push_back(std::move($2));
         }
     | program def extra_semicolon
         {
-            $$ = std::move($1);
+            $$ = $1;
             if ($2.node.index() != 0)
                 std::get<AST::Program>($$.node).defs.push_back(std::move($2));
         }
@@ -191,12 +190,12 @@ extra_semicolon
     ;
 
 def
-    : function_head '('
+    : function_head[entry] '('
         {
             auto lpcc = yyget_extra(yyscanner);
-            if (lpcc->current_scope->lookup($1->name) && $1->signature.b.is_const)
-                throw parse_error("Function already defined: " + $1->name, yyscanner);
-            lpcc->current_scope->emplace($1->name, $1); // add the function to the current scope
+            if (lpcc->current_scope->lookup($entry->name) && $entry->signature.b.is_const)
+                throw parse_error("Function already defined: " + $entry->name, yyscanner);
+            lpcc->current_scope->emplace($entry->name, $entry); // add the function to the current scope
             lpcc->current_scope = lpcc->current_scope->new_subscope(); // enter a new subscope for the function body
         }
       formal_parameters[params] ')'
@@ -214,25 +213,25 @@ def
             auto lpcc = yyget_extra(yyscanner);
             lpcc->current_scope = lpcc->current_scope->get_enclosing_scope(); // exit the function's subscope
             if ($body.node.index()) {
-                $1->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
+                $entry->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
-                    $1,
+                    $entry,
                     std::make_unique<ASTNode>(std::move($params))
                 });
                 $$ = AST::FunctionDef{
                     std::move(decl),
                     std::make_unique<ASTNode>(std::move($body))
                  };
-                SPDLOG_DEBUG("Added definition of function: {}", $1->name);
+                SPDLOG_DEBUG("Added definition of function: {}", $entry->name);
             }
             else {
                 // no function body => a forward declaration (allows calling a function before its definition)
                 auto lpcc = yyget_extra(yyscanner);
                 $$ = AST::FunctionDecl{
-                    $1,
+                    $entry,
                     std::make_unique<ASTNode>(std::move($params))
                 };
-                SPDLOG_DEBUG("Forward declaration of function: {}", $1->name);
+                SPDLOG_DEBUG("Forward declaration of function: {}", $entry->name);
             }
         }
     | storage_or_type var_list ';'
@@ -245,21 +244,19 @@ storage_or_type
     : type_modifier_list
         { ($$ = $1).b.data_type = LpcDataType::T_INT; };
     | typed_storage
-        { $$ = $1; }
     ;
 
 typed_storage
     : L_TYPE
-        { $$.b.data_type = $1; }
+        { $$ = SymbolSignature{}; $$.b.data_type = $1; }
     | type_modifier_list L_TYPE
-        { $$ = $1; $$.b.data_type = $2; }
+        { ($$ = $1).b.data_type = $2; }
     ;
 
 type_modifier_list
     : L_TYPE_MODIFIER
-        { $$ = $1; }
     | type_modifier_list L_TYPE_MODIFIER
-        { $$.value = $1.value | $2.value; }
+        { ($$ = $1).value |= $2.value; }
     ;
 
 function_head
@@ -278,14 +275,13 @@ function_head
 
 opt_star
     : %empty
-        { $$.value = 0; }
+        { ($$ = SymbolSignature{}).value = 0; }
     | '*'
-        { $$.b.is_array = 1; }
+        { ($$ = SymbolSignature{}).b.is_array = 1; /* mark as array */ }
     ;
 
 var_list
     : new_var
-        { $$ = std::move($1); }
     | var_list ',' new_var
         {
             $$ = AST::VariableDeclList{};
@@ -307,7 +303,7 @@ new_var
                 throw parse_error("Variable already defined: " + $2, yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            $$ = ASTNode{ AST::VariableDecl{ entry, nullptr } };
+            $$ = AST::VariableDecl{ std::move(entry), nullptr };
         }
     | opt_star L_IDENTIFIER L_ASSIGN expr0
         {
@@ -316,7 +312,7 @@ new_var
                 throw parse_error("Variable already defined: " + $2, yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            $$ = ASTNode{ AST::VariableDecl{ entry, std::make_unique<ASTNode>(std::move($4)) } };
+            $$ = AST::VariableDecl{ std::move(entry), std::make_unique<ASTNode>(std::move($4)) };
         }
     ;
 
@@ -384,12 +380,12 @@ parameter_list
     | parameter_list ',' parameter_decl
         {
             std::get<AST::List>($1.node).elts.push_back(std::move($3));
-            $$ = std::move($1);
+            $$ = $1;
         }
     | parameter_list ',' L_ELLIPSIS
         {
             std::get<AST::List>($1.node).elts.push_back(ASTNode{}); // represent ellipsis as an empty ASTNode
-            $$ = std::move($1);
+            $$ = $1;
         }
     ;
 
@@ -415,7 +411,6 @@ block_or_semicolon
     : ';'
         { $$ = ASTNode{}; }
     | block
-        { $$ = std::move($1); }
     ;
 
 block
@@ -433,30 +428,27 @@ stmt_list
         {
             if ($2.node.index() != 0)
                 std::get<AST::List>($1.node).elts.push_back(std::move($2));
-            $$ = std::move($1);
+            $$ = $1;
         }
     ;
 
 stmt
     : comma_expr ';'
-        { $$ = std::move($1); }
     | return_stmt
-        { $$ = std::move($1); }
     | local_decl_list
-        { $$ = std::move($1); }
-    /*
+    | do_stmt
+    | for_stmt
     | if_stmt
     | while_stmt
-    | do_stmt
     | block
-    | ';'
     | L_BREAK ';'
-    | L_CONTINUE ';'*/
+        { $$ = AST::Break{}; }
+    | L_CONTINUE ';'
+        { $$ = AST::Continue{}; }
     ;
 
 comma_expr
     : expr0
-        { $$ = std::move($1); }
     | comma_expr ',' expr0
         { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     ;
@@ -507,7 +499,6 @@ expr0
     | '-' expr0 %prec L_NOT
         { $$ = AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}; }
     | expr4
-        { $$ = std::move($1); }
     | L_INTEGER
         { $$ = AST::Constant{ $1 }; }
     | L_REAL_NUMBER
@@ -518,12 +509,11 @@ expr0
 
 lvalue
     : expr4
-        { $$ = std::move($1); }
     ;
 
 expr4
     : '(' comma_expr ')'
-        { $$ = std::move($2); }
+        { $$ = $2; }
     | L_IDENTIFIER
         {
             auto entry = yyget_extra(yyscanner)->current_scope->lookup(std::string($1));
@@ -534,31 +524,73 @@ expr4
             $$ = AST::Variable{ entry };
         }
     | function_call
-        { $$ = std::move($1); }    
     | expr4 '[' comma_expr ']'
-        { $$ = std::move($1); }
     ;
 
 local_decl_list
-    : storage_or_type var_list ';'
-        { $$ = std::move($2); }
+    : ';'
+        { $$ = ASTNode{}; /* i.e. No-op */ }
+    | storage_or_type var_list ';'
+        { $$ = $2; }
     ;
 
 if_stmt
-    : L_IF '(' comma_expr ')' stmt optional_else_stmt
+    : L_IF '(' comma_expr[cond] ')' stmt[body] opt_else_stmt[else_body]
+        {
+            $$ = AST::Cond{
+                std::make_unique<ASTNode>(std::move($cond)),
+                std::make_unique<ASTNode>(std::move($body)),
+                std::make_unique<ASTNode>(std::move($else_body))
+            };
+        }
     ;
 
-optional_else_stmt
+opt_else_stmt
     : %empty %prec LOWER_THAN_ELSE
+        { $$ = ASTNode{}; }
     | L_ELSE stmt
+        { $$ = $2;}
+    ;
+
+for_stmt
+    : L_FOR '(' local_decl_list[init] comma_expr[cond] ';' comma_expr[step] ')' stmt[body]
+        {
+            ASTNode for_loop = AST::PreTestedLoop{
+                std::make_unique<ASTNode>(std::move($cond)),
+                std::make_unique<ASTNode>(std::move($step)),
+                std::make_unique<ASTNode>(std::move($body))
+            };
+            if ($init.node.index() != 0) {
+                std::vector<ASTNode> stmts;
+                stmts.push_back(std::move($init));
+                stmts.push_back(std::move(for_loop));
+                $$ = AST::Block{ std::move(stmts) };
+            }
+            else {
+                $$ = for_loop;
+            }
+        }
     ;
 
 while_stmt
-    : L_WHILE '(' comma_expr ')' stmt
+    : L_WHILE '(' comma_expr[cond] ')' stmt[body]
+        {
+            $$ = AST::PreTestedLoop{
+                std::make_unique<ASTNode>(std::move($cond)),
+                nullptr,
+                std::make_unique<ASTNode>(std::move($body))
+            };
+        }
     ;
 
 do_stmt
-    : L_DO stmt L_WHILE '(' comma_expr ')' ';'
+    : L_DO stmt[body] L_WHILE '(' comma_expr[cond] ')' ';'
+        {
+            $$ = AST::PostTestedLoop{
+                std::make_unique<ASTNode>(std::move($body)),
+                std::make_unique<ASTNode>(std::move($cond))
+            };
+        }
     ;
 
 return_stmt
@@ -592,7 +624,7 @@ arg_list
         }
     | arg_list ',' expr0
         {
-            $$ = std::move($1);
+            $$ = $1;
             std::get<AST::List>($$.node).elts.push_back(std::move($3));
         }
     ;
