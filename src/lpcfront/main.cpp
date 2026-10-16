@@ -9,8 +9,9 @@
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
 #include "symbol_table.hpp"
-#include "vm_runtime_class.hpp"
 #include "virtual_table.hpp"
+#include "vm_runtime_class.hpp"
+#include "vm_svalue.hpp"
 
 static void log_vm_info();
 static void ast_dump(ASTNode* ast, bool newline);
@@ -65,6 +66,7 @@ int main(int argc, char* argv[]) {
 }
 
 static void log_vm_info() {
+    SPDLOG_INFO("sizeof SValue {}", sizeof(SValue));
     SPDLOG_INFO("sizeof RuntimeClass {}", sizeof(RuntimeClass));
     SPDLOG_INFO("sizeof ConstPool {}", sizeof(ConstPool));
     SPDLOG_INFO("sizeof VirtualTable {}", sizeof(VirtualTable));
@@ -79,6 +81,7 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));
     SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<RuntimeClass>));
     SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<RuntimeClass>));
+    SPDLOG_INFO("sizeof std::weak_ptr<...> {}", sizeof(std::weak_ptr<RuntimeClass>));
     SPDLOG_INFO("sizeof std::string_view {}", sizeof(std::string_view));
 }
 

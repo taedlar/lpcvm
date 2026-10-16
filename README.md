@@ -15,31 +15,18 @@ cmake --build build
 
 ## Sandboxed Virtual Machine
 LPCVM intended to develop a compact virtual stack-machine that can be safely sandboxed:
-- Everything is **object**, each with one shared blueprint (a LPC source file in the mudlib directory) and clone instances (variables).
-- The object loader can *load* persisted blueprint bytecodes or **compile** LPC source code into bytecode on-demand.
-- Besides object loader, the virtual machine can **clone** an object from blueprint via the `new` operator, which allocates a copy of all the global/static variables declared in the blueprint.
-- A **variable** can store a primitive data type or a reference to a compound data type.
-- All variables must be either on the virtual machine's **value stack** or referenced by an object:
-  - Primitive data types (`int`, `float`, `string`, ... etc.) are passed by value.
-  - Compound data types (`object`, `array`, `mapping`, `function`, ... etc.) have **reference counted** lifecycle, and are passed by reference.
-  - Blueprints are also reference counted by object clones and **inheritance** from another blueprints.
-- Function calls in the virtual stack-machine is implemented with a value stack and a **control stack**.
-  - Native multithreading for LPC is possible by isolated (program counter, value stack, control stack). Synchronization for referenced entities and I/O are also required.
-  - Native RPC support for the virtual machine (via **proxy** node and serialization/deserialization) can enable creation of a distributed virtual machine.
-- The virtual machine calls **apply functions** (methods) in objects upon various events.
-- Sandboxing is enforced at the **efuns** boundary, which is the only way LPC code can interact with outside world.
-
-The sandboxed virtual machine (object loader and sandbox runner) is provided as a statically linked library with APIs.
-
-### Blueprints
-- Bytecodes of functions (methods)
-- Constant pool
-- Inheritance table
-- Symbol table
-
-### Clones
-- Reference of blueprint
-- Variables
+- Everything in the virtual machine is an **object** registered with a name.
+  - The object **loader** can load bytecodes by reading from a bytecode file or compiling LPC source files on-demand.
+  - Loaded bytecode is reference counted. The initiall reference is added by a **blueprint object**, which is registered with a unique name, e.g. `"/std/player"`.
+  - More objects can be created by **cloning** from the blueprint object, each with a name derrived from the blueprint object, e.g. `"/std/player#24`. Cloned objects add references to the loaded bytecode.
+  - Each object, blueprint or cloned, has its own states (**variables**).
+  - **Hot-reloading** is achieved by *replacing* the registered blueprint object with a newly loaded one. Existing cloned objects are not affected by hot-reloading.
+- The stack-machine manages memory with the object registry and **evaluation stack**.
+  - A variable can possess a `svalue` (filling one stack element): the value of a primitive data type, a strong reference to a compound data type, or a weak reference to an object. There is no pointer semantic in the LPC language.
+    - Primitive data types (`int`, `float`, `string`, ... etc.) are passed by value.
+    - Compound data types (`function`, `mapping`, array of any types) have reference-counted lifecycle, and are passed by reference.
+    - An `object` is passed by reference, and must be **destructed** explicitly (making all references to it evaluated as integer zero or `false`).
+  - Variables in objects are released when the object is destructed; varables in the evaluation stack (e.g. function arguments and local variables) are released when they are poped from the stack. Compound data types are released when their reference count reaches zero.
 
 ## LPC Language
 > [!NOTE]
