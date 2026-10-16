@@ -172,6 +172,38 @@ static void ast_dump(ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << "])";
         },
+        [&](AST::PreTestedLoop& pre_tested_loop) {
+            std::cout << "AST::PreTestedLoop(" << std::endl;
+            indent_level++;
+            if (pre_tested_loop.condition) {
+                std::cout << std::string(indent_level * 2, ' ') << "condition = ";
+                ast_dump(pre_tested_loop.condition.get(), false);
+            }
+            if (pre_tested_loop.step) {
+                std::cout << comma_sep << std::string(indent_level * 2, ' ') << "step = ";
+                ast_dump(pre_tested_loop.step.get(), false);
+            }
+            if (pre_tested_loop.body) {
+                std::cout << comma_sep << std::string(indent_level * 2, ' ') << "body = ";
+                ast_dump(pre_tested_loop.body.get(), false);
+            }
+            indent_level--;
+            std::cout << ")";
+        },
+        [&](AST::PostTestedLoop& post_tested_loop) {
+            std::cout << "AST::PostTestedLoop(" << std::endl;
+            indent_level++;
+            if (post_tested_loop.body) {
+                std::cout << std::string(indent_level * 2, ' ') << "body = ";
+                ast_dump(post_tested_loop.body.get(), false);
+            }
+            if (post_tested_loop.condition) {
+                std::cout << comma_sep << std::string(indent_level * 2, ' ') << "condition = ";
+                ast_dump(post_tested_loop.condition.get(), false);
+            }
+            indent_level--;
+            std::cout << ")";
+        },
         [&](AST::Return& ret_stmt) {
             std::cout << "AST::Return(";
             if (ret_stmt.value) {

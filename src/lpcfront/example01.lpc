@@ -10,5 +10,8 @@ void create() {
 }
 
 int add(int a, int b) {
-    return a + b;
+    int sum = 0;
+    while (sum < a + b)
+        sum++;
+    return sum;
 }

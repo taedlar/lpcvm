@@ -24,7 +24,8 @@ struct ASTNode;
  * - a std::shared_ptr (16 bytes) and a std::unique_ptr (8 bytes)
  * - a std::vector (24 bytes)
  *
- * Always use std::move when assigning or passing ASTNode
+ * Use std::move when passing ASTNode. Assignment from a mutable ASTNode
+ * also transfers ownership to support Bison's default action ($$ = $1).
  */
 namespace AST {
     struct Program {
@@ -47,8 +48,26 @@ namespace AST {
     struct Block {
         std::vector<ASTNode> stmts;
     };
+    struct Cond {
+        std::unique_ptr<ASTNode> condition;
+        std::unique_ptr<ASTNode> body;
+        std::unique_ptr<ASTNode> else_body; // optional else body
+    };
+    struct PreTestedLoop {
+        std::unique_ptr<ASTNode> condition;
+        std::unique_ptr<ASTNode> step;
+        std::unique_ptr<ASTNode> body;
+    };
+    struct PostTestedLoop {
+        std::unique_ptr<ASTNode> body;
+        std::unique_ptr<ASTNode> condition;
+    };
     struct Return {
         std::unique_ptr<ASTNode> value;
+    };
+    struct Break {
+    };
+    struct Continue {
     };
     struct VariableDecl {
         std::shared_ptr<SymbolTable::Entry> entry;
@@ -104,7 +123,12 @@ struct ASTNode {
         AST::FunctionDecl,
         AST::ParameterList,
         AST::Block,
+        AST::Cond,
+        AST::PreTestedLoop,
+        AST::PostTestedLoop,
         AST::Return,
+        AST::Break,
+        AST::Continue,
         AST::Assign,
         AST::UnaryOp,
         AST::BinaryOp,
@@ -119,6 +143,10 @@ struct ASTNode {
     ASTNode() = default;
     ASTNode(const ASTNode&) = delete;
     ASTNode& operator=(const ASTNode&) = delete;
+    // Bison's default rule action assigns from a mutable semantic value.
+    ASTNode& operator=(ASTNode& value) noexcept {
+        return *this = std::move(value);
+    }
     ASTNode(ASTNode&&) = default;
     ASTNode& operator=(ASTNode&&) = default;
 
