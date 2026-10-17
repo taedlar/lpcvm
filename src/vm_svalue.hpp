@@ -2,29 +2,16 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #pragma once
 #include <cstdint>
-#include <memory>
 #include <type_traits>
 #include <variant>
-#include <vector>
-#include <mutex>
-
-class LpcObject;
-class LpcMapping;
-class LpcArray;
+#include "lpc_types.hpp"
 
 using ArenaStringView = std::pair<uint32_t, uint32_t>; // first: offset, second: length in the arena
 
-template <typename T>
-struct LpcRef {
-    std::size_t index;
-
-    constexpr LpcRef(std::size_t index) : index(index) {}
-};
-
-using LpcObjectRef = LpcRef<LpcObject>;
-using LpcMappingRef = LpcRef<LpcMapping>;
-using LpcArrayRef = LpcRef<LpcArray>;
-
+/**
+ * @brief Get the index of type T in the variant Variant.
+ * Returns std::variant_size_v<Variant> if not found.
+ */
 template <typename Variant, typename T, std::size_t I = 0>
 constexpr std::size_t variant_index() {
     if constexpr (I >= std::variant_size_v<Variant>) {
@@ -38,7 +25,25 @@ constexpr std::size_t variant_index() {
     }
 }
 
-using SValueVariant = std::variant<
+/**
+ * @brief Represents a value that can hold any of the types allowed to be
+ * pushed onto the virtual machine's evaluation stack, as defined in
+ * SValueVariant.
+ *
+ * Inherits from std::variant to provide type-safe storage and access.
+ *
+ * LPC strings must be interned in the arena and are represented using
+ * ArenaStringView, which stores the offset and length of the string in
+ * the arena.
+ *
+ * LPC reference semantics are implemented using a LpcSharedPtr variant
+ * for mappings and arrays, and a generational handle variant for objects.
+ *
+ * Current implementation keeps the size of SValue at 16 bytes on 64-bit
+ * architectures: 8 bytes for std::variant index and 8 bytes for the
+ * value storage.
+ */
+using SValue = std::variant<
     std::monostate,
     int32_t,
     uint32_t,
@@ -47,67 +52,7 @@ using SValueVariant = std::variant<
     float,
     double,
     ArenaStringView,
-    LpcObjectRef,
     LpcMappingRef,
-    LpcArrayRef
+    LpcArrayRef,
+    LpcObjectRef
 >;
-
-class SValue: public SValueVariant {
-public:
-    SValue() = default;
-
-    static std::mutex object_refs_mutex;
-    static std::mutex mapping_refs_mutex;
-    static std::mutex array_refs_mutex;
-
-    static std::vector<std::weak_ptr<LpcObject>> all_object_refs; // strong references hold by LpcObject registry
-    static std::vector<std::shared_ptr<LpcMapping>> all_mapping_refs;
-    static std::vector<std::shared_ptr<LpcArray>> all_array_refs;
-
-    static std::vector<LpcObjectRef> free_object_refs;
-    static std::vector<LpcMappingRef> free_mapping_refs;
-    static std::vector<LpcArrayRef> free_array_refs;
-
-    // Resolve reference alternatives at compile time from their distinct types.
-    SValue(const std::shared_ptr<LpcObject>& obj) : SValue() {
-        std::lock_guard<std::mutex> lock(object_refs_mutex);
-        if (!free_object_refs.empty()) {
-            LpcObjectRef ref = free_object_refs.back();
-            free_object_refs.pop_back();
-            all_object_refs[ref.index] = obj;
-            emplace<variant_index<SValueVariant, LpcObjectRef>()>(ref);
-        } else {
-            LpcObjectRef ref = all_object_refs.size();
-            all_object_refs.push_back(obj);
-            emplace<variant_index<SValueVariant, LpcObjectRef>()>(ref);
-        }
-    }
-    
-    SValue(const std::shared_ptr<LpcMapping>& mapping) : SValue() {
-        std::lock_guard<std::mutex> lock(mapping_refs_mutex);
-        if (!free_mapping_refs.empty()) {
-            LpcMappingRef ref = free_mapping_refs.back();
-            free_mapping_refs.pop_back();
-            all_mapping_refs[ref.index] = mapping;
-            emplace<variant_index<SValueVariant, LpcMappingRef>()>(ref);
-        } else {
-            LpcMappingRef ref = all_mapping_refs.size();
-            all_mapping_refs.push_back(mapping);
-            emplace<variant_index<SValueVariant, LpcMappingRef>()>(ref);
-        }
-    }
-
-    SValue(const std::shared_ptr<LpcArray>& array) : SValue() {
-        std::lock_guard<std::mutex> lock(array_refs_mutex);
-        if (!free_array_refs.empty()) {
-            LpcArrayRef ref = free_array_refs.back();
-            free_array_refs.pop_back();
-            all_array_refs[ref.index] = array;
-            emplace<variant_index<SValueVariant, LpcArrayRef>()>(ref);
-        } else {
-            LpcArrayRef ref = all_array_refs.size();
-            all_array_refs.push_back(array);
-            emplace<variant_index<SValueVariant, LpcArrayRef>()>(ref);
-        }
-    }
-};

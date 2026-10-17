@@ -33,6 +33,7 @@ add_library(lpcvm
     vm_svalue.hpp
     vm_svalue.cpp
     vm_evaluation_stack.hpp
+    lpc_types.hpp
 )
 
 target_include_directories(lpcvm PUBLIC
