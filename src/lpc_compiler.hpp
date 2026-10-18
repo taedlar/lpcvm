@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "lpc_types.hpp"
 
 struct ASTNode;
 class ConstTable;

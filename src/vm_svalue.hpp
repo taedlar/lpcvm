@@ -54,5 +54,5 @@ using SValue = std::variant<
     ArenaStringView,
     LpcMappingRef,
     LpcArrayRef,
-    LpcObjectRef
+    LpcHandle<LpcObject>
 >;
