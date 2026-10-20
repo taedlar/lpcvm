@@ -2,67 +2,130 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 #include <gtest/gtest.h>
-#include <cstdint>
 #include <memory>
 #include <optional>
-#include <unordered_set>
-#include <vector>
+#include <type_traits>
 #include "lpc_types.hpp"
 
 TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
-    LpcHandle<LpcObject> handle{LpcHandle<LpcObject>::invalid_index, 0};
+    LpcObject::HandleType handle;
     std::optional<LpcObjectRef> locked;
     {
-        LpcObjectRef owner{std::make_shared<RuntimeClass>()};
+        auto owner = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
         handle = owner->handle();
         locked = handle.lock();
         ASSERT_TRUE(locked.has_value());
-        EXPECT_EQ((*locked)->handle().index, handle.index);
-        EXPECT_EQ((*locked)->handle().generation, handle.generation);
+        EXPECT_EQ((*locked)->handle().ptr, handle.ptr);
     }
 
     EXPECT_TRUE(handle.lock().has_value());
     locked.reset();
+    EXPECT_TRUE(handle.expired());
     EXPECT_FALSE(handle.lock().has_value());
 }
 
-TEST(LpcObjectHandleTest, ReusesSlotsAndRejectsStaleRelease) {
-    auto* object = reinterpret_cast<LpcObject*>(std::uintptr_t{1});
-    const auto stale_handle = LpcHandle<LpcObject>::create_handle(object);
-    LpcHandle<LpcObject>::release_handle(stale_handle);
-
-    const auto current_handle = LpcHandle<LpcObject>::create_handle(object);
-    EXPECT_EQ(current_handle.index, stale_handle.index);
-    EXPECT_NE(current_handle.generation, stale_handle.generation);
-
-    LpcHandle<LpcObject>::release_handle(stale_handle);
-    const auto other_handle = LpcHandle<LpcObject>::create_handle(object);
-    EXPECT_NE(other_handle.index, current_handle.index);
-
-    LpcHandle<LpcObject>::release_handle(current_handle);
-    LpcHandle<LpcObject>::release_handle(other_handle);
+TEST(LpcObjectHandleTest, HandleOutlivesObject) {
+    auto owner = std::make_optional<LpcObjectRef>(lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>()));
+    auto h1 = (*owner)->handle();
+    auto h2 = h1;
+    owner.reset();
+    EXPECT_FALSE(h1.lock().has_value());
+    h1 = LpcObject::HandleType{};
+    EXPECT_TRUE(h2.expired());
 }
 
-TEST(LpcObjectHandleTest, AllocatesAndRecyclesSlotsOnOwningThread) {
-    constexpr std::size_t handle_count = 9000;
-    auto* object = reinterpret_cast<LpcObject*>(std::uintptr_t{1});
-    std::vector<LpcHandle<LpcObject>> handles;
-    handles.reserve(handle_count);
-    for (std::size_t i = 0; i < handle_count; ++i) {
-        handles.push_back(LpcHandle<LpcObject>::create_handle(object));
-    }
+// Thread-confinement contract: counts are plain integers, not atomics.
+static_assert(std::is_same_v<decltype(LpcObjectRef::ControlBlock::ref_count), uint32_t>);
+static_assert(std::is_same_v<decltype(LpcObjectRef::ControlBlock::weak_count), uint32_t>);
+static_assert(sizeof(LpcObjectRef::ControlBlock) == 8);
+static_assert(sizeof(LpcObjectRef) == sizeof(void*));
+static_assert(sizeof(LpcObject::HandleType) == sizeof(void*));
 
-    std::unordered_set<uint32_t> indices;
-    for (const auto handle : handles) {
-        EXPECT_TRUE(indices.insert(handle.index).second);
+TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
+    auto a = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    EXPECT_EQ(a.use_count(), 1u);
+    {
+        LpcObjectRef b = a;
+        EXPECT_EQ(a.use_count(), 2u);
+        LpcObjectRef c = std::move(b);
+        EXPECT_EQ(a.use_count(), 2u);
+        EXPECT_EQ(b.use_count(), 0u);
     }
+    EXPECT_EQ(a.use_count(), 1u);
+    a = a;
+    EXPECT_EQ(a.use_count(), 1u);
+}
 
-    for (const auto handle : handles) {
-        LpcHandle<LpcObject>::release_handle(handle);
+TEST(LpcHandleTest, CopyAndDestroyTrackWeakCount) {
+    auto owner = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    auto h = owner->handle();
+    EXPECT_EQ(h.weak_count(), 1u);
+    {
+        auto h2 = h;
+        EXPECT_EQ(h.weak_count(), 2u);
+        auto h3 = std::move(h2);
+        EXPECT_EQ(h.weak_count(), 2u);
+        h3 = h;
+        EXPECT_EQ(h.weak_count(), 2u);
     }
+    EXPECT_EQ(h.weak_count(), 1u);
+    EXPECT_EQ(h.use_count(), 1u); // weak handles never extend lifetime
+}
 
-    const auto recycled = LpcHandle<LpcObject>::create_handle(object);
-    EXPECT_EQ(recycled.index, handles.back().index);
-    EXPECT_NE(recycled.generation, handles.back().generation);
-    LpcHandle<LpcObject>::release_handle(recycled);
+TEST(LpcHandleTest, LockIncrementsStrongCountAndDefaultHandleIsExpired) {
+    LpcObject::HandleType empty;
+    EXPECT_TRUE(empty.expired());
+    EXPECT_FALSE(empty.lock().has_value());
+
+    auto owner = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    auto h = owner->handle();
+    {
+        auto locked = h.lock();
+        ASSERT_TRUE(locked.has_value());
+        EXPECT_EQ(owner.use_count(), 2u);
+    }
+    EXPECT_EQ(owner.use_count(), 1u);
+}
+
+TEST(LpcHandleTest, HandleHeldAcrossLastStrongReleaseExpiresSafely) {
+    auto owner = std::make_optional<LpcObjectRef>(lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>()));
+    auto h = (*owner)->handle();
+    owner.reset();
+    EXPECT_TRUE(h.expired());
+    EXPECT_EQ(h.use_count(), 0u);
+    EXPECT_EQ(h.weak_count(), 1u); // only this handle keeps the block alive
+}
+
+namespace {
+struct Probe {
+    Probe(bool* destroyed, std::optional<LpcHandle<Probe, LpcSharedPtr<Probe>>>* self_handle)
+        : destroyed_(destroyed), self_handle_(self_handle) {}
+    ~Probe() {
+        *destroyed_ = true;
+        self_handle_->reset(); // handle destroyed re-entrantly during ~Probe must not free the block
+    }
+    bool* destroyed_;
+    std::optional<LpcHandle<Probe, LpcSharedPtr<Probe>>>* self_handle_;
+};
+}
+
+TEST(LpcSharedPtrTest, HandleReleasedInsideDestructorDoesNotDoubleFree) {
+    bool destroyed = false;
+    std::optional<LpcHandle<Probe, LpcSharedPtr<Probe>>> self;
+    {
+        auto p = lpc_make_shared<Probe>(&destroyed, &self);
+        self.emplace(p.ptr);
+    }
+    EXPECT_TRUE(destroyed);
+    EXPECT_FALSE(self.has_value());
+}
+
+TEST(LpcSharedPtrTest, DefaultConstructedIsNull) {
+    LpcObjectRef p;
+    EXPECT_EQ(p.ptr, nullptr);
+    EXPECT_EQ(p.use_count(), 0u);
+    LpcArrayRef a;
+    EXPECT_EQ(a.ptr, nullptr);
+    auto copy = p;
+    EXPECT_EQ(copy.ptr, nullptr);
 }
