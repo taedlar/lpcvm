@@ -30,6 +30,11 @@ add_library(lpcvm
     vm_runtime_class.cpp
     virtual_table.hpp
     virtual_table.cpp
+    vm_svalue.hpp
+    vm_svalue.cpp
+    vm_evaluation_stack.hpp
+    lpc_types.hpp
+    lpc_object.cpp
 )
 
 target_include_directories(lpcvm PUBLIC
