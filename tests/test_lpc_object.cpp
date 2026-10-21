@@ -6,6 +6,7 @@
 #include <optional>
 #include <type_traits>
 #include "lpc_types.hpp"
+#include "vm_runtime_class.hpp"
 
 TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;

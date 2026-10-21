@@ -9,6 +9,8 @@
 #include "const_pool.hpp"
 #include "virtual_table.hpp"
 
+class BytecodeView;
+
 class RuntimeClass {
 public:
     RuntimeClass()
@@ -33,9 +35,9 @@ public:
         return total;
     }
 
-    bool lookup_method (const std::string_view name, VirtualTable::Binding& out_binding) const {
-        return virtual_table_ ? virtual_table_->lookup(name, out_binding) : false;
-    }
+    const ConstPool* const_pool() const { return const_pool_.get(); }
+
+    bool lookup_method (const std::string_view name, BytecodeView* entry) const;
 
 private:
     friend class LpcCompiler;

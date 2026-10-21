@@ -13,7 +13,6 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include "vm_runtime_class.hpp"
 
 /**
  * @brief A shared pointer implementation for LPC compound data types's
@@ -219,6 +218,8 @@ struct LpcHandle {
         return RefType::retain(ptr);
     }
 };
+
+class RuntimeClass;
 
 class LpcObject {
 public:

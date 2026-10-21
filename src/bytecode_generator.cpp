@@ -3,11 +3,43 @@
 
 #include "config.hpp"
 #include "bytecode_generator.hpp"
+#include <variant>
 
-namespace lpcvm {
-    void FunctionBuilder::emit_body(const ASTNode* body) const {
-        if (!body)
-            return;
-        // TODO: Implement function body emission
-    }
-} // namespace lpcvm
+void lpcvm::BytecodeGenerator::emit_statement(const ASTNode& stmt) {
+    std::visit(overloaded {
+        [&](const AST::Return& ret_stmt) {
+            if (ret_stmt.expr) {
+                emit_statement(*ret_stmt.expr);
+                emit(F_RETURN, 1);
+            }
+            else {
+                emit(F_RETURN, 0);
+            }
+        },
+        [&](const AST::NumericConst& constant) {
+            std::visit(overloaded {
+                [&](const int32_t& int_const)       { emit(F_CONST_I4, constant.index); },
+                [&](const uint32_t& uint_const)     { emit(F_CONST_U4, constant.index); },
+                [&](const int64_t& int64_const)     { emit(F_CONST_I8, constant.index); },
+                [&](const uint64_t& uint64_const)   { emit(F_CONST_U8, constant.index); },
+                [&](const float& float_const)       { emit(F_CONST_F4, constant.index); },
+                [&](const double& double_const)     { emit(F_CONST_F8, constant.index); },
+            }, constant.value);
+        },
+        [&](const AST::BinaryOp& bin_op) {
+            emit_statement(*bin_op.lhs);
+            emit_statement(*bin_op.rhs);
+            emit(F_BIN_OP, bin_op.arg);
+        },
+        [&](auto&) {
+            // Handle other statement types
+        }
+    }, stmt.node);
+}
+
+void lpcvm::FunctionBuilder::emit_body(const AST::Block& body) {
+    if (body.stmts.empty())
+        return;
+    for(auto& stmt: body.stmts)
+        emit_statement(stmt);
+}

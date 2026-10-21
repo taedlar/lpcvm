@@ -21,6 +21,7 @@
     #include <string>
     #include <memory>
 
+    #include "vm_opcodes.hpp"
     #include "symbol_table.hpp"
     #include "ast_node.hpp"
     #include "const_pool.hpp"
@@ -450,7 +451,7 @@ stmt
 comma_expr
     : expr0
     | comma_expr ',' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{oparg::COMMA, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     ;
 
 expr0
@@ -459,31 +460,31 @@ expr0
     | expr0 '?' expr0 ':' expr0 %prec '?'
         { $$ = AST::TernaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3)), std::make_unique<ASTNode>(std::move($5))}; }
     | expr0 L_LOR expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 L_LAND expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '|' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '^' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '&' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 L_LSH expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 L_RSH expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '+' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{oparg::ADD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '-' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{oparg::SUB, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '*' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{oparg::MUL, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '/' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{oparg::DIV, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 '%' expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{oparg::MOD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | expr0 L_ORDER expr0
-        { $$ = AST::BinaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
     | L_INC lvalue %prec L_NOT
         { $$ = AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}; }
     | L_DEC lvalue %prec L_NOT
@@ -500,9 +501,32 @@ expr0
         { $$ = AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}; }
     | expr4
     | L_INTEGER
-        { $$ = AST::Constant{ $1 }; }
+        {
+            auto consts = yyget_extra(yyscanner)->consts;
+            if ($1 > 0) {
+                // determine if $1 fits in an unsigned 32-bit integer
+                if ($1 > std::numeric_limits<uint32_t>::min() && $1 < std::numeric_limits<uint32_t>::max()) {
+                    uint32_t u32 = static_cast<uint32_t>($1);
+                    $$ = AST::NumericConst{ u32, consts->find_or_add(u32) };
+                }
+                else
+                    $$ = AST::NumericConst{ $1, consts->find_or_add($1) };
+            }
+            else {
+                // determine if $1 fits in a signed 32-bit integer
+                if ($1 > std::numeric_limits<int32_t>::min() && $1 < std::numeric_limits<int32_t>::max()) {
+                    int32_t i32 = static_cast<int32_t>($1);
+                    $$ = AST::NumericConst{ i32, consts->find_or_add(i32) };
+                }
+                else
+                    $$ = AST::NumericConst{ $1, consts->find_or_add($1) };
+            }
+        }
     | L_REAL_NUMBER
-        { $$ = AST::Constant{ $1 }; }    
+        {
+            auto consts = yyget_extra(yyscanner)->consts;
+            $$ = AST::NumericConst{ $1, consts->find_or_add($1) };
+        }    
     | str_literal
         { $$ = AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts}; }
     ;

@@ -209,9 +209,30 @@ static void ast_dump(const ASTNode* ast, bool newline) {
         },
         [&](const AST::Return& ret_stmt) {
             std::cout << "AST::Return(";
-            if (ret_stmt.value) {
-                ast_dump(ret_stmt.value.get(), false);
+            if (ret_stmt.expr) {
+                ast_dump(ret_stmt.expr.get(), false);
             }
+            std::cout << ")";
+        },
+        [&](const AST::BinaryOp& bin_op) {
+            std::cout << "AST::BinaryOp(" << std::endl;
+            indent_level++;
+            std::cout << std::string(indent_level * 2, ' ') << "oparg = " << bin_op.arg << std::endl;
+            std::cout << std::string(indent_level * 2, ' ') << "lhs = ";
+            ast_dump(bin_op.lhs.get(), false);
+            std::cout << comma_sep << std::string(indent_level * 2, ' ') << "rhs = ";
+            ast_dump(bin_op.rhs.get(), false);
+            indent_level--;
+            std::cout << ")";
+        },
+        [&](const AST::NumericConst& constant) {
+            std::cout << "AST::NumericConst(";
+            std::cout << "variant = " << constant.value.index() << ", ";
+            std::cout << "value = ";
+            std::visit( overloaded {
+                [&](auto& value) { std::cout << value; }
+            }, constant.value);
+            std::cout << ", index = " << constant.index;
             std::cout << ")";
         },
         [&](const AST::FunctionCall& func_call) {
