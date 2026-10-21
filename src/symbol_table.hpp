@@ -36,6 +36,8 @@ typedef union symbol_signature_u {
     } b;
 } SymbolSignature;
 
+class VirtualTable;
+
 /**
  * \brief Represents a symbol table for managing variable and function symbols within a scope.
  *
@@ -80,6 +82,12 @@ public:
     void emplace (std::string_view mangled_name, const std::shared_ptr<Entry>& entry);
 
     std::size_t size() const { return symbols_.size(); }
+
+    /**
+     * \brief Emits symbolic bindings for the symbols in the current scope to the given virtual table.
+     * \param vt A shared pointer to the VirtualTable where the symbolic bindings will be emitted.
+     */
+    void emit_symbolic_bindings(std::shared_ptr<VirtualTable> vt) const;
 
 private:
     std::shared_ptr<SymbolTable> enclosing_scope_;

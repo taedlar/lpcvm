@@ -34,6 +34,8 @@ add_library(lpcvm
     vm_svalue.cpp
     lpc_types.hpp
     lpc_object.cpp
+    bytecode_generator.hpp
+    bytecode_generator.cpp
 )
 
 target_include_directories(lpcvm PUBLIC

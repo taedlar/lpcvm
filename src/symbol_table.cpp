@@ -17,3 +17,9 @@ std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(std::string_view key) co
 void SymbolTable::emplace(std::string_view key, const std::shared_ptr<SymbolTable::Entry>& entry) {
     symbols_[std::string(key)] = entry;
 }
+
+void SymbolTable::emit_symbolic_bindings(std::shared_ptr<VirtualTable> vt) const {
+    for (const auto& [key, entry] : symbols_) {
+        //vt->bind(key, entry);
+    }
+}

@@ -11,10 +11,14 @@
 
 class RuntimeClass {
 public:
-    RuntimeClass() = default;
+    RuntimeClass()
+        : num_variables_(0) {};
     ~RuntimeClass() = default;
 
     using MemberIndexType = ConstPool::IndexType; // index to member name in the constant pool
+
+    void set_num_variables(MemberIndexType num) { num_variables_ = num; }
+    MemberIndexType num_variables() const { return num_variables_; }
 
     void inherit_from(std::shared_ptr<RuntimeClass> parent);
 
@@ -34,9 +38,10 @@ public:
     }
 
 private:
+    friend class LpcCompiler;
     std::vector<uint8_t> bytecode_;
     std::vector<std::shared_ptr<RuntimeClass>> inherits_;
-    std::unique_ptr<ConstPool> const_pool_;
-    std::unique_ptr<VirtualTable> virtual_table_;
+    std::shared_ptr<ConstPool> const_pool_;
+    std::shared_ptr<VirtualTable> virtual_table_;
     MemberIndexType num_variables_; // (not including inherited variables)
 };

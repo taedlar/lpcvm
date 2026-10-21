@@ -36,6 +36,7 @@ public:
     };
 
     std::shared_ptr<ASTNode> frontend (const std::string& source) noexcept;
+    std::shared_ptr<RuntimeClass> backend() noexcept;
 
     const std::vector<Message>& messages() const { return messages_; }
 
@@ -44,7 +45,7 @@ private:
     std::unique_ptr<Impl> pimpl_;
     std::vector<Message> messages_;
 
-    std::unique_ptr<ConstTable> consts_;
+    std::shared_ptr<ConstTable> consts_;
     std::shared_ptr<SymbolTable> globals_;
     std::shared_ptr<ASTNode> ast_;
 };
