@@ -25,8 +25,8 @@ TEST(ASTNodeTest, MutableAssignmentTransfersOwnership) {
 
 TEST(LpcCompilerTest, ImplicitBlockAction) {
     LpcCompiler compiler;
-    auto* root = compiler.frontend("void f() { { return 42; } }");
-    ASSERT_NE(root, nullptr);
+    auto root = compiler.frontend("void f() { { return 42; } }");
+    ASSERT_NE(root.get(), nullptr);
     auto& defs = std::get<AST::Program>(root->node).defs;
     ASSERT_EQ(defs.size(), 1);
     auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
