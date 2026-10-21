@@ -66,11 +66,16 @@ public:
     }
 };
 
-class BytecodeView {
+struct BytecodeView {
 public:
+    friend class RuntimeClass;
+    BytecodeView() : start_(nullptr), end_(nullptr), const_pool_(nullptr) {}
     BytecodeView(const uint8_t* bytecode, std::size_t size, const ConstPool* const_pool)
         : start_(bytecode), end_(bytecode + size), const_pool_(const_pool) {}
+    BytecodeView(const BytecodeView&) = default;
+    BytecodeView& operator=(const BytecodeView&) = default;
 
+    std::size_t length() const { return start_ ? (end_ - start_) : 0; }
     void execute(EvaluationStack& stack);
 
 private:

@@ -63,7 +63,7 @@ namespace AST {
         std::unique_ptr<ASTNode> condition;
     };
     struct Return {
-        std::unique_ptr<ASTNode> value;
+        std::unique_ptr<ASTNode> expr;
     };
     struct Break {
     };
@@ -84,6 +84,7 @@ namespace AST {
         std::unique_ptr<ASTNode> operand;
     };
     struct BinaryOp {
+        int arg; // namespace oparg
         std::unique_ptr<ASTNode> lhs;
         std::unique_ptr<ASTNode> rhs;
     };
@@ -99,8 +100,9 @@ namespace AST {
         std::shared_ptr<SymbolTable::Entry> entry; // the function being called
         std::unique_ptr<ASTNode> arguments; // List
     };
-    struct Constant {
+    struct NumericConst {
         ConstTable::NumericType value;
+        ConstPool::IndexType index;
     };
     struct StringLiteral {
         ConstPool::IndexType idx;
@@ -135,7 +137,7 @@ struct ASTNode {
         AST::TernaryOp,
         AST::List,
         AST::FunctionCall,
-        AST::Constant,
+        AST::NumericConst,
         AST::StringLiteral,
         AST::Variable
     >;

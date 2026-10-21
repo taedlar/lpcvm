@@ -15,7 +15,7 @@ TEST(VMExecutorTest, BasicExecution) {
     std::vector<uint8_t> bytecode = { // return 123 + 456;
         static_cast<uint8_t>(Opcode::F_CONST_I4), static_cast<uint8_t>(c1),
         static_cast<uint8_t>(Opcode::F_CONST_I4), static_cast<uint8_t>(c2),
-        static_cast<uint8_t>(Opcode::F_BIN_OP), static_cast<uint8_t>(BinaryOparg::ADD),
+        static_cast<uint8_t>(Opcode::F_BIN_OP), static_cast<uint8_t>(oparg::ADD),
         static_cast<uint8_t>(Opcode::F_RETURN), 1,
     };
     // Example test for basic execution

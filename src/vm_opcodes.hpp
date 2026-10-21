@@ -32,17 +32,19 @@ enum Opcode: uint8_t {
     INVALID_VALUE // start of invalid opcode, this must come last
 };
 
+namespace oparg {
+
 /// @brief The enum definition for binary operation arguments used by the
 /// F_BIN_OP opcode. The consolidated binary operation argument follows
 /// the design style of Python's bytecode.
-enum BinaryOparg: uint8_t {
-    ADD = 0,
-    INPLACE_ADD = 1,
-    SUB = 2,
-    INPLACE_SUB = 3,
-    MUL = 4,
-    INPLACE_MUL = 5,
-    DIV = 6,
-    INPLACE_DIV = 7,
-    INVALID_BINARY_OP
+enum BinaryOpArg {
+    COMMA,
+    ADD,
+    SUB,
+    MUL,
+    DIV,
+    MOD,
+    INVALID_BINARY_OPARG
 };
+
+} // namespace oparg

@@ -110,7 +110,7 @@ std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
                 // Generate the bytecode for the function body
                 binding.bytecode_offset = rt_class->bytecode_.size();
                 lpcvm::FunctionBuilder func_builder(rt_class->bytecode_);
-                func_builder.emit_body(func_def.body.get());
+                func_builder.emit_body(std::get<AST::Block>(func_def.body->node));
                 binding.bytecode_length = rt_class->bytecode_.size() - binding.bytecode_offset;
                 rt_class->virtual_table_->emplace(func_decl.entry->name, binding);
             }

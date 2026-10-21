@@ -1,17 +1,5 @@
 // Example LPC source file for testing the parser
 
-inherit "/std/object" as base;
-
-int add(int a, int b);
-
-void create() {
-    write ("Hello,\tworld!");
-    int result = add(1, 2);
-}
-
-int add(int a, int b) {
-    int sum = 0;
-    while (sum < a + b)
-        sum++;
-    return sum;
+int add() {
+    return 123 + 456;
 }

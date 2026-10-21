@@ -4,6 +4,7 @@
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <stdexcept>
+#include <type_traits>
 
 /**
  * BytecodeView::execute() implementation (a token-threaded virtual machine)
@@ -135,22 +136,28 @@ void BytecodeView::execute(EvaluationStack& stack) {
         sp = stack.size();
         auto& rhs = stack[sp - 1];
         auto& lhs = stack[sp - 2];
-        switch (oparg) {
-            case BinaryOparg::ADD:
-                result = std::get<int32_t>(lhs) + std::get<int32_t>(rhs);
-                break;
-            case BinaryOparg::SUB:
-                result = std::get<int32_t>(lhs) - std::get<int32_t>(rhs);
-                break;
-            case BinaryOparg::MUL:
-                result = std::get<int32_t>(lhs) * std::get<int32_t>(rhs);
-                break;
-            case BinaryOparg::DIV:
-                result = std::get<int32_t>(lhs) / std::get<int32_t>(rhs);
-                break;
-            default:
-                throw std::runtime_error("Invalid binary operation");
-        }
+        result = std::visit([&](const auto& lhs_value, const auto& rhs_value) -> SValue {
+            using LhsType = std::decay_t<decltype(lhs_value)>;
+            using RhsType = std::decay_t<decltype(rhs_value)>;
+            if constexpr (std::is_same_v<LhsType, RhsType> &&
+                (std::is_same_v<LhsType, int32_t> || std::is_same_v<LhsType, uint32_t>)) {
+                switch (oparg) {
+                    case oparg::ADD:
+                        return SValue(lhs_value + rhs_value);
+                    case oparg::SUB:
+                        return SValue(lhs_value - rhs_value);
+                    case oparg::MUL:
+                        return SValue(lhs_value * rhs_value);
+                    case oparg::DIV:
+                        return SValue(lhs_value / rhs_value);
+                    default:
+                        throw std::runtime_error("Invalid binary operation");
+                }
+            }
+            else {
+                throw std::runtime_error("Unsupported binary operand types");
+            }
+        }, lhs, rhs);
         stack.pop_n(2);
         stack.push(result);
         VM_DISPATCH();
