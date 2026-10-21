@@ -47,6 +47,7 @@ public:
 
 private:
     friend class SymbolTable;
+    friend class LpcCompiler;
 
     /**
      * \brief Adds a new method binding to the virtual table.
