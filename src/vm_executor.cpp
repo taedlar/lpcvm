@@ -69,55 +69,90 @@ void BytecodeView::execute(EvaluationStack& stack) {
 
     VM_HANDLER(F_PUSH_N) {
         uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to push onto the VM stack
-        // TODO: push num_locals onto the VM stack
+        for (uint32_t i = 0; i < num_locals; ++i) {
+            stack.push(SValue());
+        }
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_POP_N) {
         uint32_t num_locals = (extended_arg << 8) | *pc++; // number of local variables to pop from the VM stack
-        // TODO: pop num_locals from the VM stack
+        for (uint32_t i = 0; i < num_locals; ++i) {
+            stack.pop(); // dtor of svalue variant will be called here, freeing any resources held by the value
+        }
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_I4) {
         uint32_t index = (extended_arg << 8) | *pc++;
-        uint32_t value = const_pool_->fetch<int32_t>(index); // TODO: push an int32_t value onto the VM stack
+        int32_t value = const_pool_->fetch<int32_t>(index);
+        stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_I8) {
         uint32_t index = (extended_arg << 8) | *pc++;
-        uint64_t value = const_pool_->fetch<int64_t>(index); // TODO: push an int64_t value onto the VM stack
+        int64_t value = const_pool_->fetch<int64_t>(index);
+        stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_U4) {
         uint32_t index = (extended_arg << 8) | *pc++;
-        uint32_t value = const_pool_->fetch<uint32_t>(index); // TODO: push an uint32_t value onto the VM stack
+        uint32_t value = const_pool_->fetch<uint32_t>(index);
+        stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_U8) {
         uint32_t index = (extended_arg << 8) | *pc++;
-        uint64_t value = const_pool_->fetch<uint64_t>(index); // TODO: push an uint64_t value onto the VM stack
+        uint64_t value = const_pool_->fetch<uint64_t>(index);
+        stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_F4) {
         uint32_t index = (extended_arg << 8) | *pc++;
-        float value = const_pool_->fetch<float>(index); // TODO: push a float value onto the VM stack
+        float value = const_pool_->fetch<float>(index);
+        stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_F8) {
         uint32_t index = (extended_arg << 8) | *pc++;
-        double value = const_pool_->fetch<double>(index); // TODO: push a double value onto the VM stack
+        double value = const_pool_->fetch<double>(index);
+        stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_STR) {
         uint32_t index = (extended_arg << 8) | *pc++;
         auto value = const_pool_->fetch_string(index); // TODO: push a string value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_BIN_OP) {
+        uint32_t oparg = (extended_arg << 8) | *pc++; // fetch the binary operation code
+        auto rhs = stack.pop();
+        auto lhs = stack.pop();
+        SValue result;
+        switch (oparg) {
+            case BinaryOparg::ADD:
+                result = std::get<int32_t>(lhs) + std::get<int32_t>(rhs);
+                break;
+            case BinaryOparg::SUB:
+                result = std::get<int32_t>(lhs) - std::get<int32_t>(rhs);
+                break;
+            case BinaryOparg::MUL:
+                result = std::get<int32_t>(lhs) * std::get<int32_t>(rhs);
+                break;
+            case BinaryOparg::DIV:
+                result = std::get<int32_t>(lhs) / std::get<int32_t>(rhs);
+                break;
+            default:
+                throw std::runtime_error("Invalid binary operation");
+        }
+        stack.push(result);
         VM_DISPATCH();
     }
 
