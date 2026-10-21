@@ -21,12 +21,28 @@
     X(F_CONST_F4) \
     X(F_CONST_F8) \
     X(F_CONST_STR) \
+    X(F_BIN_OP) \
 
-/// \brief The enum definition for opcodes using the X-macro technique. This enum must be 0-based,
-/// with the first opcode having the value 0.
+/// \brief The enum definition for opcodes using the X-macro technique.
+/// This enum must be 0-based, with the first opcode having the value 0.
 enum Opcode: uint8_t {
 #define AS_ENUM(op) op,
     ALL_OPCODES(AS_ENUM)
 #undef AS_ENUM
     INVALID_VALUE // start of invalid opcode, this must come last
+};
+
+/// @brief The enum definition for binary operation arguments used by the
+/// F_BIN_OP opcode. The consolidated binary operation argument follows
+/// the design style of Python's bytecode.
+enum BinaryOparg: uint8_t {
+    ADD = 0,
+    INPLACE_ADD = 1,
+    SUB = 2,
+    INPLACE_SUB = 3,
+    MUL = 4,
+    INPLACE_MUL = 5,
+    DIV = 6,
+    INPLACE_DIV = 7,
+    INVALID_BINARY_OP
 };

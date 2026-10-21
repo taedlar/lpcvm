@@ -32,7 +32,6 @@ add_library(lpcvm
     virtual_table.cpp
     vm_svalue.hpp
     vm_svalue.cpp
-    vm_evaluation_stack.hpp
     lpc_types.hpp
     lpc_object.cpp
 )
