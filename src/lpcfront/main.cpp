@@ -96,7 +96,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
     if (newline)
         std::cout << std::string(indent_level * 2, ' ');
     std::visit (overloaded {
-        [&](AST::Program& program) {
+        [&](const AST::Program& program) {
             std::cout << "AST::Program([";
             indent_level++; sep = "\n";
             for (auto& def : program.defs) {
@@ -107,7 +107,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << "])";
         },
-        [&](AST::Inheritance& inh) {
+        [&](const AST::Inheritance& inh) {
             std::cout << "AST::Inheritance(" << std::endl;
             indent_level++;
             if (inh.entry->value.has_value()) {
@@ -119,7 +119,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << ")";
         },
-        [&](AST::FunctionDef& func) {
+        [&](const AST::FunctionDef& func) {
             std::cout << "AST::FunctionDef(" << std::endl;
             indent_level++;
             if (func.decl) {
@@ -133,7 +133,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << ")";
         },
-        [&](AST::FunctionDecl& func_decl) {
+        [&](const AST::FunctionDecl& func_decl) {
             std::cout << "AST::FunctionDecl(" << std::endl;
             indent_level++;
             if (func_decl.entry) {
@@ -146,7 +146,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << ")";
         },
-        [&](AST::ParameterList& param_list) {
+        [&](const AST::ParameterList& param_list) {
             std::cout << "AST::ParameterList([";
             indent_level++; sep = "\n";
             for (auto& param : param_list.parameters) {
@@ -157,14 +157,14 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << "])";
         },
-        [&](AST::VariableDecl& var_decl) {
+        [&](const AST::VariableDecl& var_decl) {
             std::cout << "AST::VariableDecl(";
             if (var_decl.entry) {
                 std::cout << "name = \"" << var_decl.entry->name << "\"";
             }
             std::cout << ")";
         },
-        [&](AST::Block& block) {
+        [&](const AST::Block& block) {
             std::cout << "AST::Block([";
             indent_level++; sep = "\n";
             for (auto& stmt : block.stmts) {
@@ -175,7 +175,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << "])";
         },
-        [&](AST::PreTestedLoop& pre_tested_loop) {
+        [&](const AST::PreTestedLoop& pre_tested_loop) {
             std::cout << "AST::PreTestedLoop(" << std::endl;
             indent_level++;
             if (pre_tested_loop.condition) {
@@ -193,7 +193,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << ")";
         },
-        [&](AST::PostTestedLoop& post_tested_loop) {
+        [&](const AST::PostTestedLoop& post_tested_loop) {
             std::cout << "AST::PostTestedLoop(" << std::endl;
             indent_level++;
             if (post_tested_loop.body) {
@@ -207,22 +207,22 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level--;
             std::cout << ")";
         },
-        [&](AST::Return& ret_stmt) {
+        [&](const AST::Return& ret_stmt) {
             std::cout << "AST::Return(";
             if (ret_stmt.value) {
                 ast_dump(ret_stmt.value.get(), false);
             }
             std::cout << ")";
         },
-        [&](AST::FunctionCall& func_call) {
+        [&](const AST::FunctionCall& func_call) {
             std::cout << "AST::FunctionCall(" << std::endl;
             indent_level++;
             std::cout << std::string(indent_level * 2, ' ') << "name = \"" << func_call.entry->name << "\"";
             indent_level--;
             std::cout << ")";
         },
-        [&](auto&) {
-            std::cout << "<NotImplemented>";
+        [&](auto& node) {
+            std::cout << "<NotImplemented: " << ast->node.index() << ">";
         }
     }, ast->node);
 }
