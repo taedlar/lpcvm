@@ -11,8 +11,34 @@ private:
     std::vector<SValue> stack_;
 
 public:
+    SValue& operator[](std::size_t index) {
+        if (index >= stack_.size()) {
+            throw std::runtime_error("Evaluation stack index out of bounds");
+        }
+        return stack_[index];
+    }
+
+    const std::size_t CHUNK_SIZE = 16;
+
+    void push_n(std::size_t n) {
+        if (stack_.size() + n > stack_.capacity()) {
+            stack_.reserve(stack_.size() + CHUNK_SIZE);
+        }
+        stack_.resize(stack_.size() + n);
+    }
+
     void push(const SValue& value) {
+        if (stack_.size() + 1 > stack_.capacity()) {
+            stack_.reserve(stack_.size() + CHUNK_SIZE);
+        }
         stack_.push_back(value);
+    }
+
+    void pop_n(std::size_t n) {
+        if (n > stack_.size()) {
+            throw std::runtime_error("Evaluation stack underflow");
+        }
+        stack_.resize(stack_.size() - n);
     }
 
     SValue pop() {
