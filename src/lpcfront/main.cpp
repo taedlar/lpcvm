@@ -14,7 +14,7 @@
 #include "vm_svalue.hpp"
 
 static void log_vm_info();
-static void ast_dump(ASTNode* ast, bool newline);
+static void ast_dump(const ASTNode* ast, bool newline);
 
 int main(int argc, char* argv[]) {
     int log_level = spdlog::level::warn;
@@ -55,9 +55,9 @@ int main(int argc, char* argv[]) {
     }
 
     LpcCompiler compiler;
-    ASTNode* ast = compiler.frontend(source.str());
+    auto ast = compiler.frontend(source.str());
     if (ast) {
-        ast_dump(ast, true);
+        ast_dump(ast.get(), true);
         std::cout << std::endl;
         return EXIT_SUCCESS;
     }
@@ -88,7 +88,7 @@ static void log_vm_info() {
 const char* no_sep = "";
 const char* comma_sep = ",\n";
 
-static void ast_dump(ASTNode* ast, bool newline) {
+static void ast_dump(const ASTNode* ast, bool newline) {
     static int indent_level = 0;
     const char* sep = no_sep;
     if (!ast)

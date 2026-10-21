@@ -59,7 +59,7 @@ private:
 LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
 LpcCompiler::~LpcCompiler() = default;
 
-ASTNode* LpcCompiler::frontend (const std::string& source) noexcept {
+std::shared_ptr<ASTNode> LpcCompiler::frontend (const std::string& source) noexcept {
     try {
         consts_ = std::make_unique<ConstTable>();
         globals_ = std::make_shared<SymbolTable>(nullptr); // scoped
@@ -80,5 +80,5 @@ ASTNode* LpcCompiler::frontend (const std::string& source) noexcept {
         messages_.push_back({-1, -1, e.what()});
         return nullptr;
     }
-    return ast_.get();
+    return ast_;
 }

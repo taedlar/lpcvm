@@ -35,7 +35,7 @@ public:
         std::string text;
     };
 
-    ASTNode* frontend (const std::string& source) noexcept;
+    std::shared_ptr<ASTNode> frontend (const std::string& source) noexcept;
 
     const std::vector<Message>& messages() const { return messages_; }
 
