@@ -11,9 +11,16 @@
 namespace lpcvm {
 
     class BytecodeGenerator {
+    private:
+        std::vector<uint8_t>& bytecode_;
+        enum Context {
+            STATEMENT,
+            EXPRESSION
+        } context_;
+
     public:
         BytecodeGenerator(std::vector<uint8_t>& bytecode)
-            : bytecode_(bytecode) {}
+            : bytecode_(bytecode), context_(STATEMENT) {}
 
         /**
          * @brief Emits a bytecode instruction with its argument.
@@ -47,8 +54,7 @@ namespace lpcvm {
          */
         BytecodeGenerator& emit_statement(const ASTNode& stmt);
 
-    private:
-        std::vector<uint8_t>& bytecode_;
+        BytecodeGenerator& emit_expression(const ASTNode& expr);
     };
 
     class FunctionBuilder: public BytecodeGenerator {
