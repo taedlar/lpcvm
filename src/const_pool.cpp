@@ -11,17 +11,17 @@ ConstPool::IndexType ConstTable::find_or_add(const ValueType& value) {
         if (it != string_to_index_.end())
             return it->second;
 
-        IndexType index = static_cast<IndexType>(pool_.size());
-        pool_.push_back(static_cast<SlotType>(string_data_.size())); // offset
-        pool_.push_back(static_cast<SlotType>(sv->size()));          // length
-        string_data_.append(*sv);
-        string_data_.push_back('\0');
+        ConstPool::IndexType index = static_cast<ConstPool::IndexType>(store_.slot_count());
+        store_.pool_.push_back(static_cast<ConstPool::SlotType>(store_.string_data_.size())); // offset
+        store_.pool_.push_back(static_cast<ConstPool::SlotType>(sv->size()));          // length
+        store_.string_data_.append(*sv);
+        store_.string_data_.push_back('\0');
         SPDLOG_DEBUG("Added string constant '{}' at index {}", *sv, index);
         string_to_index_.emplace(std::move(key), index);
         return index;
     }
 
-    return std::visit([&](auto&& arg) -> IndexType {
+    return std::visit([&](auto&& arg) -> ConstPool::IndexType {
         using T = std::decay_t<decltype(arg)>;
         if constexpr (std::is_same_v<T, std::string_view>) {
             return 0; // unreachable, handled above
@@ -31,10 +31,10 @@ ConstPool::IndexType ConstTable::find_or_add(const ValueType& value) {
             if (it != numeric_to_index_.end())
                 return it->second;
 
-            constexpr size_t n_slots = sizeof(T) / sizeof(SlotType);
-            IndexType index = static_cast<IndexType>(pool_.size());
-            pool_.resize(pool_.size() + n_slots);
-            std::memcpy(&pool_[index], &arg, sizeof(T));
+            constexpr size_t n_slots = sizeof(T) / sizeof(ConstPool::SlotType);
+            ConstPool::IndexType index = static_cast<ConstPool::IndexType>(store_.pool_.size());
+            store_.pool_.resize(store_.pool_.size() + n_slots);
+            std::memcpy(&store_.pool_[index], &arg, sizeof(T));
             SPDLOG_DEBUG("Added numeric constant '{}' at index {}", arg, index);
             numeric_to_index_.emplace(key, index);
             return index;

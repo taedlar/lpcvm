@@ -88,9 +88,21 @@ std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
     if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false)
         return nullptr;
     try {
+        // FIXME: clean up backend
+        // The runtime class snapshots the pool, so intern method names first.
+        for (auto& elt: std::get<AST::Program>(ast_->node).defs) {
+            if (std::holds_alternative<AST::FunctionDef>(elt.node)) {
+                AST::FunctionDef& func_def = std::get<AST::FunctionDef>(elt.node);
+                if (!func_def.body)
+                    continue;
+                AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
+                consts_->find_or_add(func_decl.entry->name);
+            }
+        }
+
         auto rt_class = std::make_shared<RuntimeClass>();
-        rt_class->const_pool_ = consts_;
-        rt_class->virtual_table_ = std::make_shared<VirtualTable>();
+        rt_class->const_pool_ = consts_->make_intern();
+        rt_class->virtual_table_ = std::make_shared<VirtualTable>(rt_class->const_pool_);
         globals_->emit_symbolic_bindings(rt_class->virtual_table_);
         rt_class->set_num_variables(globals_->size());
         for(auto& elt: std::get<AST::Program>(ast_->node).defs) {
@@ -104,6 +116,7 @@ std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
                 if (!func_def.body)
                     continue; // Skip functions without a body
                 AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
+                auto name_idx = consts_->find_or_add(func_decl.entry->name);
                 VirtualTable::Binding binding;
                 binding.signature = func_decl.entry->signature;
                 binding.base_index = -1;
@@ -112,7 +125,8 @@ std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
                 lpcvm::FunctionBuilder func_builder(rt_class->bytecode_);
                 func_builder.emit_body(std::get<AST::Block>(func_def.body->node));
                 binding.bytecode_length = rt_class->bytecode_.size() - binding.bytecode_offset;
-                rt_class->virtual_table_->emplace(func_decl.entry->name, binding);
+                // Add the method binding to the virtual table
+                rt_class->virtual_table_->emplace(name_idx, binding);
             }
         }
         return rt_class;

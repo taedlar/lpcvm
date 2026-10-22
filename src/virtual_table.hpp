@@ -17,9 +17,12 @@
  */
 class VirtualTable {
 public:
-    VirtualTable() = default;
+    VirtualTable(std::shared_ptr<ConstPool> name_pool) : name_pool_(std::move(name_pool)) {}
     ~VirtualTable() = default;
 
+    /**
+     * \brief Represents a method binding in the virtual table.
+     */
     struct binding_s {
         SymbolSignature signature;
         int32_t base_index;
@@ -28,12 +31,6 @@ public:
         // we don't need to store number of local variables, as it is created via opcode F_PUSH_LOCALS at runtime.
     };
 
-    /**
-     * \brief Represents a method binding in the virtual table.
-     *
-     * The first element of the pair is the base class index (-1 for current class),
-     * and the second element is the method bytecode offset (-1 for forward declaration only).
-     */
     using Binding = binding_s;
 
     /**
@@ -52,15 +49,16 @@ private:
     /**
      * \brief Adds a new method binding to the virtual table.
      *
-     * \param name The name of the method to add. The name must be interned
-     * (i.e., stored in a constant pool that outlives the virtual table).
+     * \param name_index The index of the method name in the constant pool.
      * \param binding The binding information for the method.
      */
-    void emplace (const std::string_view name, const Binding& binding);
+    void emplace (ConstPool::IndexType name_index, const Binding& binding);
+
+    std::shared_ptr<ConstPool> name_pool_;
 
     /**
      * \brief The list of method bindings in the virtual table, sorted by
-     * method name.
+     * method name. The method name must be interned in the constant pool.
      */
     std::vector<std::pair<std::string_view, Binding>> bindings_;
 };

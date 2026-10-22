@@ -19,8 +19,9 @@ TEST(LpcCompilerTest, BackendBytecodeGeneration) {
 
     // Invoke the backend to generate the runtime class and bytecode
     auto rt_class = compiler.backend();
+    ASSERT_NE(rt_class, nullptr);
     BytecodeView entry;
-    EXPECT_TRUE(rt_class->lookup_method("f", &entry));
+    ASSERT_TRUE(rt_class->lookup_method("f", &entry));
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
     // Execute the bytecode for the method 'f' and check the evaluation stack
@@ -34,8 +35,8 @@ TEST(LpcCompilerTest, BackendBytecodeGeneration) {
 
 TEST(LpcCompilerTest, BytecodeGenerationContext) {
     // construct an AST of binary addition
-    ConstTable const_pool;
-    auto c1 = const_pool.find_or_add(int32_t{1});
+    ConstTable consts;
+    auto c1 = consts.find_or_add(int32_t{1});
     ASTNode root = AST::BinaryOp{
         oparg::ADD,
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1}),
@@ -50,7 +51,8 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     bgen.emit(F_BIN_OP, oparg::ADD); // push result of arg#1 + (1 + 1)
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
-    BytecodeView view(bytecode.data(), bytecode.size(), &const_pool);
+    auto const_pool = consts.make_intern();
+    BytecodeView view(bytecode.data(), bytecode.size(), const_pool.get());
     EvaluationStack stack;
     stack.push(int32_t{1}); // argument 1
     EXPECT_EQ(view.execute(stack, 1), 1);

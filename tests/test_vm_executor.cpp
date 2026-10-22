@@ -10,9 +10,10 @@
 
 TEST(VMExecutorTest, EmptyFunction) {
     EvaluationStack stack;
-    ConstTable const_pool;
+    ConstTable consts;
     std::vector<uint8_t> bytecode = {};
-    BytecodeView code(bytecode.data(), bytecode.size(), &const_pool); // zero-length bytecode
+    auto const_pool = consts.make_intern();
+    BytecodeView code(bytecode.data(), bytecode.size(), const_pool.get()); // zero-length bytecode
     EXPECT_EQ(code.length(), 0);
     EXPECT_EQ(code.execute(stack), 0);
     EXPECT_EQ(stack.size(), 0);
@@ -20,9 +21,10 @@ TEST(VMExecutorTest, EmptyFunction) {
 
 TEST(VMExecutorTest, BasicExecution) {
     EvaluationStack stack;
-    ConstTable const_pool;
-    ConstPool::IndexType c1 = const_pool.find_or_add(int32_t{123});
-    ConstPool::IndexType c2 = const_pool.find_or_add(int32_t{456});
+    ConstTable consts;
+    ConstPool::IndexType c1 = consts.find_or_add(int32_t{123});
+    ConstPool::IndexType c2 = consts.find_or_add(int32_t{456});
+    auto const_pool = consts.make_intern();
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
@@ -30,7 +32,7 @@ TEST(VMExecutorTest, BasicExecution) {
         .emit(F_BIN_OP, oparg::ADD)
         .emit(F_RETURN, 1);
     // Example test for basic execution
-    BytecodeView code(bytecode.data(), bytecode.size(), &const_pool);
+    BytecodeView code(bytecode.data(), bytecode.size(), const_pool.get());
     EXPECT_NO_THROW(code.execute(stack));
     EXPECT_EQ(stack.size(), 1);
 
@@ -41,13 +43,14 @@ TEST(VMExecutorTest, BasicExecution) {
 
 TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     EvaluationStack stack;
-    ConstTable const_pool;
-    ConstPool::IndexType c1 = const_pool.find_or_add(int32_t{123});
+    ConstTable consts;
+    ConstPool::IndexType c1 = consts.find_or_add(int32_t{123});
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_RETURN, 1);
-    BytecodeView code(bytecode.data(), bytecode.size(), &const_pool);
+    auto const_pool = consts.make_intern();
+    BytecodeView code(bytecode.data(), bytecode.size(), const_pool.get());
 
     stack.push(SValue(int32_t{0})); // simulate an argument 0 on the stack
     EXPECT_NO_THROW(code.execute(stack, 1));
@@ -60,12 +63,13 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
 
 TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     EvaluationStack stack;
-    ConstTable const_pool;
-    ConstPool::IndexType c1 = const_pool.find_or_add(int32_t{123});
+    ConstTable consts;
+    ConstPool::IndexType c1 = consts.find_or_add(int32_t{123});
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1);
-    BytecodeView code(bytecode.data(), bytecode.size(), &const_pool);
+    auto const_pool = consts.make_intern();
+    BytecodeView code(bytecode.data(), bytecode.size(), const_pool.get());
 
     stack.push(SValue(int32_t{0})); // simulate an argument 0 on the stack
     stack.push(SValue(int32_t{1})); // simulate an argument 1 on the stack

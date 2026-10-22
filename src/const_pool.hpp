@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -28,6 +29,7 @@
 class ConstPool {
 public:
     ConstPool() = default;
+    ConstPool(const ConstPool&) = default;
     ~ConstPool() = default;
 
     using SlotType = uint32_t; // flattened unit of storage
@@ -36,8 +38,11 @@ public:
     /** @brief Read a numeric constant at slot @p index (alignment-safe). */
     template<typename T>
     T fetch(IndexType index) const {
-        static_assert(std::is_arithmetic_v<T>, "use as_string() for strings");
+        static_assert(std::is_arithmetic_v<T>, "use fetch_string() for strings");
         static_assert(sizeof(T) % sizeof(SlotType) == 0);
+        if (index >= pool_.size()) {
+            throw std::out_of_range("ConstPool::fetch: index out of range");
+        }
         T value;
         std::memcpy(&value, &pool_[index], sizeof(T));
         return value;
@@ -45,6 +50,9 @@ public:
 
     /** @brief Read a string constant at slot @p index; the view is valid for the pool's lifetime. */
     std::string_view fetch_string(IndexType index) const {
+        if (index + 1 >= pool_.size()) {
+            throw std::out_of_range("ConstPool::fetch_string: index out of range");
+        }
         return std::string_view(string_data_.data() + pool_[index], pool_[index + 1]);
     }
 
@@ -52,7 +60,8 @@ public:
         return pool_.size();
     }
 
-protected:
+private:
+    friend class ConstTable;
     std::vector<SlotType> pool_; // runtime random access at O(1)
     std::string string_data_;    // NUL-terminated string literals, referenced by offset from pool_
 };
@@ -61,7 +70,7 @@ protected:
  * @brief A compile-time constant table that extends ConstPool with efficient
  * lookup and addition of constants.
  */
-class ConstTable: public ConstPool {
+class ConstTable {
 public:
     ConstTable() = default;
     ~ConstTable() = default;
@@ -83,14 +92,17 @@ public:
      * 
      * @return The slot index of the value.
      */
-    IndexType find_or_add(const ValueType& value);
+    ConstPool::IndexType find_or_add(const ValueType& value);
 
     std::size_t size() const {
         return numeric_to_index_.size() + string_to_index_.size();
     }
 
-private:
+    std::shared_ptr<ConstPool> make_intern() const {
+        return std::make_shared<ConstPool>(store_); // immutable copy of the pool, so fetch_string remains valid
+    }
 
+private:
     struct NumericHash {
         std::size_t operator()(const NumericType& value) const {
             return std::visit([&](auto&& arg) -> std::size_t {
@@ -99,17 +111,7 @@ private:
         }
     };
 
-    /**
-     * @brief Mapping from numeric constants to their slot indices.
-     */
-    std::unordered_map<NumericType, IndexType, NumericHash> numeric_to_index_;
-
-    /**
-     * @brief Mapping from string constants to their slot indices.
-     * @note The string is stored in the string_data_ member, and the pool_
-     * contains the offset and length. Using map-owned std::string is required
-     * because the ConstTable allows addition of new strings, which may reallocate
-     * the string_data_ buffer, invalidating any existing string_view references.
-     */
-    std::unordered_map<std::string, IndexType> string_to_index_;
+    ConstPool store_;
+    std::unordered_map<NumericType, ConstPool::IndexType, NumericHash> numeric_to_index_;
+    std::unordered_map<std::string, ConstPool::IndexType> string_to_index_;
 };
