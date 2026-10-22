@@ -19,9 +19,9 @@ namespace lpcvm {
          * @brief Emits a bytecode instruction with its argument.
          *
          * We follow the "wordcode" convention as in Python's bytecode, where each
-         * instruction consists of an opcode followed by its argument.
+         * instruction consists of an opcode (uint8_t) followed by its argument (uint8_t).
          */
-        void emit(uint8_t op, uint32_t index = 0) {
+        BytecodeGenerator& emit(uint8_t op, uint32_t index = 0) {
             if (index > 0x00ffffff) {
                 bytecode_.push_back(F_EXTENDED_ARG); // hypothetical extended arg opcode
                 bytecode_.push_back((index >> 24) & 0xff); // high byte of extended argument
@@ -36,6 +36,7 @@ namespace lpcvm {
             }
             bytecode_.push_back(op);
             bytecode_.push_back(index & 0xff);
+            return *this;
         }
 
         /**
@@ -44,7 +45,7 @@ namespace lpcvm {
          * This function dispatches the statement to the appropriate bytecode
          * emission logic based on its type.
          */
-        void emit_statement(const ASTNode& stmt);
+        BytecodeGenerator& emit_statement(const ASTNode& stmt);
 
     private:
         std::vector<uint8_t>& bytecode_;
@@ -54,7 +55,7 @@ namespace lpcvm {
     public:
         FunctionBuilder(std::vector<uint8_t>& bytecode)
             : BytecodeGenerator(bytecode) {}
-        void emit_body(const AST::Block& body);
+        FunctionBuilder& emit_body(const AST::Block& body);
     };
 
 } // namespace lpcvm

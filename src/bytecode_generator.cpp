@@ -5,7 +5,9 @@
 #include "bytecode_generator.hpp"
 #include <variant>
 
-void lpcvm::BytecodeGenerator::emit_statement(const ASTNode& stmt) {
+using namespace lpcvm;
+
+BytecodeGenerator& BytecodeGenerator::emit_statement(const ASTNode& stmt) {
     std::visit(overloaded {
         [&](const AST::Return& ret_stmt) {
             if (ret_stmt.expr) {
@@ -35,11 +37,13 @@ void lpcvm::BytecodeGenerator::emit_statement(const ASTNode& stmt) {
             // Handle other statement types
         }
     }, stmt.node);
+    return *this;
 }
 
-void lpcvm::FunctionBuilder::emit_body(const AST::Block& body) {
+FunctionBuilder& FunctionBuilder::emit_body(const AST::Block& body) {
     if (body.stmts.empty())
-        return;
+        return *this;
     for(auto& stmt: body.stmts)
         emit_statement(stmt);
+    return *this;
 }
