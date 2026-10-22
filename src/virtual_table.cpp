@@ -17,7 +17,8 @@ bool VirtualTable::lookup (const std::string_view name, Binding& out_binding) co
     return false;
 }
 
-void VirtualTable::emplace (const std::string_view name, const Binding& binding) {
+void VirtualTable::emplace (ConstPool::IndexType name_index, const Binding& binding) {
+    auto name = name_pool_->fetch_string(name_index);
     auto it = std::lower_bound(
         bindings_.begin(),
         bindings_.end(),
