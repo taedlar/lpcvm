@@ -8,16 +8,28 @@
 using namespace lpcvm;
 
 BytecodeGenerator& BytecodeGenerator::emit_statement(const ASTNode& stmt) {
+    context_ = STATEMENT;
     std::visit(overloaded {
         [&](const AST::Return& ret_stmt) {
             if (ret_stmt.expr) {
-                emit_statement(*ret_stmt.expr);
+                emit_expression(*ret_stmt.expr);
                 emit(F_RETURN, 1);
             }
             else {
                 emit(F_RETURN, 0);
             }
         },
+        [&](auto& expr) {
+            emit_expression(stmt);
+            emit(F_POP_N, 1); // Pop the result of the expression if it's a statement
+        }
+    }, stmt.node);
+    return *this;
+}
+
+BytecodeGenerator& BytecodeGenerator::emit_expression(const ASTNode& expr) {
+    context_ = EXPRESSION;
+    std::visit(overloaded {
         [&](const AST::NumericConst& constant) {
             std::visit(overloaded {
                 [&](const int32_t& int_const)       { emit(F_CONST_I4, constant.index); },
@@ -29,14 +41,14 @@ BytecodeGenerator& BytecodeGenerator::emit_statement(const ASTNode& stmt) {
             }, constant.value);
         },
         [&](const AST::BinaryOp& bin_op) {
-            emit_statement(*bin_op.lhs);
-            emit_statement(*bin_op.rhs);
+            emit_expression(*bin_op.lhs);
+            emit_expression(*bin_op.rhs);
             emit(F_BIN_OP, bin_op.arg);
         },
         [&](auto&) {
-            // Handle other statement types
+            // Handle other expression types
         }
-    }, stmt.node);
+    }, expr.node);
     return *this;
 }
 
