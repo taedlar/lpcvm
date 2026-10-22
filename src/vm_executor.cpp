@@ -1,19 +1,28 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
+#include "config.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <stdexcept>
 #include <type_traits>
 
 /**
- * BytecodeView::execute() implementation (a token-threaded virtual machine)
+ * @brief BytecodeView::execute() implementation (a token-threaded virtual machine)
  *
  * VM_LOOP_START and VM_LOOP_END macros are used to define the main execution loop of the VM.
  * VM_HANDLER macro is used to define the handler for each opcode.
  * VM_DISPATCH macro is used to jump to the next instruction handler.
+ *
+ * @param stack The evaluation stack used by the VM.
+ * @param num_args The number of arguments expected on the stack.
+ * @return The number of return values on the stack. Arguments are popped before returning
+ * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
-void BytecodeView::execute(EvaluationStack& stack) {
+int BytecodeView::execute(EvaluationStack& stack, int num_args) {
+    std::size_t initial_sp = stack.size();
+    if (initial_sp < num_args)
+        throw std::runtime_error("Not enough arguments on the stack");
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
 #else
@@ -63,7 +72,11 @@ void BytecodeView::execute(EvaluationStack& stack) {
 
     VM_HANDLER(F_RETURN) {
         oparg = (extended_arg << 8) | *pc++; // number of return values on the stack
-        return;
+        std::size_t pre_exec_sp = initial_sp - num_args;
+        if (stack.size() - oparg < pre_exec_sp)
+            throw std::runtime_error("Stack underflow on return");        
+        stack.pop_i(pre_exec_sp, stack.size() - oparg - pre_exec_sp); // pop arguments and locals
+        return oparg;
     }
 
     VM_HANDLER(F_EXTENDED_ARG) {
@@ -170,7 +183,8 @@ invalid_opcode:
 
 end_of_bytecode:
     // stops execution if end of bytecode is reached without encountering op_return
-    return;
+    stack.pop_n(stack.size() - (initial_sp - num_args));
+    return 0;
 
 #undef VM_LOOP_START
 #undef VM_LOOP_END

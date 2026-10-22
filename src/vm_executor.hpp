@@ -41,6 +41,15 @@ public:
         stack_.resize(stack_.size() - n);
     }
 
+    void pop_i(std::size_t pos, int n) {
+        if (n <= 0)
+            return;
+        if (pos + n > stack_.size()) {
+            throw std::runtime_error("Evaluation stack underflow");
+        }
+        stack_.erase(stack_.begin() + pos, stack_.begin() + pos + n);
+    }
+
     SValue pop() {
         if (stack_.empty()) {
             throw std::runtime_error("Evaluation stack underflow");
@@ -76,7 +85,7 @@ public:
     BytecodeView& operator=(const BytecodeView&) = default;
 
     std::size_t length() const { return start_ ? (end_ - start_) : 0; }
-    void execute(EvaluationStack& stack);
+    int execute(EvaluationStack& stack, int num_args = 0);
 
 private:
     const uint8_t* start_;
