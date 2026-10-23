@@ -25,7 +25,7 @@ public:
      */
     struct binding_s {
         SymbolSignature signature;
-        int32_t base_index;
+        int32_t inheriting;
         int32_t bytecode_offset;
         uint32_t bytecode_length;
         // we don't need to store number of local variables, as it is created via opcode F_PUSH_LOCALS at runtime.

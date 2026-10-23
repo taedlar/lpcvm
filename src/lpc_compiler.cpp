@@ -119,7 +119,7 @@ std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
                 auto name_idx = consts_->find_or_add(func_decl.entry->name);
                 VirtualTable::Binding binding;
                 binding.signature = func_decl.entry->signature;
-                binding.base_index = -1;
+                binding.inheriting = -1;
                 // Generate the bytecode for the function body
                 binding.bytecode_offset = rt_class->bytecode_.size();
                 lpcvm::FunctionBuilder func_builder(rt_class->bytecode_);
