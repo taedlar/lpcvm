@@ -10,8 +10,6 @@
 #include "const_pool.hpp"
 #include "symbol_table.hpp"
 
-class RuntimeClass;
-
 struct ASTNode;
 
 /**

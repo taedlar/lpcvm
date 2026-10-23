@@ -26,8 +26,8 @@ add_library(lpcvm
     symbol_table.cpp
     const_pool.hpp
     const_pool.cpp
-    vm_runtime_class.hpp
-    vm_runtime_class.cpp
+    runtime_class.hpp
+    runtime_class.cpp
     virtual_table.hpp
     virtual_table.cpp
     vm_svalue.hpp
@@ -36,6 +36,9 @@ add_library(lpcvm
     lpc_object.cpp
     bytecode_generator.hpp
     bytecode_generator.cpp
+    runtime_state.hpp
+    vm_sandbox.hpp
+    vm_sandbox.cpp
 )
 
 target_include_directories(lpcvm PUBLIC

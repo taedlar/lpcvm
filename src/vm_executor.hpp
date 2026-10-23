@@ -77,10 +77,9 @@ public:
 
 struct BytecodeView {
 public:
-    friend class RuntimeClass;
-    BytecodeView() : start_(nullptr), end_(nullptr), const_pool_(nullptr) {}
-    BytecodeView(const uint8_t* bytecode, std::size_t size, const ConstPool* const_pool)
-        : start_(bytecode), end_(bytecode + size), const_pool_(const_pool) {}
+    BytecodeView() : start_(nullptr), end_(nullptr), const_pool_(nullptr), globals_(nullptr) {}
+    BytecodeView(const uint8_t* bytecode, std::size_t size, const ConstPool* const_pool = nullptr, SValue* globals = nullptr)
+        : start_(bytecode), end_(bytecode + size), const_pool_(const_pool), globals_(globals) {}
     BytecodeView(const BytecodeView&) = default;
     BytecodeView& operator=(const BytecodeView&) = default;
 
@@ -91,4 +90,5 @@ private:
     const uint8_t* start_;
     const uint8_t* end_;
     const ConstPool* const_pool_;
+    SValue* globals_;
 };

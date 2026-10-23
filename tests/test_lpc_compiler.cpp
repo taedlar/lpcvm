@@ -4,9 +4,9 @@
 #include "ast_node.hpp"
 #include "bytecode_generator.hpp"
 #include "lpc_compiler.hpp"
+#include "runtime_class.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
-#include "vm_runtime_class.hpp"
 #include <gtest/gtest.h>
 
 TEST(LpcCompilerTest, BackendBytecodeGeneration) {
