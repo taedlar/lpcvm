@@ -8,6 +8,6 @@
 std::unordered_map<std::string, LpcObjectRef> LpcObject::named_collection{};
 
 LpcObject::LpcObject(std::shared_ptr<RuntimeClass> program)
-    : program_(std::move(program)), state_(std::make_shared<RuntimeState>(program_->num_instance_variables())) {
+    : program_(std::move(program)), state_(std::make_shared<RuntimeState>(program_->num_variables_inheriting())) {
 
 }
