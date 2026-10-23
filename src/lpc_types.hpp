@@ -206,6 +206,10 @@ struct LpcHandle {
         return !ptr || RefType::control_block(ptr)->ref_count == 0;
     }
 
+    operator bool() const noexcept {
+        return !expired();
+    }
+
     /**
      * @brief Obtains a strong reference to the observed object.
      * @return The strong reference if the object is still alive, or
@@ -220,13 +224,15 @@ struct LpcHandle {
 };
 
 class RuntimeClass;
+class RuntimeState;
 
 class LpcObject {
 public:
     using HandleType = LpcHandle<LpcObject, LpcObjectRef>;
+
     static HandleType create(std::string_view name, std::shared_ptr<RuntimeClass> program) {
         auto obj_ref = lpc_make_shared<LpcObject>(program);
-        named_collection_.insert_or_assign(std::string(name), obj_ref);
+        named_collection.insert_or_assign(std::string(name), obj_ref);
         return obj_ref->handle();
     }
 
@@ -240,14 +246,13 @@ public:
     }
 
 private:
-    friend LpcSharedPtr<LpcObject>;
     template <typename U, typename... Args>
     friend LpcSharedPtr<U> lpc_make_shared(Args&&... args);
-    LpcObject(std::shared_ptr<RuntimeClass> program)
-        : program_(std::move(program)) {};
+
+    LpcObject(std::shared_ptr<RuntimeClass> program); // private ctor: use LpcObject::create() instead
 
     std::shared_ptr<RuntimeClass> program_;
-    // TODO: Implement the internal storage and methods for LpcObject
+    std::shared_ptr<RuntimeState> state_;
 
-    static std::unordered_map<std::string, LpcObjectRef> named_collection_; // named references to LpcObject instances
+    static std::unordered_map<std::string, LpcObjectRef> named_collection; // named references to LpcObject instances
 };

@@ -9,6 +9,7 @@ add_executable(test_lpcvm
     test_vm_executor.cpp
     test_vm_svalue.cpp
     test_lpc_parser.cpp
+    test_vm_sandbox.cpp
 )
 
 target_link_libraries(test_lpcvm PRIVATE lpcvm GTest::gtest_main)

@@ -7,7 +7,7 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 #include "lpc_lexer.hpp"
-#include "vm_runtime_class.hpp"
+#include "runtime_class.hpp"
 #include <cstdio>
 #include <stdexcept>
 
