@@ -9,16 +9,16 @@
 #include "vm_opcodes.hpp"
 #include <gtest/gtest.h>
 
-TEST(LpcCompilerTest, BackendBytecodeGeneration) {
+TEST(LpcCompilerTest, BytecodeGeneration) {
     // Compile a simple LPC function and generate its AST
     LpcCompiler compiler;
-    auto root = compiler.frontend(R"(
+    EXPECT_TRUE(compiler.parse(R"(
         int f() { return 123 + 456; }
-    )");
-    ASSERT_NE(root.get(), nullptr);
+    )"));
+    ASSERT_NE(compiler.get_ast(), nullptr);
 
-    // Invoke the backend to generate the runtime class and bytecode
-    auto rt_class = compiler.backend();
+    // generate the bytecode of object methods (runtime class)
+    auto rt_class = compiler.generate_code();
     ASSERT_NE(rt_class, nullptr);
     BytecodeView entry;
     ASSERT_TRUE(rt_class->lookup_method("f", &entry));

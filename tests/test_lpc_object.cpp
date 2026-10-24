@@ -35,6 +35,24 @@ TEST(LpcObjectHandleTest, HandleOutlivesObject) {
     EXPECT_TRUE(h2.expired());
 }
 
+TEST(LpcObjectTest, CreatingDuplicateNameReplacesWithoutInvalidatingOldName) {
+    auto old_object = LpcObject::create("duplicate-name", std::make_shared<RuntimeClass>());
+    auto old_ref = old_object.lock();
+    ASSERT_TRUE(old_ref.has_value());
+
+    auto new_object = LpcObject::create("duplicate-name", std::make_shared<RuntimeClass>());
+    auto new_ref = new_object.lock();
+    ASSERT_TRUE(new_ref.has_value());
+
+    EXPECT_EQ((*old_ref)->name(), "duplicate-name");
+    EXPECT_EQ(LpcObject::find("duplicate-name"), *new_ref);
+
+    LpcObject::destruct(*old_ref);
+    EXPECT_EQ(LpcObject::find("duplicate-name"), *new_ref);
+    LpcObject::destruct(*new_ref);
+    EXPECT_FALSE(LpcObject::find("duplicate-name"));
+}
+
 // Thread-confinement contract: counts are plain integers, not atomics.
 static_assert(std::is_same_v<decltype(LpcObjectRef::ControlBlock::ref_count), uint32_t>);
 static_assert(std::is_same_v<decltype(LpcObjectRef::ControlBlock::weak_count), uint32_t>);
@@ -47,11 +65,21 @@ TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
     EXPECT_EQ(a.use_count(), 1u);
     {
         LpcObjectRef b = a;
+        EXPECT_TRUE(a == b);
         EXPECT_EQ(a.use_count(), 2u);
         LpcObjectRef c = std::move(b);
         EXPECT_EQ(a.use_count(), 2u);
         EXPECT_EQ(b.use_count(), 0u);
     }
+    auto other = lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    EXPECT_FALSE(a == other);
+    EXPECT_TRUE(a == a);
+
+    LpcObjectRef empty_a;
+    LpcObjectRef empty_b;
+    EXPECT_TRUE(empty_a == empty_b);
+    EXPECT_FALSE(a == empty_a);
+
     EXPECT_EQ(a.use_count(), 1u);
     a = a;
     EXPECT_EQ(a.use_count(), 1u);

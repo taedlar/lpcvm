@@ -55,9 +55,9 @@ int main(int argc, char* argv[]) {
     }
 
     LpcCompiler compiler;
-    auto ast = compiler.frontend(source.str());
-    if (ast) {
-        ast_dump(ast.get(), true);
+    compiler.parse(source.str());
+    if (compiler.get_ast()) {
+        ast_dump(compiler.get_ast(), true);
         std::cout << std::endl;
         return EXIT_SUCCESS;
     }

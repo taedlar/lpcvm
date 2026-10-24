@@ -80,6 +80,10 @@ struct LpcSharedPtr {
         return ptr ? control_block(ptr)->ref_count : 0;
     }
 
+    bool operator==(const LpcSharedPtr& other) const noexcept {
+        return ptr == other.ptr;
+    }
+
     operator bool() const noexcept {
         return ptr != nullptr;
     }
@@ -227,6 +231,10 @@ struct LpcHandle {
         return !ptr || RefType::control_block(ptr)->ref_count == 0;
     }
 
+    bool operator==(const LpcHandle& other) const noexcept {
+        return ptr == other.ptr;
+    }
+
     operator bool() const noexcept {
         return !expired();
     }
@@ -267,16 +275,27 @@ public:
 
     static HandleType create(std::string_view name, std::shared_ptr<RuntimeClass> program) {
         auto obj_ref = lpcvm::make_shared<LpcObject>(program);
-        named_collection.insert_or_assign(std::string(name), obj_ref);
+        obj_ref->name_ = std::string(name);
+        if (auto it = named_collection.find(name); it != named_collection.end()) {
+            named_collection.erase(it); // also erase the string_view key for the old object
+        }
+        named_collection.emplace(std::string_view(obj_ref->name_), obj_ref);
         return HandleType(obj_ref);
     }
 
     static LpcObjectRef find(std::string_view name) {
-        auto it = named_collection.find(std::string(name));
+        auto it = named_collection.find(name);
         if (it != named_collection.end()) {
             return it->second;
         }
         return LpcObjectRef();
+    }
+
+    static void destruct(LpcObjectRef obj) {
+        auto it = named_collection.find(obj->name());
+        if (it != named_collection.end() && it->second == obj) {
+            named_collection.erase(it);
+        }
     }
 
     LpcObject() = delete;
@@ -284,14 +303,18 @@ public:
     LpcObject& operator=(const LpcObject&) = delete;
     ~LpcObject() = default;
 
+    const std::string& name() const noexcept { return name_; }
+    std::shared_ptr<RuntimeClass> program() const noexcept { return program_; }
+
 private:
     template <typename U, typename... Args>
     friend LpcSharedPtr<U> lpcvm::make_shared(Args&&... args);
 
     LpcObject(std::shared_ptr<RuntimeClass> program); // private ctor: use LpcObject::create() instead
 
+    std::string name_;
     std::shared_ptr<RuntimeClass> program_;
     std::shared_ptr<RuntimeState> state_;
 
-    static std::unordered_map<std::string, LpcObjectRef> named_collection; // named references to LpcObject instances
+    static std::unordered_map<std::string_view, LpcObjectRef> named_collection; // named references to LpcObject instances
 };

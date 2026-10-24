@@ -5,7 +5,7 @@
 #include "runtime_class.hpp"
 #include "runtime_state.hpp"
 
-std::unordered_map<std::string, LpcObjectRef> LpcObject::named_collection{};
+std::unordered_map<std::string_view, LpcObjectRef> LpcObject::named_collection{};
 
 LpcObject::LpcObject(std::shared_ptr<RuntimeClass> program)
     : program_(std::move(program)), state_(std::make_shared<RuntimeState>(program_->num_variables_inheriting())) {

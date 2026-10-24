@@ -26,9 +26,9 @@ TEST(ASTNodeTest, MutableAssignmentTransfersOwnership) {
 
 TEST(LpcParserTest, ImplicitBlockAction) {
     LpcCompiler compiler;
-    auto root = compiler.frontend("void f() { { return 42; } }");
-    ASSERT_NE(root.get(), nullptr);
-    auto& defs = std::get<AST::Program>(root->node).defs;
+    EXPECT_TRUE(compiler.parse("void f() { { return 42; } }"));
+    ASSERT_NE(compiler.get_ast(), nullptr);
+    auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
     ASSERT_EQ(defs.size(), 1);
     auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
     auto& stmts = std::get<AST::Block>(body.node).stmts;
@@ -54,11 +54,12 @@ TEST(LpcParserTest, NonemptyDeclarationPrefixes) {
     }) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
-        EXPECT_TRUE(compiler.frontend(source));
+        EXPECT_TRUE(compiler.parse(source));
     }
 }
 
 TEST(LpcParserTest, RejectMissingOrRepeatedDeclarationTypes) {
+    LpcCompiler compiler;
     for (const char* source : {
         "x;",
         "x = 0;",
@@ -69,8 +70,7 @@ TEST(LpcParserTest, RejectMissingOrRepeatedDeclarationTypes) {
         "void f() { int string x; }",
     }) {
         SCOPED_TRACE(source);
-        LpcCompiler compiler;
-        EXPECT_FALSE(compiler.frontend(source));
+        EXPECT_FALSE(compiler.parse(source));
     }
 }
 
@@ -78,7 +78,7 @@ TEST(LpcParserTest, ErrorsIncludeCurrentSourceLine) {
     LpcCompiler compiler;
     const auto expect_error_line = [&compiler](const char* source, std::size_t line) {
         SCOPED_TRACE(source);
-        EXPECT_FALSE(compiler.frontend(source));
+        EXPECT_FALSE(compiler.parse(source));
         EXPECT_EQ (compiler.messages().back().lineno, line);
     };
 
