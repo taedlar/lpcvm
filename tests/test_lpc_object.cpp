@@ -12,11 +12,11 @@ TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;
     std::optional<LpcObjectRef> locked;
     {
-        auto owner = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
-        handle = owner->handle();
+        auto owner = lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+        handle = LpcObject::HandleType(owner);
         locked = handle.lock();
         ASSERT_TRUE(locked.has_value());
-        EXPECT_EQ((*locked)->handle().ptr, handle.ptr);
+        EXPECT_EQ(*locked, owner);
     }
 
     EXPECT_TRUE(handle.lock().has_value());
@@ -26,8 +26,8 @@ TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
 }
 
 TEST(LpcObjectHandleTest, HandleOutlivesObject) {
-    auto owner = std::make_optional<LpcObjectRef>(lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>()));
-    auto h1 = (*owner)->handle();
+    auto owner = std::make_optional<LpcObjectRef>(lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>()));
+    auto h1 = LpcObject::HandleType(*owner);
     auto h2 = h1;
     owner.reset();
     EXPECT_FALSE(h1.lock().has_value());
@@ -43,7 +43,7 @@ static_assert(sizeof(LpcObjectRef) == sizeof(void*));
 static_assert(sizeof(LpcObject::HandleType) == sizeof(void*));
 
 TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
-    auto a = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    auto a = lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>());
     EXPECT_EQ(a.use_count(), 1u);
     {
         LpcObjectRef b = a;
@@ -58,8 +58,8 @@ TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
 }
 
 TEST(LpcHandleTest, CopyAndDestroyTrackWeakCount) {
-    auto owner = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
-    auto h = owner->handle();
+    auto owner = lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    auto h = LpcObject::HandleType(owner);
     EXPECT_EQ(h.weak_count(), 1u);
     {
         auto h2 = h;
@@ -78,8 +78,8 @@ TEST(LpcHandleTest, LockIncrementsStrongCountAndDefaultHandleIsExpired) {
     EXPECT_TRUE(empty.expired());
     EXPECT_FALSE(empty.lock().has_value());
 
-    auto owner = lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>());
-    auto h = owner->handle();
+    auto owner = lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>());
+    auto h = LpcObject::HandleType(owner);
     {
         auto locked = h.lock();
         ASSERT_TRUE(locked.has_value());
@@ -89,8 +89,8 @@ TEST(LpcHandleTest, LockIncrementsStrongCountAndDefaultHandleIsExpired) {
 }
 
 TEST(LpcHandleTest, HandleHeldAcrossLastStrongReleaseExpiresSafely) {
-    auto owner = std::make_optional<LpcObjectRef>(lpc_make_shared<LpcObject>(std::make_shared<RuntimeClass>()));
-    auto h = (*owner)->handle();
+    auto owner = std::make_optional<LpcObjectRef>(lpcvm::make_shared<LpcObject>(std::make_shared<RuntimeClass>()));
+    auto h = LpcObject::HandleType(*owner);
     owner.reset();
     EXPECT_TRUE(h.expired());
     EXPECT_EQ(h.use_count(), 0u);
@@ -114,8 +114,8 @@ TEST(LpcSharedPtrTest, HandleReleasedInsideDestructorDoesNotDoubleFree) {
     bool destroyed = false;
     std::optional<LpcHandle<Probe, LpcSharedPtr<Probe>>> self;
     {
-        auto p = lpc_make_shared<Probe>(&destroyed, &self);
-        self.emplace(p.ptr);
+        auto p = lpcvm::make_shared<Probe>(&destroyed, &self);
+        self.emplace(p);
     }
     EXPECT_TRUE(destroyed);
     EXPECT_FALSE(self.has_value());
@@ -123,10 +123,10 @@ TEST(LpcSharedPtrTest, HandleReleasedInsideDestructorDoesNotDoubleFree) {
 
 TEST(LpcSharedPtrTest, DefaultConstructedIsNull) {
     LpcObjectRef p;
-    EXPECT_EQ(p.ptr, nullptr);
+    EXPECT_FALSE(p);
     EXPECT_EQ(p.use_count(), 0u);
     LpcArrayRef a;
-    EXPECT_EQ(a.ptr, nullptr);
+    EXPECT_FALSE(a);
     auto copy = p;
-    EXPECT_EQ(copy.ptr, nullptr);
+    EXPECT_FALSE(copy);
 }
