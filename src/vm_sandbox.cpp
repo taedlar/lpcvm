@@ -20,9 +20,19 @@ LpcObject::HandleType Sandbox::load_object (const std::filesystem::path &path) {
     // Compile the object using the LPC compiler
     LpcCompiler compiler;
     if (!compiler.frontend(source))
-        return LpcObject::HandleType(nullptr);
+        return LpcObject::HandleType();
 
     // Create and return the LPC object handle
     auto rt_class = compiler.backend();
     return LpcObject::create(path.string(), rt_class);
+}
+
+LpcObject::HandleType Sandbox::find_object (const std::filesystem::path &path) {
+    auto obj_ref = LpcObject::find(path.string());
+    return obj_ref;
+}
+
+LpcObject::HandleType Sandbox::clone_object (LpcObject::HandleType obj) {
+    auto obj_ref = obj.lock();
+    return obj_ref == std::nullopt ? LpcObject::HandleType() : LpcObject::HandleType(*obj_ref);
 }
