@@ -23,12 +23,7 @@ public:
         }
     }
 
-    std::shared_ptr<ASTNode> parse (const std::string& source, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope) {
-        FILE* file = fmemopen((void*)source.c_str(), source.size(), "r");
-        if (!file) {
-            throw std::runtime_error("Failed to open memory stream for parsing");
-        }
-
+    std::shared_ptr<ASTNode> parse_file (FILE* f, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope) {
         // Reinitialize the scanner for the new parse session.
         if (scanner_) {
             yylex_destroy (scanner_);
@@ -38,15 +33,13 @@ public:
         ctx.current_scope = current_scope;
         ctx.consts = &consts;
         yylex_init_extra (&ctx, &scanner_);
-        yyrestart(file, scanner_);
+        yyrestart(f, scanner_);
 
         // Parse the input
         using namespace yy;
         LpcParser parser{scanner_};
         parser.parse();
 
-        // Remember to close the memory stream after parsing
-        fclose(file);
         return ctx.root;
     }
 
@@ -57,39 +50,49 @@ private:
     yyscan_t scanner_;
 };
 
-LpcCompiler::LpcCompiler() : pimpl_(new Impl()) {}
+LpcCompiler::LpcCompiler(FILE* source_file) : pimpl_(new Impl()), source_file_(source_file) {}
 LpcCompiler::~LpcCompiler() = default;
 
-std::shared_ptr<ASTNode> LpcCompiler::frontend (const std::string& source) noexcept {
+bool LpcCompiler::parse() noexcept {
+    bool result = false;
     try {
         consts_ = std::make_shared<ConstTable>();
         globals_ = std::make_shared<SymbolTable>(nullptr); // scoped
         messages_.clear();
-        ast_ = pimpl_->parse(source, *consts_, globals_);
+        ast_ = pimpl_->parse_file(source_file_, *consts_, globals_);
         SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());
         messages_.push_back({-1, -1, "parsing succeeded"});
+        result = true;
     }
     catch (const yy::parse_error& e) {
         // Handle parsing errors
         SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
         messages_.push_back({e.lineno, e.column, e.what()});
-        return nullptr;
     }
     catch (const std::exception& e) {
         // Handle other exceptions
-        SPDLOG_ERROR("frontend failed: {}", e.what());
+        SPDLOG_ERROR("parse failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
-        return nullptr;
     }
-    return ast_;
+    return result;
 }
 
-std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
+bool LpcCompiler::parse (const std::string& source) noexcept {
+    FILE* saved_source_file = source_file_;
+    source_file_ = fmemopen((void*)source.c_str(), source.size(), "r");
+
+    bool result = parse();
+
+    fclose(source_file_);
+    source_file_ = saved_source_file;
+    return result;
+}
+
+std::shared_ptr<RuntimeClass> LpcCompiler::generate_code() noexcept {
     if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false)
         return nullptr;
     try {
-        // FIXME: clean up backend
-        // The runtime class snapshots the pool, so intern method names first.
+        // intern method names first.
         for (auto& elt: std::get<AST::Program>(ast_->node).defs) {
             if (std::holds_alternative<AST::FunctionDef>(elt.node)) {
                 AST::FunctionDef& func_def = std::get<AST::FunctionDef>(elt.node);
@@ -132,7 +135,7 @@ std::shared_ptr<RuntimeClass> LpcCompiler::backend() noexcept {
         return rt_class;
     }
     catch (const std::exception& e) {
-        SPDLOG_ERROR("backend failed: {}", e.what());
+        SPDLOG_ERROR("code generation failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
         return nullptr;
     }

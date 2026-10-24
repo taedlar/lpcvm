@@ -28,7 +28,7 @@ public:
         int32_t inheriting;
         int32_t bytecode_offset;
         uint32_t bytecode_length;
-        // we don't need to store number of local variables, as it is created via opcode F_PUSH_LOCALS at runtime.
+        // we don't need to store number of local variables, as it is created via opcode F_PUSH_N at runtime.
     };
 
     using Binding = binding_s;

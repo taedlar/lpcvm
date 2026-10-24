@@ -17,11 +17,6 @@ public:
         : num_variables_(0) {};
     ~RuntimeClass() = default;
 
-    /**
-     * \brief Sets the number of instance variables for this runtime class.
-     *
-     * \param num The number of instance variables (excluding inherited variables).
-     */
     void set_num_variables(std::size_t num) { num_variables_ = num; }
     std::size_t num_variables() const { return num_variables_; }
     std::size_t num_variables_inheriting() const {

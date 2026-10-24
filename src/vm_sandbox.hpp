@@ -14,6 +14,7 @@ public:
     LpcObject::HandleType load_object (const std::filesystem::path &path);
     LpcObject::HandleType find_object (const std::filesystem::path &path);
     LpcObject::HandleType clone_object (LpcObject::HandleType obj);
+    void destruct_object (LpcObject::HandleType obj);
 
 private:
     std::filesystem::path mudlib_root_;

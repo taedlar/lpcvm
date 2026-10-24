@@ -3,6 +3,7 @@
 
 #pragma once
 #include <cstddef>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -15,7 +16,7 @@ class RuntimeClass;
 
 class LpcCompiler {
 public:
-    LpcCompiler();
+    LpcCompiler(FILE* source_file = nullptr);
     ~LpcCompiler();
 
     // context data used by the lexer and parser
@@ -35,14 +36,20 @@ public:
         std::string text;
     };
 
-    std::shared_ptr<ASTNode> frontend (const std::string& source) noexcept;
-    std::shared_ptr<RuntimeClass> backend() noexcept;
+    bool parse() noexcept;
+    bool parse (const std::string& source) noexcept;
+    std::shared_ptr<RuntimeClass> generate_code() noexcept;
 
     const std::vector<Message>& messages() const { return messages_; }
+
+    const SymbolTable* get_globals() const { return globals_.get(); }
+    const ConstTable* get_consts() const { return consts_.get(); }
+    const ASTNode* get_ast() const { return ast_.get(); }
 
 private:
     class Impl;
     std::unique_ptr<Impl> pimpl_;
+    FILE* source_file_;
     std::vector<Message> messages_;
 
     std::shared_ptr<ConstTable> consts_;
