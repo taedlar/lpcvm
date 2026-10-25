@@ -37,14 +37,15 @@ namespace AST {
         std::unique_ptr<ASTNode> param_list; // ParameterList
     };
     struct ParameterList {
-        std::vector<ASTNode> parameters; // *VariableDecl
+        std::vector<SymbolSignature> parameters;
     };
     struct FunctionDef {
         std::unique_ptr<ASTNode> decl; // FunctionDecl
         std::unique_ptr<ASTNode> body; // Block
     };
     struct Block {
-        std::vector<ASTNode> stmts;
+        uint32_t num_locals;
+        std::unique_ptr<ASTNode> stmts;
     };
     struct Cond {
         std::unique_ptr<ASTNode> condition;
@@ -66,13 +67,6 @@ namespace AST {
     struct Break {
     };
     struct Continue {
-    };
-    struct VariableDecl {
-        std::shared_ptr<SymbolTable::Entry> entry;
-        std::unique_ptr<ASTNode> init;
-    };
-    struct VariableDeclList {
-        std::vector<ASTNode> declarations; // VariableDecl
     };
     struct Assign {
         std::unique_ptr<ASTNode> lhs;
@@ -117,8 +111,6 @@ struct ASTNode {
         std::monostate,
         AST::Program,
         AST::Inheritance,
-        AST::VariableDecl,
-        AST::VariableDeclList,
         AST::FunctionDef,
         AST::FunctionDecl,
         AST::ParameterList,

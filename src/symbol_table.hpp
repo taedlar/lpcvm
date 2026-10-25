@@ -19,7 +19,8 @@ enum LpcDataType {
     T_STRING,
     T_MAPPING,
     T_OBJECT,
-    T_MIXED
+    T_MIXED,
+    T_VARARG = 0xf
 };
 
 /// @brief Represents the signature of a symbol, including its data type and various attributes.
@@ -27,12 +28,13 @@ typedef union symbol_signature_u {
     uint32_t value;
     struct {
         uint32_t data_type : 4;
+        uint32_t is_function : 1; // indicates if the symbol represents a method function
+        uint32_t is_local : 1; // indicates if the symbol is a local variable
         uint32_t is_array : 1;
         uint32_t is_const : 1; // indicates if the symbol is a compile-time constant
         uint32_t is_static : 1; // storage class specifier
         uint32_t is_public : 1; // visibility specifier
         uint32_t is_nomask : 1; // indicates if the symbol cannot be overridden by derived classes
-        uint32_t reserved : 22; // padding to make the struct 32 bits
     } b;
 } SymbolSignature;
 
@@ -56,9 +58,9 @@ public:
         std::string name;
         SymbolSignature signature;
         std::optional<ConstTable::LValueType> value; // compile-time constant value if the symbol is constant
+        Entry() = default;
         Entry(std::string name, SymbolSignature signature)
             : name(std::move(name)), signature(signature) {}
-        Entry() = default;
     };
 
     SymbolTable (std::shared_ptr<SymbolTable> enclosing_scope)

@@ -52,10 +52,21 @@ BytecodeGenerator& BytecodeGenerator::emit_expression(const ASTNode& expr) {
     return *this;
 }
 
-FunctionBuilder& FunctionBuilder::emit_body(const AST::Block& body) {
-    if (body.stmts.empty())
+FunctionBuilder& FunctionBuilder::emit_body(const AST::Block& body, std::size_t num_formal_params) {
+    if (!body.stmts || !std::holds_alternative<AST::List>(body.stmts->node))
         return *this;
-    for(auto& stmt: body.stmts)
+    uint32_t num_locals = body.num_locals;
+    if (num_formal_params > num_locals)
+        throw std::runtime_error("Number of formal parameters exceeds number of local variables");
+    num_locals -= num_formal_params; // arguments are pushed by the caller
+    if (num_locals > 0)
+        emit(F_PUSH_N, num_locals);
+    auto& stmts = std::get<AST::List>(body.stmts->node).elts;
+    for(auto& stmt: stmts)
         emit_statement(stmt);
+    if (num_locals > 0) {
+        // TODO: implement control stack to properly manage local variable cleanup in case of early returns or exceptions
+        emit(F_POP_N, num_locals);
+    }
     return *this;
 }

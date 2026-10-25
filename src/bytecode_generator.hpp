@@ -61,7 +61,7 @@ namespace lpcvm {
     public:
         FunctionBuilder(std::vector<uint8_t>& bytecode)
             : BytecodeGenerator(bytecode) {}
-        FunctionBuilder& emit_body(const AST::Block& body);
+        FunctionBuilder& emit_body(const AST::Block& body, std::size_t num_formal_params = 0);
     };
 
 } // namespace lpcvm

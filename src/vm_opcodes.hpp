@@ -44,6 +44,7 @@ enum BinaryOpArg {
     MUL,
     DIV,
     MOD,
+    ASSIGN,
     INVALID_BINARY_OPARG
 };
 
