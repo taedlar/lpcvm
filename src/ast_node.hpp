@@ -44,7 +44,7 @@ namespace AST {
         std::unique_ptr<ASTNode> body; // Block
     };
     struct Block {
-        uint32_t num_locals;
+        uint32_t num_locals; // for block scope
         std::unique_ptr<ASTNode> stmts;
     };
     struct Cond {

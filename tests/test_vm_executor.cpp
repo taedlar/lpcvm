@@ -9,7 +9,7 @@
 #include "vm_opcodes.hpp"
 
 TEST(VMExecutorTest, EmptyFunction) {
-    EvaluationStack stack;
+    OperandStack stack;
     ConstTable consts;
     std::vector<uint8_t> bytecode = {};
     auto const_pool = consts.make_intern();
@@ -20,7 +20,7 @@ TEST(VMExecutorTest, EmptyFunction) {
 }
 
 TEST(VMExecutorTest, BasicExecution) {
-    EvaluationStack stack;
+    OperandStack stack;
     ConstTable consts;
     ConstPool::IndexType c1 = consts.find_or_add(int32_t{123});
     ConstPool::IndexType c2 = consts.find_or_add(int32_t{456});
@@ -42,7 +42,7 @@ TEST(VMExecutorTest, BasicExecution) {
 }
 
 TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
-    EvaluationStack stack;
+    OperandStack stack;
     ConstTable consts;
     ConstPool::IndexType c1 = consts.find_or_add(int32_t{123});
     std::vector<uint8_t> bytecode;
@@ -62,7 +62,7 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
 }
 
 TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
-    EvaluationStack stack;
+    OperandStack stack;
     ConstTable consts;
     ConstPool::IndexType c1 = consts.find_or_add(int32_t{123});
     std::vector<uint8_t> bytecode;

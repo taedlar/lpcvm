@@ -197,23 +197,25 @@ def
             if (lpcc->current_scope->lookup($entry->name) && $entry->signature.b.is_const)
                 throw parse_error("Function already defined: " + $entry->name, yyscanner);
             lpcc->current_scope->emplace($entry->name, $entry); // add the function to the current scope
-            lpcc->current_scope = lpcc->current_scope->new_subscope(); // enter a new subscope for the function body
-            lpcc->in_func_body = true;
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::FUNCTION, 0); // enter a new subscope for the function body
+            lpcc->next_local = 0; // reset overlay base for the function scope
         }
       formal_parameters[params] ')'
         {
             // add formal parameters to current scope before proceed
             auto lpcc = yyget_extra(yyscanner);
             // TODO: number of formal parameters == lpcc->next_local.
-            // At function entry, adjust actual parameters based on number of formal parameters.
+            // When pushing a control frame, actual parameters are expected to be on the operand stack in order.
+            // The number of actual parameters should not exceed the number of formal parameters. (in vararg case,
+            // the last formal parameter is an array to catch all actual parameters).
+            // If the caller provides fewer actual parameters than the number of formal parameters, the missing
+            // parameters are considered uninitialized.
         }
       block_or_semicolon[body]
         {
             auto lpcc = yyget_extra(yyscanner);
             auto func_scope = lpcc->current_scope;
             lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
-            lpcc->in_func_body = false;
-            lpcc->next_local = 0; // reset local variable counter for the next function scope
             if ($body.node.index()) {
                 $entry->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
@@ -312,7 +314,7 @@ new_var
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Variable already defined: " + $2, yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
-            if (lpcc->current_scope->get_enclosing_scope()) {
+            if (lpcc->current_scope->get_enclosing_scope()) { // LOCAL or BLOCK scope
                 entry->value = uint32_t{lpcc->next_local++};
                 entry->signature.b.is_local = 1; // mark as local variable
             }
@@ -327,7 +329,7 @@ new_var
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Variable already defined: " + $2, yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
-            if (lpcc->current_scope->get_enclosing_scope()) {
+            if (lpcc->current_scope->get_enclosing_scope()) { // LOCAL or BLOCK scope
                 entry->value = uint32_t{lpcc->next_local++};
                 entry->signature.b.is_local = 1; // mark as local variable
             }
@@ -469,14 +471,22 @@ block
     : '{'
         {
             auto lpcc = yyget_extra(yyscanner);
-            if (lpcc->in_func_body)
-                lpcc->current_scope = lpcc->current_scope->new_subscope();
+            if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::FUNCTION) {
+                // The lpcc->current_scope contains formal parameters of the function.
+                // Now entering the local scope for the function body.
+                lpcc->current_scope->set_scope_type(SymbolTable::ScopeType::LOCAL);
+            }
+            else if (lpcc->current_scope->scope_type() != SymbolTable::ScopeType::GLOBAL) {
+                lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::BLOCK, lpcc->next_local);
+            }
         }
      stmt_list '}'
         {
             auto lpcc = yyget_extra(yyscanner);
-            if (lpcc->in_func_body)
+            if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::BLOCK) {
+                lpcc->next_local = lpcc->current_scope->overlay_base(); // restore the local variable counter to the overlay base of the enclosing block
                 lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
+            }
             $$ = AST::Block{};
             std::get<AST::Block>($$.node).num_locals = lpcc->next_local;
             lpcc->next_local = 0;

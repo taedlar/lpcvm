@@ -27,7 +27,7 @@ constexpr std::size_t variant_index() {
 
 /**
  * @brief Represents a value that can hold any of the types allowed to be
- * pushed onto the virtual machine's evaluation stack, as defined in
+ * pushed onto the virtual machine's operand stack, as defined in
  * SValueVariant.
  *
  * Inherits from std::variant to provide type-safe storage and access.

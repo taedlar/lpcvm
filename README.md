@@ -32,7 +32,7 @@ A LPC mudlib is a sandbox that is restricted to see only a portion of the filesy
   - Objects are stored in heap allocated memory and passed by handle (weak reference). Objects must be **destructed** explicitly.
   - There is no raw pointer semantics in LPC language.
 - Variables in objects are destroyed when the object is destructed.
-- Variables in the evaluation stack (e.g. function arguments and local variables) are destroyed when poped from the stack.
+- Variables in the operand stack (e.g. function arguments and local variables) are destroyed when poped from the stack.
 - Heap allocated compound data types are destroyed when their reference count reaches zero.
 
 ### Stack Machine
@@ -44,7 +44,7 @@ A LPC mudlib is a sandbox that is restricted to see only a portion of the filesy
   - Constant pool (immutable)
   - Global variables
   - Evaluation stack
-- SValues in global variables and evaluation stack are designed for thread-confinement architecture. No synchronization on access.
+- SValues in global variables and operand stack are designed for thread-confinement architecture. No synchronization on access.
 - No global program counter or stack pointers.
 
 ## LPC Language
