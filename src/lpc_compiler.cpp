@@ -120,13 +120,14 @@ std::shared_ptr<RuntimeClass> LpcCompiler::generate_code() noexcept {
                     continue; // Skip functions without a body
                 AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
                 auto name_idx = consts_->find_or_add(func_decl.entry->name);
+                std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
                 VirtualTable::Binding binding;
                 binding.signature = func_decl.entry->signature;
                 binding.inheriting = -1;
                 // Generate the bytecode for the function body
                 binding.bytecode_offset = rt_class->bytecode_.size();
                 lpcvm::FunctionBuilder func_builder(rt_class->bytecode_);
-                func_builder.emit_body(std::get<AST::Block>(func_def.body->node));
+                func_builder.emit_body(std::get<AST::Block>(func_def.body->node), num_formal_params);
                 binding.bytecode_length = rt_class->bytecode_.size() - binding.bytecode_offset;
                 // Add the method binding to the virtual table
                 rt_class->virtual_table_->emplace(name_idx, binding);

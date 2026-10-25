@@ -128,7 +128,7 @@
 %token L_ELLIPSIS
 
 %type <ASTNode> program def inheritance
-%type <ASTNode> formal_parameters parameter_list parameter_decl
+%type <ASTNode> formal_parameters parameter_list
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var
@@ -136,7 +136,7 @@
 %type <ASTNode> comma_expr lvalue expr0 expr4
 %type <ASTNode> function_call arg_list
 
-%type <SymbolSignature> storage_or_type typed_storage
+%type <SymbolSignature> storage_or_type typed_storage parameter_decl
 %type <SymbolSignature> type_modifier_list opt_star
 
 %type <std::shared_ptr<SymbolTable::Entry>> function_head
@@ -198,21 +198,22 @@ def
                 throw parse_error("Function already defined: " + $entry->name, yyscanner);
             lpcc->current_scope->emplace($entry->name, $entry); // add the function to the current scope
             lpcc->current_scope = lpcc->current_scope->new_subscope(); // enter a new subscope for the function body
+            lpcc->in_func_body = true;
         }
       formal_parameters[params] ')'
         {
             // add formal parameters to current scope before proceed
             auto lpcc = yyget_extra(yyscanner);
-            for (auto& param : std::get<AST::ParameterList>($params.node).parameters) {
-                auto entry = std::get<AST::VariableDecl>(param.node).entry;
-                if (entry)
-                    lpcc->current_scope->emplace(entry->name, entry);
-            }
+            // TODO: number of formal parameters == lpcc->next_local.
+            // At function entry, adjust actual parameters based on number of formal parameters.
         }
       block_or_semicolon[body]
         {
             auto lpcc = yyget_extra(yyscanner);
-            lpcc->current_scope = lpcc->current_scope->get_enclosing_scope(); // exit the function's subscope
+            auto func_scope = lpcc->current_scope;
+            lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
+            lpcc->in_func_body = false;
+            lpcc->next_local = 0; // reset local variable counter for the next function scope
             if ($body.node.index()) {
                 $entry->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
@@ -265,11 +266,14 @@ function_head
         {
             SymbolSignature sig{0};
             sig.b.data_type = LpcDataType::T_INT; // implicit function return type
+            sig.b.is_function = 1; // mark as function
             $$ = std::make_shared<SymbolTable::Entry>($2, sig);
+
         }
     | storage_or_type opt_star L_IDENTIFIER
         {
             $1.value |= $2.value;
+            $1.b.is_function = 1; // mark as function
             $$ = std::make_shared<SymbolTable::Entry>($3, $1);
         }
     ;
@@ -285,14 +289,19 @@ var_list
     : new_var
     | var_list ',' new_var
         {
-            $$ = AST::VariableDeclList{};
-            auto& decls = std::get<AST::VariableDeclList>($$.node);
-            std::visit (overloaded {
-                [&](AST::VariableDecl& decl) { decls.declarations.push_back(std::move($1)); },
-                [&](AST::VariableDeclList& decl_list) { decls = std::move(decl_list); },
-                [&](auto&) { /* ignore other types */ }
-            }, $1.node);
-            decls.declarations.push_back(std::move($3));
+            if ($3.node.index() == 0) {
+                $$ = $1;
+            }
+            else if ($1.node.index() == 0) {
+                $$ = $3;
+            }
+            else {
+                $$ = AST::BinaryOp{
+                    oparg::COMMA,
+                    std::make_unique<ASTNode>(std::move($1)),
+                    std::make_unique<ASTNode>(std::move($3))
+                };
+            }
         }
     ;
 
@@ -303,8 +312,14 @@ new_var
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Variable already defined: " + $2, yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
+            if (lpcc->current_scope->get_enclosing_scope()) {
+                entry->value = uint32_t{lpcc->next_local++};
+                entry->signature.b.is_local = 1; // mark as local variable
+            }
+            else
+                entry->value = uint32_t{lpcc->next_global++};
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            $$ = AST::VariableDecl{ std::move(entry), nullptr };
+            $$ = ASTNode{}; // no-op
         }
     | opt_star L_IDENTIFIER L_ASSIGN expr0
         {
@@ -312,8 +327,18 @@ new_var
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Variable already defined: " + $2, yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
+            if (lpcc->current_scope->get_enclosing_scope()) {
+                entry->value = uint32_t{lpcc->next_local++};
+                entry->signature.b.is_local = 1; // mark as local variable
+            }
+            else
+                entry->value = uint32_t{lpcc->next_global++};
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            $$ = AST::VariableDecl{ std::move(entry), std::make_unique<ASTNode>(std::move($4)) };
+            $$ = AST::BinaryOp{
+                oparg::ASSIGN,
+                std::make_unique<ASTNode>(AST::Variable{ std::move(entry) }), // lhs
+                std::make_unique<ASTNode>(std::move($4))
+            };
         }
     ;
 
@@ -366,26 +391,22 @@ formal_parameters
     : %empty
         { $$ = AST::ParameterList{}; }
     | parameter_list
-        {
-            $$ = AST::ParameterList{};
-            std::get<AST::ParameterList>($$.node).parameters = std::move(std::get<AST::List>($1.node).elts);
-        }
     ;
 
 parameter_list
     : parameter_decl
         {
-            $$ = AST::List{};
-            std::get<AST::List>($$.node).elts.push_back(std::move($1));
+            $$ = AST::ParameterList{};
+            std::get<AST::ParameterList>($$.node).parameters.push_back(std::move($1));
         }
     | parameter_list ',' parameter_decl
         {
-            std::get<AST::List>($1.node).elts.push_back(std::move($3));
-            $$ = $1;
-        }
-    | parameter_list ',' L_ELLIPSIS
-        {
-            std::get<AST::List>($1.node).elts.push_back(ASTNode{}); // represent ellipsis as an empty ASTNode
+            auto& params = std::get<AST::ParameterList>($1.node).parameters;
+            if(params.back().b.data_type == LpcDataType::T_VOID)
+                throw parse_error("Cannot have parameters after a void parameter", yyscanner);
+            if(params.back().b.data_type == LpcDataType::T_VARARG)
+                throw parse_error("Cannot have parameters after a vararg parameter", yyscanner);
+            params.push_back(std::move($3));
             $$ = $1;
         }
     ;
@@ -393,18 +414,48 @@ parameter_list
 parameter_decl
     : L_TYPE opt_star L_IDENTIFIER
         {
-            SymbolSignature s;
+            SymbolSignature s = $2;
             s.b.data_type = $1;
-            s.value |= $2.value;
+            auto lpcc = yyget_extra(yyscanner);
+            if (lpcc->current_scope->lookup($3))
+                throw parse_error("Parameter name already defined: " + std::string($3), yyscanner);
             auto entry = std::make_shared<SymbolTable::Entry>($3, s);
-            $$ = AST::VariableDecl{ std::move(entry), nullptr };
+            entry->signature.b.is_local = 1;
+            entry->value = uint32_t{lpcc->next_local++};
+            lpcc->current_scope->emplace($3, entry);
+            $$ = s;
         }
     | L_TYPE opt_star
-        { $$ = AST::VariableDecl{ nullptr, nullptr }; }
+        {
+            SymbolSignature s = $2;
+            s.b.data_type = $1;
+            auto lpcc = yyget_extra(yyscanner);
+            lpcc->next_local++; // increment local variable counter for unnamed parameter
+            $$ = s;
+        }
     | L_IDENTIFIER
         {
-            auto entry = std::make_shared<SymbolTable::Entry>($1, SymbolSignature{LpcDataType::T_INT});
-            $$ = AST::VariableDecl{ std::move(entry), nullptr };
+            SymbolSignature s{LpcDataType::T_INT};
+            auto lpcc = yyget_extra(yyscanner);
+            if (lpcc->current_scope->lookup($1))
+                throw parse_error("Parameter name already defined: " + std::string($1), yyscanner);
+            auto entry = std::make_shared<SymbolTable::Entry>($1, s);
+            entry->signature.b.is_local = 1;
+            entry->value = uint32_t{lpcc->next_local++};
+            lpcc->current_scope->emplace($1, entry);
+            $$ = s;
+        }
+    | L_ELLIPSIS L_IDENTIFIER
+        {
+            SymbolSignature s{LpcDataType::T_VARARG}; // vararg parameter, a catch-all array for remaining actual parameters
+            auto lpcc = yyget_extra(yyscanner);
+            if (lpcc->current_scope->lookup($2))
+                throw parse_error("Parameter name already defined: " + std::string($2), yyscanner);
+            auto entry = std::make_shared<SymbolTable::Entry>($2, s);
+            entry->signature.b.is_local = 1;
+            entry->value = uint32_t{lpcc->next_local++};
+            lpcc->current_scope->emplace($2, entry);
+            $$ = s;
         }
     ;
 
@@ -415,10 +466,21 @@ block_or_semicolon
     ;
 
 block
-    : '{' stmt_list '}'
+    : '{'
         {
+            auto lpcc = yyget_extra(yyscanner);
+            if (lpcc->in_func_body)
+                lpcc->current_scope = lpcc->current_scope->new_subscope();
+        }
+     stmt_list '}'
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            if (lpcc->in_func_body)
+                lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             $$ = AST::Block{};
-            std::get<AST::Block>($$.node).stmts = std::move(std::get<AST::List>($2.node).elts);
+            std::get<AST::Block>($$.node).num_locals = lpcc->next_local;
+            lpcc->next_local = 0;
+            std::get<AST::Block>($$.node).stmts = std::make_unique<ASTNode>(std::move($3));
         }
     ;
 
@@ -579,6 +641,7 @@ opt_else_stmt
 for_stmt
     : L_FOR '(' local_decl_list[init] comma_expr[cond] ';' comma_expr[step] ')' stmt[body]
         {
+            auto lpcc = yyget_extra(yyscanner);
             ASTNode for_loop = AST::PreTestedLoop{
                 std::make_unique<ASTNode>(std::move($cond)),
                 std::make_unique<ASTNode>(std::move($step)),
@@ -588,7 +651,7 @@ for_stmt
                 std::vector<ASTNode> stmts;
                 stmts.push_back(std::move($init));
                 stmts.push_back(std::move(for_loop));
-                $$ = AST::Block{ std::move(stmts) };
+                $$ = AST::Block{ lpcc->next_local, std::make_unique<ASTNode>(AST::List{ std::move(stmts) }) };
             }
             else {
                 $$ = for_loop;
@@ -630,8 +693,10 @@ function_call
             auto lpcc = yyget_extra(yyscanner);
             auto entry = lpcc->current_scope->lookup($1);
             if (!entry) {
-                // throw parse_error("Undefined function: " + std::string($1), yyscanner);
-                entry = std::make_shared<SymbolTable::Entry>($1, SymbolSignature{0});
+                // add forward declaration for the function
+                SymbolSignature sig{};
+                sig.b.is_function = 1; // mark as function
+                entry = std::make_shared<SymbolTable::Entry>($1, sig);
                 lpcc->current_scope->emplace($1, entry);
             }
             $$ = AST::FunctionCall{ std::move(entry), std::make_unique<ASTNode>(std::move($3)) };

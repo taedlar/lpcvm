@@ -1,5 +1,9 @@
 // Example LPC source file for testing the parser
 
-int add() {
+int g = 789;
+
+int add(x, y, ... argv) {
+    int a = 123, b = g;
+    string c;
     return 123 + 456;
 }

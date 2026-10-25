@@ -151,29 +151,31 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++; sep = "\n";
             for (auto& param : param_list.parameters) {
                 std::cout << sep;
-                ast_dump(&param, true);
+                //ast_dump(&param, true);
+                std::cout << std::string(indent_level * 2, ' ') << "data_type = " << static_cast<int>(param.b.data_type);
                 sep = comma_sep;
             }
             indent_level--;
             std::cout << "])";
-        },
-        [&](const AST::VariableDecl& var_decl) {
-            std::cout << "AST::VariableDecl(";
-            if (var_decl.entry) {
-                std::cout << "name = \"" << var_decl.entry->name << "\"";
-            }
-            std::cout << ")";
         },
         [&](const AST::Block& block) {
-            std::cout << "AST::Block([";
-            indent_level++; sep = "\n";
-            for (auto& stmt : block.stmts) {
-                std::cout << sep;
-                ast_dump(&stmt, true);
-                sep = comma_sep;
+            std::cout << "AST::Block(" << std::endl;
+            indent_level++;
+            std::cout << std::string(indent_level * 2, ' ') << "num_locals = " << block.num_locals;
+            if (block.stmts) {
+                std::cout << comma_sep << std::string(indent_level * 2, ' ') << "stmts = [";
+                indent_level++; sep = "\n";
+                auto& stmts = std::get<AST::List>(block.stmts->node).elts;
+                for (auto& stmt : stmts) {
+                    std::cout << sep;
+                    ast_dump(&stmt, true);
+                    sep = comma_sep;
+                }
+                indent_level--;
+                std::cout << "]";
             }
             indent_level--;
-            std::cout << "])";
+            std::cout << ")";
         },
         [&](const AST::PreTestedLoop& pre_tested_loop) {
             std::cout << "AST::PreTestedLoop(" << std::endl;
@@ -240,6 +242,13 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++;
             std::cout << std::string(indent_level * 2, ' ') << "name = \"" << func_call.entry->name << "\"";
             indent_level--;
+            std::cout << ")";
+        },
+        [&](const AST::Variable& var) {
+            std::cout << "AST::Variable(";
+            std::cout << "name = \"" << var.entry->name << "\", ";
+            std::cout << "is_local = " << var.entry->signature.b.is_local << ", ";
+            std::cout << "index = " << std::get<uint32_t>(*var.entry->value);
             std::cout << ")";
         },
         [&](auto& node) {

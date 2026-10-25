@@ -27,6 +27,12 @@ public:
 
         std::string current_string;
         std::string raw_string_delimiter;
+        bool in_func_body;
+        uint32_t next_global;
+        uint32_t next_local;
+    
+        Context(): consts(nullptr), in_func_body(false), next_global(0), next_local(0) {}
+        ~Context() = default;
     };
 
     // compiler messages (errors, warnings, etc.)

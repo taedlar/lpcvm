@@ -32,10 +32,15 @@ TEST(LpcParserTest, ImplicitBlockAction) {
     ASSERT_EQ(defs.size(), 1);
     auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
     auto& stmts = std::get<AST::Block>(body.node).stmts;
-    ASSERT_EQ(stmts.size(), 1);
-    auto& nested = std::get<AST::Block>(stmts.front().node).stmts;
-    ASSERT_EQ(nested.size(), 1);
-    EXPECT_TRUE(std::holds_alternative<AST::Return>(nested.front().node));
+
+    ASSERT_TRUE(std::holds_alternative<AST::List>(stmts->node));
+    auto& stmts_list = std::get<AST::List>(stmts->node).elts;
+    ASSERT_TRUE(std::holds_alternative<AST::Block>(stmts_list.front().node)); // first statement in f() is a nested block
+    auto& nested = std::get<AST::Block>(stmts_list.front().node).stmts;
+    ASSERT_TRUE(std::holds_alternative<AST::List>(nested->node));
+    auto& nested_list = std::get<AST::List>(nested->node).elts;
+    ASSERT_EQ(nested_list.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<AST::Return>(nested_list.front().node));
 }
 
 TEST(LpcParserTest, NonemptyDeclarationPrefixes) {
