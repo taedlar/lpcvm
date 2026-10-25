@@ -54,6 +54,13 @@ class VirtualTable;
  */
 class SymbolTable: public std::enable_shared_from_this<SymbolTable> {
 public:
+    enum class ScopeType {
+        GLOBAL,
+        FUNCTION,
+        LOCAL,
+        BLOCK
+    };
+
     struct Entry {
         std::string name;
         SymbolSignature signature;
@@ -63,11 +70,16 @@ public:
             : name(std::move(name)), signature(signature) {}
     };
 
-    SymbolTable (std::shared_ptr<SymbolTable> enclosing_scope)
-        : enclosing_scope_ (std::move(enclosing_scope)) {}
+    SymbolTable (ScopeType scope_type, uint32_t overlay_base, std::shared_ptr<SymbolTable> enclosing_scope)
+        : scope_type_(scope_type), overlay_base_(overlay_base), enclosing_scope_ (std::move(enclosing_scope)) {}
 
-    std::shared_ptr<SymbolTable> new_subscope () { return std::make_shared<SymbolTable>(shared_from_this()); }
+    std::shared_ptr<SymbolTable> new_subscope (ScopeType scope_type, uint32_t base) {
+        return std::make_shared<SymbolTable>(scope_type, base, shared_from_this());
+    }
     std::shared_ptr<SymbolTable> get_enclosing_scope() const { return enclosing_scope_; }
+    ScopeType scope_type() const { return scope_type_; }
+    void set_scope_type(ScopeType scope_type) { scope_type_ = scope_type; }
+    uint32_t overlay_base() const { return overlay_base_; }
 
     /**
      * \brief Looks up a symbol entry by its key in the current scope and enclosing scopes.
@@ -92,6 +104,8 @@ public:
     void emit_symbolic_bindings(std::shared_ptr<VirtualTable> vt) const;
 
 private:
+    ScopeType scope_type_;
+    uint32_t overlay_base_;
     std::shared_ptr<SymbolTable> enclosing_scope_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> symbols_;
 };

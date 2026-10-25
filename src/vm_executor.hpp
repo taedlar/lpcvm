@@ -6,7 +6,7 @@
 #include "const_pool.hpp"
 #include "vm_svalue.hpp"
 
-class EvaluationStack {
+class OperandStack {
 private:
     std::vector<SValue> stack_;
 
@@ -84,7 +84,7 @@ public:
     BytecodeView& operator=(const BytecodeView&) = default;
 
     std::size_t length() const { return start_ ? (end_ - start_) : 0; }
-    int execute(EvaluationStack& stack, int num_args = 0);
+    int execute(OperandStack& stack, int num_args = 0);
 
 private:
     const uint8_t* start_;

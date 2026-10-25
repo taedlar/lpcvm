@@ -14,15 +14,12 @@
  * VM_HANDLER macro is used to define the handler for each opcode.
  * VM_DISPATCH macro is used to jump to the next instruction handler.
  *
- * @param stack The evaluation stack used by the VM.
+ * @param stack The operand stack used by the VM.
  * @param num_args The number of arguments expected on the stack.
  * @return The number of return values on the stack. Arguments are popped before returning
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
-int BytecodeView::execute(EvaluationStack& stack, int num_args) {
-    std::size_t initial_sp = stack.size();
-    if (initial_sp < num_args)
-        throw std::runtime_error("Not enough arguments on the stack");
+int BytecodeView::execute(OperandStack& stack, int num_args) {
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
 #else
@@ -63,6 +60,9 @@ int BytecodeView::execute(EvaluationStack& stack, int num_args) {
         break
 #endif
 
+    int fp = stack.size() - num_args; // frame pointer, points to the base of the current function's stack frame
+    if (fp < 0)
+        throw std::runtime_error("Not enough arguments on the stack");
     const uint8_t *pc = start_;
     uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
     uint32_t oparg; // holds the extendable argument for the current opcode
@@ -72,10 +72,9 @@ int BytecodeView::execute(EvaluationStack& stack, int num_args) {
 
     VM_HANDLER(F_RETURN) {
         oparg = (extended_arg << 8) | *pc++; // number of return values on the stack
-        std::size_t pre_exec_sp = initial_sp - num_args;
-        if (stack.size() - oparg < pre_exec_sp)
+        if (stack.size() - oparg < fp)
             throw std::runtime_error("Stack underflow on return");        
-        stack.pop_i(pre_exec_sp, stack.size() - oparg - pre_exec_sp); // pop arguments and locals
+        stack.pop_i(fp, stack.size() - oparg - fp); // pop arguments and locals
         return oparg;
     }
 
@@ -183,7 +182,7 @@ invalid_opcode:
 
 end_of_bytecode:
     // stops execution if end of bytecode is reached without encountering op_return
-    stack.pop_n(stack.size() - (initial_sp - num_args));
+    stack.pop_n(stack.size() - fp);
     return 0;
 
 #undef VM_LOOP_START

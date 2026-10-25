@@ -57,7 +57,7 @@ bool LpcCompiler::parse() noexcept {
     bool result = false;
     try {
         consts_ = std::make_shared<ConstTable>();
-        globals_ = std::make_shared<SymbolTable>(nullptr); // scoped
+        globals_ = std::make_shared<SymbolTable>(SymbolTable::ScopeType::GLOBAL, 0, nullptr);
         messages_.clear();
         ast_ = pimpl_->parse_file(source_file_, *consts_, globals_);
         SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());

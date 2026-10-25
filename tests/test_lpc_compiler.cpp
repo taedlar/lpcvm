@@ -24,8 +24,8 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     ASSERT_TRUE(rt_class->lookup_method("f", &entry));
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
-    // Execute the bytecode for the method 'f' and check the evaluation stack
-    EvaluationStack stack;
+    // Execute the bytecode for the method 'f' and check the operand stack
+    OperandStack stack;
     EXPECT_EQ(entry.execute(stack), 1);
     ASSERT_FALSE(stack.empty());
     SPDLOG_INFO("Top of stack: variant index {}", stack.top().index());
@@ -53,7 +53,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
 
     auto const_pool = consts.make_intern();
     BytecodeView view(bytecode.data(), bytecode.size(), const_pool.get());
-    EvaluationStack stack;
+    OperandStack stack;
     stack.push(int32_t{1}); // argument 1
     EXPECT_EQ(view.execute(stack, 1), 1);
     ASSERT_EQ(stack.size(), 1);
