@@ -216,6 +216,16 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             }
             std::cout << ")";
         },
+        [&](const AST::Assign& assign) {
+            std::cout << "AST::Assign(" << std::endl;
+            indent_level++;
+            std::cout << std::string(indent_level * 2, ' ') << "lhs = ";
+            ast_dump(assign.lhs.get(), false);
+            std::cout << comma_sep << std::string(indent_level * 2, ' ') << "rhs = ";
+            ast_dump(assign.rhs.get(), false);
+            indent_level--;
+            std::cout << ")";
+        },
         [&](const AST::BinaryOp& bin_op) {
             std::cout << "AST::BinaryOp(" << std::endl;
             indent_level++;

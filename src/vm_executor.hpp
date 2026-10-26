@@ -4,6 +4,8 @@
 #pragma once
 #include <cstdint>
 #include "const_pool.hpp"
+#include "runtime_class.hpp"
+#include "runtime_state.hpp"
 #include "vm_svalue.hpp"
 
 class OperandStack {
@@ -77,9 +79,10 @@ public:
 
 struct BytecodeView {
 public:
-    BytecodeView() : start_(nullptr), end_(nullptr), const_pool_(nullptr), globals_(nullptr) {}
-    BytecodeView(const uint8_t* bytecode, std::size_t size, const ConstPool* const_pool = nullptr, SValue* globals = nullptr)
-        : start_(bytecode), end_(bytecode + size), const_pool_(const_pool), globals_(globals) {}
+    BytecodeView()
+        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr) {}
+    BytecodeView(const uint8_t* bytecode, std::size_t size, const RuntimeClass* prog = nullptr, RuntimeState* obj = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj) {}
     BytecodeView(const BytecodeView&) = default;
     BytecodeView& operator=(const BytecodeView&) = default;
 
@@ -89,6 +92,6 @@ public:
 private:
     const uint8_t* start_;
     const uint8_t* end_;
-    const ConstPool* const_pool_;
-    SValue* globals_;
+    const RuntimeClass* prog_;
+    RuntimeState* this_obj_;
 };

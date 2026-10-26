@@ -42,6 +42,8 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1}),
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1})
     };
+    SymbolTable symbols;
+    RuntimeClass rt_class(consts, symbols);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -52,7 +54,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
     auto const_pool = consts.make_intern();
-    BytecodeView view(bytecode.data(), bytecode.size(), const_pool.get());
+    BytecodeView view(bytecode.data(), bytecode.size(), &rt_class);
     OperandStack stack;
     stack.push(int32_t{1}); // argument 1
     EXPECT_EQ(view.execute(stack, 1), 1);
