@@ -4,6 +4,6 @@ int g = 789;
 
 int add(x, y, ... argv) {
     int a = 123, b = g;
-    string c;
+    g = a;
     return 123 + 456;
 }

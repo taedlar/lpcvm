@@ -97,49 +97,55 @@ int BytecodeView::execute(OperandStack& stack, int num_args) {
 
     VM_HANDLER(F_CONST_I4) {
         oparg = (extended_arg << 8) | *pc++;
-        int32_t value = const_pool_->fetch<int32_t>(oparg);
+        int32_t value = prog_->const_pool()->fetch<int32_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_I8) {
         oparg = (extended_arg << 8) | *pc++;
-        int64_t value = const_pool_->fetch<int64_t>(oparg);
+        int64_t value = prog_->const_pool()->fetch<int64_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_U4) {
         oparg = (extended_arg << 8) | *pc++;
-        uint32_t value = const_pool_->fetch<uint32_t>(oparg);
+        uint32_t value = prog_->const_pool()->fetch<uint32_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_U8) {
         oparg = (extended_arg << 8) | *pc++;
-        uint64_t value = const_pool_->fetch<uint64_t>(oparg);
+        uint64_t value = prog_->const_pool()->fetch<uint64_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_F4) {
         oparg = (extended_arg << 8) | *pc++;
-        float value = const_pool_->fetch<float>(oparg);
+        float value = prog_->const_pool()->fetch<float>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_F8) {
         oparg = (extended_arg << 8) | *pc++;
-        double value = const_pool_->fetch<double>(oparg);
+        double value = prog_->const_pool()->fetch<double>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_STR) {
         oparg = (extended_arg << 8) | *pc++;
-        auto value = const_pool_->fetch_string(oparg); // TODO: push a string value onto the VM stack
+        auto value = prog_->const_pool()->fetch_string(oparg); // TODO: push a string value onto the VM stack
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_STORE_GLOBAL) {
+        oparg = (extended_arg << 8) | *pc++;
+        (*this_obj_)[oparg] = stack.top();
         VM_DISPATCH();
     }
 

@@ -5,6 +5,14 @@
 #include "vm_executor.hpp"
 #include "runtime_class.hpp"
 
+RuntimeClass::RuntimeClass(ConstTable& consts, SymbolTable& symbols)
+    : num_variables_(0) {
+    const_pool_ = consts.make_intern();
+    virtual_table_ = std::make_shared<VirtualTable>(const_pool_);
+    symbols.emit_symbolic_bindings(virtual_table_);
+    num_variables_ = symbols.size();
+}
+
 void RuntimeClass::inherit_from(std::shared_ptr<RuntimeClass> parent) {
     if (parent) {
         for (auto& c: inherits_) {
@@ -22,7 +30,7 @@ bool RuntimeClass::lookup_method(const std::string_view name, BytecodeView* entr
             BytecodeView found{
                 bytecode_.data() + out_binding.bytecode_offset,
                 out_binding.bytecode_length,
-                const_pool_.get()
+                this,
             };
             *entry = found;
         }

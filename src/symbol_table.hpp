@@ -70,6 +70,8 @@ public:
             : name(std::move(name)), signature(signature) {}
     };
 
+    SymbolTable()
+        : scope_type_(ScopeType::GLOBAL), overlay_base_(0), enclosing_scope_(nullptr) {}
     SymbolTable (ScopeType scope_type, uint32_t overlay_base, std::shared_ptr<SymbolTable> enclosing_scope)
         : scope_type_(scope_type), overlay_base_(overlay_base), enclosing_scope_ (std::move(enclosing_scope)) {}
 

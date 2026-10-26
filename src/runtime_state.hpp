@@ -6,12 +6,24 @@
 #include "vm_svalue.hpp"
 
 class RuntimeState {
+    std::vector<SValue> variables_;
 public:
     RuntimeState(std::size_t num_vars) {
-        variables_.reserve(num_vars);
+        variables_.resize(num_vars);
     }
     ~RuntimeState() = default;
 
-private:
-    std::vector<SValue> variables_;
+    SValue& operator[](std::size_t index) {
+        if (index >= variables_.size()) {
+            throw std::out_of_range("Variable index out of range");
+        }
+        return variables_[index];
+    }
+
+    const SValue& operator[](std::size_t index) const {
+        if (index >= variables_.size()) {
+            throw std::out_of_range("Variable index out of range");
+        }
+        return variables_[index];
+    }
 };
