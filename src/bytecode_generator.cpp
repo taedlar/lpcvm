@@ -3,6 +3,7 @@
 
 #include "config.hpp"
 #include "bytecode_generator.hpp"
+#include <stdexcept>
 #include <variant>
 
 using namespace lpcvm;
@@ -10,6 +11,9 @@ using namespace lpcvm;
 BytecodeGenerator& BytecodeGenerator::emit_statement(const ASTNode& stmt) {
     context_ = STATEMENT;
     std::visit(overloaded {
+        [&](const AST::Block& block) {
+            emit_block(block);
+        },
         [&](const AST::Return& ret_stmt) {
             if (ret_stmt.expr) {
                 emit_expression(*ret_stmt.expr);
@@ -52,21 +56,24 @@ BytecodeGenerator& BytecodeGenerator::emit_expression(const ASTNode& expr) {
     return *this;
 }
 
-FunctionBuilder& FunctionBuilder::emit_body(const AST::Block& body, std::size_t num_formal_params) {
-    if (!body.stmts || !std::holds_alternative<AST::List>(body.stmts->node))
+BytecodeGenerator& BytecodeGenerator::emit_block(const AST::Block& block, std::size_t num_formal_params) {
+    if (!block.stmts || !std::holds_alternative<AST::List>(block.stmts->node))
         return *this;
-    uint32_t num_locals = body.num_locals;
+    uint32_t num_locals = block.num_locals;
     if (num_formal_params > num_locals)
         throw std::runtime_error("Number of formal parameters exceeds number of local variables");
     num_locals -= num_formal_params; // arguments are pushed by the caller
     if (num_locals > 0)
         emit(F_PUSH_N, num_locals);
-    auto& stmts = std::get<AST::List>(body.stmts->node).elts;
+    auto& stmts = std::get<AST::List>(block.stmts->node).elts;
     for(auto& stmt: stmts)
         emit_statement(stmt);
-    if (num_locals > 0) {
-        // TODO: implement control stack to properly manage local variable cleanup in case of early returns or exceptions
+    if (num_locals > 0)
         emit(F_POP_N, num_locals);
-    }
+    return *this;
+}
+
+FunctionBuilder& FunctionBuilder::emit_body(const AST::Block& body, std::size_t num_formal_params) {
+    emit_block(body, num_formal_params);
     return *this;
 }

@@ -25,8 +25,9 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
     // Execute the bytecode for the method 'f' and check the operand stack
+    ReturnStack control;
     DataStack stack;
-    EXPECT_EQ(entry.execute(stack), 1);
+    EXPECT_EQ(entry.execute(control, stack), 1);
     ASSERT_FALSE(stack.empty());
     SPDLOG_INFO("Top of stack: variant index {}", stack.top().index());
     ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
@@ -53,16 +54,71 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
     BytecodeView view(bytecode.data(), bytecode.size(), &prog);
+    ReturnStack control;
     DataStack stack;
     stack.push(SValue(int32_t{1})); // argument 1
-    EXPECT_EQ(view.execute(stack, 1), 1);
+    EXPECT_EQ(view.execute(control, stack, 1), 1);
     ASSERT_EQ(stack.size(), 1);
     ASSERT_TRUE(std::holds_alternative<int32_t>(stack.top()));
     EXPECT_EQ(std::get<int32_t>(stack.top()), 3); // result of arg#1 + (1 + 1)
 
     // now we have 3 on top of the stack
-    EXPECT_EQ(view.execute(stack, 1), 1);
+    EXPECT_EQ(view.execute(control, stack, 1), 1);
     ASSERT_EQ(stack.size(), 1);
     ASSERT_TRUE(std::holds_alternative<int32_t>(stack.top()));
     EXPECT_EQ(std::get<int32_t>(stack.top()), 5); // result of 3 + (1 + 1) again
+}
+
+TEST(LpcCompilerTest, BlockLocalAllocation) {
+    struct TestCase {
+        const char* source;
+        std::size_t num_params;
+        std::vector<uint8_t> expected;
+    };
+    for (const auto& test : {
+        TestCase{"void f() { {} }", 0, {}},
+        TestCase{"void f(int p) { int a; { int b; { int c, d; } } { int e; } int later; }", 1,
+            {F_PUSH_N, 2, F_PUSH_N, 1, F_PUSH_N, 2, F_POP_N, 2, F_POP_N, 1,
+             F_PUSH_N, 1, F_POP_N, 1, F_POP_N, 2}},
+        TestCase{"void f(int p) { { int a; } }", 1,
+            {F_PUSH_N, 1, F_POP_N, 1}},
+    }) {
+        SCOPED_TRACE(test.source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(test.source));
+        const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+        const auto& function = std::get<AST::FunctionDef>(defs.front().node);
+        std::vector<uint8_t> bytecode;
+        lpcvm::FunctionBuilder builder(bytecode);
+        builder.emit_body(std::get<AST::Block>(function.body->node), test.num_params);
+        EXPECT_EQ(bytecode, test.expected);
+
+        builder.emit(F_RETURN, 0);
+        ReturnStack control;
+        DataStack stack;
+        stack.push(SValue(int32_t{99}));
+        stack.push_n(test.num_params);
+        BytecodeView view(bytecode.data(), bytecode.size(), nullptr);
+        EXPECT_EQ(view.execute(control, stack, test.num_params), 0);
+        ASSERT_EQ(stack.size(), 1);
+        EXPECT_EQ(std::get<int32_t>(stack.top()), 99);
+    }
+}
+
+TEST(LpcCompilerTest, ReturnFromNestedBlockCleansUpLocals) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("int f(int p) { int a; { int b; return 42; } }"));
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    BytecodeView entry;
+    ASSERT_TRUE(prog->lookup_method("f", &entry));
+    ReturnStack control;
+    DataStack stack;
+    stack.push(SValue(int32_t{99}));
+    stack.push(SValue(int32_t{7}));
+    EXPECT_EQ(entry.execute(control, stack, 1), 1);
+    ASSERT_EQ(stack.size(), 2);
+    EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
+    ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
+    EXPECT_EQ(std::get<uint32_t>(stack.top()), 42);
 }

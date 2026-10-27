@@ -43,7 +43,7 @@ TEST(LpcParserTest, ImplicitBlockAction) {
     EXPECT_TRUE(std::holds_alternative<AST::Return>(nested_list.front().node));
 }
 
-TEST(LpcParserTest, NestedBlocksPreserveLocalHighWaterMark) {
+TEST(LpcParserTest, NestedBlocksCountOwnLocals) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse("void f(int p) { int a = 1; { int x = 2; } int y = 3; }"));
     ASSERT_NE(compiler.get_ast(), nullptr);
@@ -57,7 +57,7 @@ TEST(LpcParserTest, NestedBlocksPreserveLocalHighWaterMark) {
     auto& statements = std::get<AST::List>(body_block.stmts->node).elts;
     ASSERT_EQ(statements.size(), 3);
     auto& nested_block = std::get<AST::Block>(statements[1].node);
-    EXPECT_EQ(nested_block.num_locals, 3);
+    EXPECT_EQ(nested_block.num_locals, 1);
 }
 
 TEST(LpcParserTest, NonemptyDeclarationPrefixes) {

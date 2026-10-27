@@ -14,12 +14,13 @@
  * VM_HANDLER macro is used to define the handler for each opcode.
  * VM_DISPATCH macro is used to jump to the next instruction handler.
  *
+ * @param control The return stack used by the VM.
  * @param stack The operand stack used by the VM.
  * @param num_args The number of arguments expected on the stack.
  * @return The number of return values on the stack. Arguments are popped before returning
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
-int BytecodeView::execute(DataStack& stack, int num_args) {
+int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args) {
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
 #else

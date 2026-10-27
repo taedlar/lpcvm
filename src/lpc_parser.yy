@@ -483,8 +483,9 @@ block
      stmt_list '}'
         {
             auto lpcc = yyget_extra(yyscanner);
-            const auto num_locals = lpcc->next_local;
+            auto num_locals = lpcc->next_local;
             if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::BLOCK) {
+                num_locals -= lpcc->current_scope->overlay_base();
                 lpcc->next_local = lpcc->current_scope->overlay_base(); // restore the local variable counter to the overlay base of the enclosing block
                 lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             }

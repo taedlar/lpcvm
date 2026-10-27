@@ -9,9 +9,6 @@
 #include "vm_svalue.hpp"
 
 class DataStack {
-private:
-    std::vector<SValue> stack_;
-
 public:
     SValue& operator[](std::size_t index) {
         if (index >= stack_.size()) {
@@ -75,6 +72,46 @@ public:
     std::size_t size() const {
         return stack_.size();
     }
+
+private:
+    std::vector<SValue> stack_;
+};
+
+class ReturnStack {
+public:
+    struct Frame {
+        const uint8_t* return_address;
+        std::size_t num_locals;
+    };
+
+    void push(const uint8_t* return_address, std::size_t num_locals) {
+        stack_.push_back({return_address, num_locals});
+    }
+
+    void pop() {
+        if (stack_.empty()) {
+            throw std::runtime_error("Return stack underflow");
+        }
+        stack_.pop_back();
+    }
+
+    Frame& top() {
+        if (stack_.empty()) {
+            throw std::runtime_error("Return stack is empty");
+        }
+        return stack_.back();
+    }
+
+    bool empty() const {
+        return stack_.empty();
+    }
+
+    std::size_t size() const {
+        return stack_.size();
+    }
+
+private:
+    std::vector<Frame> stack_;
 };
 
 struct BytecodeView {
@@ -87,7 +124,8 @@ public:
     BytecodeView& operator=(const BytecodeView&) = default;
 
     std::size_t length() const { return start_ ? (end_ - start_) : 0; }
-    int execute(DataStack& stack, int num_args = 0);
+
+    int execute(ReturnStack& control, DataStack& stack, int num_args = 0);
 
 private:
     const uint8_t* start_;
