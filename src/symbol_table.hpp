@@ -88,14 +88,14 @@ public:
      * \param mangled_name The mangled name of the symbol to look up.
      * \return A pointer to the corresponding entry if found, or nullptr if not found.
      */
-    std::shared_ptr<Entry> lookup (std::string_view mangled_name) const;
+    std::shared_ptr<Entry> lookup (const std::string_view mangled_name) const;
 
     /**
      * \brief Inserts a new symbol entry into the current scope of the symbol table.
      * \param mangled_name The mangled name of the symbol to insert.
      * \param entry A shared pointer to the Entry to be inserted.
      */
-    void emplace (std::string_view mangled_name, const std::shared_ptr<Entry>& entry);
+    void emplace (const std::string_view mangled_name, std::shared_ptr<Entry> entry);
 
     std::size_t size() const { return symbols_.size(); }
 

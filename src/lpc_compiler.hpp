@@ -12,7 +12,7 @@
 struct ASTNode;
 class ConstTable;
 class SymbolTable;
-class RuntimeClass;
+class ObjectClass;
 
 class LpcCompiler {
 public:
@@ -43,7 +43,7 @@ public:
 
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
-    std::shared_ptr<RuntimeClass> generate_code() noexcept;
+    std::shared_ptr<ObjectClass> generate_code() noexcept;
 
     const std::vector<Message>& messages() const { return messages_; }
 

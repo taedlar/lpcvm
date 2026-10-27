@@ -483,14 +483,18 @@ block
      stmt_list '}'
         {
             auto lpcc = yyget_extra(yyscanner);
+            const auto num_locals = lpcc->next_local;
             if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::BLOCK) {
                 lpcc->next_local = lpcc->current_scope->overlay_base(); // restore the local variable counter to the overlay base of the enclosing block
                 lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             }
-            $$ = AST::Block{};
-            std::get<AST::Block>($$.node).num_locals = lpcc->next_local;
-            lpcc->next_local = 0;
-            std::get<AST::Block>($$.node).stmts = std::make_unique<ASTNode>(std::move($3));
+            else if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::LOCAL) {
+                lpcc->next_local = 0;
+            }
+            $$ = AST::Block{
+                .num_locals = num_locals,
+                .stmts = std::make_unique<ASTNode>(std::move($3))
+            };
         }
     ;
 

@@ -81,7 +81,7 @@ struct BytecodeView {
 public:
     BytecodeView()
         : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr) {}
-    BytecodeView(const uint8_t* bytecode, std::size_t size, const RuntimeClass* prog = nullptr, RuntimeState* obj = nullptr)
+    BytecodeView(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr, ObjectState* obj = nullptr)
         : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj) {}
     BytecodeView(const BytecodeView&) = default;
     BytecodeView& operator=(const BytecodeView&) = default;
@@ -92,6 +92,6 @@ public:
 private:
     const uint8_t* start_;
     const uint8_t* end_;
-    const RuntimeClass* prog_;
-    RuntimeState* this_obj_;
+    const ObjectClass* prog_;
+    ObjectState* this_obj_;
 };

@@ -67,7 +67,7 @@ int main(int argc, char* argv[]) {
 
 static void log_vm_info() {
     SPDLOG_INFO("sizeof SValue {}", sizeof(SValue));
-    SPDLOG_INFO("sizeof RuntimeClass {}", sizeof(RuntimeClass));
+    SPDLOG_INFO("sizeof ObjectClass {}", sizeof(ObjectClass));
     SPDLOG_INFO("sizeof ConstPool {}", sizeof(ConstPool));
     SPDLOG_INFO("sizeof VirtualTable {}", sizeof(VirtualTable));
     SPDLOG_INFO("=======================================================");
@@ -79,9 +79,9 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof SymbolTable::Entry {}", sizeof(SymbolTable::Entry));
     SPDLOG_INFO("=======================================================");
     SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));
-    SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<RuntimeClass>));
-    SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<RuntimeClass>));
-    SPDLOG_INFO("sizeof std::weak_ptr<...> {}", sizeof(std::weak_ptr<RuntimeClass>));
+    SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<ObjectClass>));
+    SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<ObjectClass>));
+    SPDLOG_INFO("sizeof std::weak_ptr<...> {}", sizeof(std::weak_ptr<ObjectClass>));
     SPDLOG_INFO("sizeof std::string_view {}", sizeof(std::string_view));
 }
 

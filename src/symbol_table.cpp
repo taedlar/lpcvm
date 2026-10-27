@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
+#include "config.hpp"
 #include "symbol_table.hpp"
 
-std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(std::string_view key) const {
+std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(const std::string_view key) const {
     auto it = symbols_.find(std::string(key));
     if (it != symbols_.end()) {
         return it->second;
@@ -14,8 +15,8 @@ std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(std::string_view key) co
     return nullptr;
 }
 
-void SymbolTable::emplace(std::string_view key, const std::shared_ptr<SymbolTable::Entry>& entry) {
-    symbols_[std::string(key)] = entry;
+void SymbolTable::emplace(const std::string_view key, std::shared_ptr<SymbolTable::Entry> entry) {
+    symbols_[std::string(key)] = std::move(entry);
 }
 
 void SymbolTable::emit_symbolic_bindings(std::shared_ptr<VirtualTable> vt) const {
