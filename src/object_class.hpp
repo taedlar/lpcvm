@@ -20,8 +20,7 @@ class RuntimeClass {
     std::size_t num_variables_; // (not including inherited variables)
 
 public:
-    RuntimeClass() = default;
-    RuntimeClass(ConstTable& consts, SymbolTable& symbols);
+    RuntimeClass(ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
     ~RuntimeClass() = default;
 
     void set_num_variables(std::size_t num) { num_variables_ = num; }
