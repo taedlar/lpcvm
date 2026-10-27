@@ -19,7 +19,7 @@
  * @return The number of return values on the stack. Arguments are popped before returning
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
-int BytecodeView::execute(OperandStack& stack, int num_args) {
+int BytecodeView::execute(DataStack& stack, int num_args) {
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
 #else

@@ -6,7 +6,7 @@
 #include <optional>
 #include <type_traits>
 #include "lpc_types.hpp"
-#include "runtime_class.hpp"
+#include "object_class.hpp"
 
 TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;

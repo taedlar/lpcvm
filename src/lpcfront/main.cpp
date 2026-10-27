@@ -10,7 +10,7 @@
 #include "lpc_compiler.hpp"
 #include "symbol_table.hpp"
 #include "virtual_table.hpp"
-#include "runtime_class.hpp"
+#include "object_class.hpp"
 #include "vm_svalue.hpp"
 
 static void log_vm_info();

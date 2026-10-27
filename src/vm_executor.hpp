@@ -4,11 +4,11 @@
 #pragma once
 #include <cstdint>
 #include "const_pool.hpp"
-#include "runtime_class.hpp"
-#include "runtime_state.hpp"
+#include "object_class.hpp"
+#include "object_state.hpp"
 #include "vm_svalue.hpp"
 
-class OperandStack {
+class DataStack {
 private:
     std::vector<SValue> stack_;
 
@@ -87,7 +87,7 @@ public:
     BytecodeView& operator=(const BytecodeView&) = default;
 
     std::size_t length() const { return start_ ? (end_ - start_) : 0; }
-    int execute(OperandStack& stack, int num_args = 0);
+    int execute(DataStack& stack, int num_args = 0);
 
 private:
     const uint8_t* start_;

@@ -3,14 +3,19 @@
 #include "config.hpp"
 #include "lpc_parser.hpp"
 #include "vm_executor.hpp"
-#include "runtime_class.hpp"
+#include "object_class.hpp"
 
-RuntimeClass::RuntimeClass(ConstTable& consts, SymbolTable& symbols)
+RuntimeClass::RuntimeClass(ConstTable* consts, SymbolTable* globals)
     : num_variables_(0) {
-    const_pool_ = consts.make_intern();
+    if (consts) {
+        const_pool_ = consts->make_intern();
+    }
     virtual_table_ = std::make_shared<VirtualTable>(const_pool_);
-    symbols.emit_symbolic_bindings(virtual_table_);
-    num_variables_ = symbols.size();
+    if (globals) {
+        globals->emit_symbolic_bindings(virtual_table_);
+        // TODO: count variables only
+        num_variables_ = globals->size();
+    }
 }
 
 void RuntimeClass::inherit_from(std::shared_ptr<RuntimeClass> parent) {

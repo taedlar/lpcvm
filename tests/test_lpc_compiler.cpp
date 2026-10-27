@@ -4,7 +4,7 @@
 #include "ast_node.hpp"
 #include "bytecode_generator.hpp"
 #include "lpc_compiler.hpp"
-#include "runtime_class.hpp"
+#include "object_class.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <gtest/gtest.h>
@@ -25,7 +25,7 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
     // Execute the bytecode for the method 'f' and check the operand stack
-    OperandStack stack;
+    DataStack stack;
     EXPECT_EQ(entry.execute(stack), 1);
     ASSERT_FALSE(stack.empty());
     SPDLOG_INFO("Top of stack: variant index {}", stack.top().index());
@@ -42,8 +42,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1}),
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1})
     };
-    SymbolTable symbols;
-    RuntimeClass rt_class(consts, symbols);
+    RuntimeClass rt_class(&consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -53,10 +52,9 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     bgen.emit(F_BIN_OP, oparg::ADD); // push result of arg#1 + (1 + 1)
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
-    auto const_pool = consts.make_intern();
     BytecodeView view(bytecode.data(), bytecode.size(), &rt_class);
-    OperandStack stack;
-    stack.push(int32_t{1}); // argument 1
+    DataStack stack;
+    stack.push(SValue(int32_t{1})); // argument 1
     EXPECT_EQ(view.execute(stack, 1), 1);
     ASSERT_EQ(stack.size(), 1);
     ASSERT_TRUE(std::holds_alternative<int32_t>(stack.top()));

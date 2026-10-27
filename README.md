@@ -18,12 +18,18 @@ LPCVM intended to develop a compact virtual stack-machine that can be safely san
 A LPC mudlib is a sandbox that is restricted to see only a portion of the filesystem.
 
 ### Objects
-- Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an object's variables and methods.
-- The sandbox's object **loader** can load bytecodes by reading from a bytecode file or compiling LPC source files on-demand.
-- Loaded bytecode is reference counted. The initiall reference is added by a **blueprint object**, which is registered with a unique name, e.g. `"/std/player"`.
-- More objects can be created by **cloning** from the blueprint object, each with a name derrived from the blueprint object, e.g. `"/std/player#24`. Cloned objects add references to the loaded bytecode.
-- Each object, blueprint or cloned, has its own instance of states (**variables**, I/O buffers, and other attributes).
-- Hot-reloading is achieved by *replacing* the registered blueprint object with a newly loaded one. Existing cloned objects are not affected by hot-reloading.
+- Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an **object class** with methods and variables.
+- The LPC compiler can compile the LPC source files to object class binaries (memory image of method bytecodes, constant pool, and virtual table of methods).
+- The object loader can **load** an object by invoking the LPC compiler to compile LPC source files in-memory.
+  - The object class image has reference-counted lifecycle, with first refernce held by the loaded object.
+  - The loaded object is registered with a unique name (e.g. `"/std/player"`) and serve as a **blueprint object**.
+  - More objects can be **cloned** from blueprint objects, adding more references to their object class images.
+- Hot-reloading is achieved by replacing the registered blueprint object with a newer version. Existing cloned objects can continue to use the old versions.
+- Each object has its own **object states** (i.e. variables, I/O buffers, and other attributes).
+  - The LPC `object` data type refers to a handle of individual object and allows access to its states.
+  - The LPC `call_other` efun allows calling methods defined in the object class image referenced by the object.
+  - The virtual machine can also interact with an object by invoking methods on various I/O events, timers, or policy contracts.
+  - LPC object must be **destructed** explicitly once loaded. This is to emulate physical objects (e.g. monsters) in a virtual world.
 
 ### Variables
 - A variable can hold a `SValue` (a value fits in one stack element), e.g. the value of a primitive data type, a reference to a compound data type, or a handle of an object.
