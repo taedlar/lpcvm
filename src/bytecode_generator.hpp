@@ -55,6 +55,8 @@ namespace lpcvm {
         BytecodeGenerator& emit_statement(const ASTNode& stmt);
 
         BytecodeGenerator& emit_expression(const ASTNode& expr);
+
+        BytecodeGenerator& emit_block(const AST::Block& block, std::size_t num_formal_params = 0);
     };
 
     class FunctionBuilder: public BytecodeGenerator {

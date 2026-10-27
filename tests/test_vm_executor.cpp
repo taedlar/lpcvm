@@ -14,8 +14,9 @@ TEST(VMExecutorTest, EmptyFunction) {
     std::vector<uint8_t> bytecode = {};
     BytecodeView code(bytecode.data(), bytecode.size(), &prog); // zero-length bytecode
     EXPECT_EQ(code.length(), 0);
+    ReturnStack control;
     DataStack stack;
-    EXPECT_EQ(code.execute(stack), 0);
+    EXPECT_EQ(code.execute(control, stack), 0);
     EXPECT_EQ(stack.size(), 0);
 }
 
@@ -33,9 +34,10 @@ TEST(VMExecutorTest, BasicExecution) {
         .emit(F_RETURN, 1);
 
     // Example test for basic execution
-    DataStack stack;
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
-    EXPECT_NO_THROW(code.execute(stack));
+    ReturnStack control;
+    DataStack stack;
+    EXPECT_NO_THROW(code.execute(control, stack));
     EXPECT_EQ(stack.size(), 1);
 
     auto res = stack.pop();
@@ -52,12 +54,12 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_RETURN, 1);
-
-    DataStack stack;
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
+    ReturnStack control;
+    DataStack stack;
     stack.push(SValue(int32_t{0})); // simulate an argument 0 on the stack
-    EXPECT_NO_THROW(code.execute(stack, 1));
+    EXPECT_NO_THROW(code.execute(control, stack, 1));
     EXPECT_EQ(stack.size(), 1); // arguments popped, returning 123 on top of the stack
 
     auto res = stack.pop();
@@ -66,7 +68,6 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
 }
 
 TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
-    DataStack stack;
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(&consts);
@@ -75,9 +76,11 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     bgen.emit(F_CONST_I4, c1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
+    ReturnStack control;
+    DataStack stack;
     stack.push(SValue(int32_t{0})); // simulate an argument 0 on the stack
     stack.push(SValue(int32_t{1})); // simulate an argument 1 on the stack
-    EXPECT_NO_THROW(code.execute(stack, 2));
+    EXPECT_NO_THROW(code.execute(control, stack, 2));
     EXPECT_EQ(stack.size(), 0); // arguments popped, no return value on the stack
 }
 
@@ -94,8 +97,9 @@ TEST(VMExecutorTest, StoreGlobal) {
         .emit(F_RETURN, 0);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog, &this_obj);
 
+    ReturnStack control;
     DataStack stack;
-    EXPECT_NO_THROW(code.execute(stack));
+    EXPECT_NO_THROW(code.execute(control, stack));
     EXPECT_EQ(stack.size(), 0);
     EXPECT_TRUE(this_obj[0].index() != std::variant_npos);
     ASSERT_TRUE(std::holds_alternative<int32_t>(this_obj[0]));
