@@ -10,9 +10,9 @@
 
 TEST(VMExecutorTest, EmptyFunction) {
     ConstTable consts;
-    RuntimeClass rt_class(&consts);
+    ObjectClass prog(&consts);
     std::vector<uint8_t> bytecode = {};
-    BytecodeView code(bytecode.data(), bytecode.size(), &rt_class); // zero-length bytecode
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog); // zero-length bytecode
     EXPECT_EQ(code.length(), 0);
     DataStack stack;
     EXPECT_EQ(code.execute(stack), 0);
@@ -23,7 +23,7 @@ TEST(VMExecutorTest, BasicExecution) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
     auto c2 = consts.find_or_add(int32_t{456});
-    RuntimeClass rt_class(&consts); 
+    ObjectClass prog(&consts); 
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -34,7 +34,7 @@ TEST(VMExecutorTest, BasicExecution) {
 
     // Example test for basic execution
     DataStack stack;
-    BytecodeView code(bytecode.data(), bytecode.size(), &rt_class);
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog);
     EXPECT_NO_THROW(code.execute(stack));
     EXPECT_EQ(stack.size(), 1);
 
@@ -46,7 +46,7 @@ TEST(VMExecutorTest, BasicExecution) {
 TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
-    RuntimeClass rt_class(&consts);
+    ObjectClass prog(&consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -54,7 +54,7 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
         .emit(F_RETURN, 1);
 
     DataStack stack;
-    BytecodeView code(bytecode.data(), bytecode.size(), &rt_class);
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
     stack.push(SValue(int32_t{0})); // simulate an argument 0 on the stack
     EXPECT_NO_THROW(code.execute(stack, 1));
@@ -69,11 +69,11 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     DataStack stack;
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
-    RuntimeClass rt_class(&consts);
+    ObjectClass prog(&consts);
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1);
-    BytecodeView code(bytecode.data(), bytecode.size(), &rt_class);
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
     stack.push(SValue(int32_t{0})); // simulate an argument 0 on the stack
     stack.push(SValue(int32_t{1})); // simulate an argument 1 on the stack
@@ -84,20 +84,20 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
 TEST(VMExecutorTest, StoreGlobal) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
-    RuntimeClass rt_class(&consts);
-    RuntimeState rt_state(1);
+    ObjectClass prog(&consts);
+    ObjectState this_obj(1);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_STORE_GLOBAL, 0)
         .emit(F_RETURN, 0);
-    BytecodeView code(bytecode.data(), bytecode.size(), &rt_class, &rt_state);
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog, &this_obj);
 
     DataStack stack;
     EXPECT_NO_THROW(code.execute(stack));
     EXPECT_EQ(stack.size(), 0);
-    EXPECT_TRUE(rt_state[0].index() != std::variant_npos);
-    ASSERT_TRUE(std::holds_alternative<int32_t>(rt_state[0]));
-    EXPECT_EQ(std::get<int32_t>(rt_state[0]), 123);
+    EXPECT_TRUE(this_obj[0].index() != std::variant_npos);
+    ASSERT_TRUE(std::holds_alternative<int32_t>(this_obj[0]));
+    EXPECT_EQ(std::get<int32_t>(this_obj[0]), 123);
 }

@@ -5,7 +5,7 @@
 #include "vm_executor.hpp"
 #include "object_class.hpp"
 
-RuntimeClass::RuntimeClass(ConstTable* consts, SymbolTable* globals)
+ObjectClass::ObjectClass(ConstTable* consts, SymbolTable* globals)
     : num_variables_(0) {
     if (consts) {
         const_pool_ = consts->make_intern();
@@ -18,7 +18,7 @@ RuntimeClass::RuntimeClass(ConstTable* consts, SymbolTable* globals)
     }
 }
 
-void RuntimeClass::inherit_from(std::shared_ptr<RuntimeClass> parent) {
+void ObjectClass::inherit_from(std::shared_ptr<ObjectClass> parent) {
     if (parent) {
         for (auto& c: inherits_) {
             if (c == parent)
@@ -28,7 +28,7 @@ void RuntimeClass::inherit_from(std::shared_ptr<RuntimeClass> parent) {
     }
 }
 
-bool RuntimeClass::lookup_method(const std::string_view name, BytecodeView* entry) const {
+bool ObjectClass::lookup_method(const std::string_view name, BytecodeView* entry) const {
     VirtualTable::Binding out_binding;
     if (virtual_table_ && virtual_table_->lookup(name, out_binding)) {
         if (entry) {

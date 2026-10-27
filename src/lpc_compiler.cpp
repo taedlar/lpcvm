@@ -88,7 +88,7 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     return result;
 }
 
-std::shared_ptr<RuntimeClass> LpcCompiler::generate_code() noexcept {
+std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
     if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false)
         return nullptr;
     try {
@@ -103,15 +103,15 @@ std::shared_ptr<RuntimeClass> LpcCompiler::generate_code() noexcept {
             }
         }
 
-        auto rt_class = std::make_shared<RuntimeClass>();
-        rt_class->const_pool_ = consts_->make_intern();
-        rt_class->virtual_table_ = std::make_shared<VirtualTable>(rt_class->const_pool_);
-        globals_->emit_symbolic_bindings(rt_class->virtual_table_);
-        rt_class->set_num_variables(globals_->size());
+        auto prog = std::make_shared<ObjectClass>();
+        prog->const_pool_ = consts_->make_intern();
+        prog->virtual_table_ = std::make_shared<VirtualTable>(prog->const_pool_);
+        globals_->emit_symbolic_bindings(prog->virtual_table_);
+        prog->set_num_variables(globals_->size());
         for(auto& elt: std::get<AST::Program>(ast_->node).defs) {
             if (std::holds_alternative<AST::Inheritance>(elt.node)) {
                 // TODO: Implement inheritance handling
-                // rt_class->inherit_from(std::make_shared<RuntimeClass>());
+                // prog->inherit_from(std::make_shared<ObjectClass>());
             }
             else if (std::holds_alternative<AST::FunctionDef>(elt.node)) {
                 // Extract the function declaration from the function definition
@@ -125,15 +125,15 @@ std::shared_ptr<RuntimeClass> LpcCompiler::generate_code() noexcept {
                 binding.signature = func_decl.entry->signature;
                 binding.inheriting = -1;
                 // Generate the bytecode for the function body
-                binding.bytecode_offset = rt_class->bytecode_.size();
-                lpcvm::FunctionBuilder func_builder(rt_class->bytecode_);
+                binding.bytecode_offset = prog->bytecode_.size();
+                lpcvm::FunctionBuilder func_builder(prog->bytecode_);
                 func_builder.emit_body(std::get<AST::Block>(func_def.body->node), num_formal_params);
-                binding.bytecode_length = rt_class->bytecode_.size() - binding.bytecode_offset;
+                binding.bytecode_length = prog->bytecode_.size() - binding.bytecode_offset;
                 // Add the method binding to the virtual table
-                rt_class->virtual_table_->emplace(name_idx, binding);
+                prog->virtual_table_->emplace(name_idx, binding);
             }
         }
-        return rt_class;
+        return prog;
     }
     catch (const std::exception& e) {
         SPDLOG_ERROR("code generation failed: {}", e.what());

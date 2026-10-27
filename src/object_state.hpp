@@ -5,13 +5,13 @@
 #include <vector>
 #include "vm_svalue.hpp"
 
-class RuntimeState {
+class ObjectState {
     std::vector<SValue> variables_;
 public:
-    RuntimeState(std::size_t num_vars) {
+    ObjectState(std::size_t num_vars) {
         variables_.resize(num_vars);
     }
-    ~RuntimeState() = default;
+    ~ObjectState() = default;
 
     SValue& operator[](std::size_t index) {
         if (index >= variables_.size()) {

@@ -21,9 +21,9 @@ LpcObject::HandleType Sandbox::load_object (const std::filesystem::path &path) {
     }
 
     // Create and return the LPC object handle
-    auto rt_class = compiler.generate_code();
+    auto prog = compiler.generate_code();
     fclose(file);
-    return LpcObject::create(path.string(), rt_class);
+    return LpcObject::create(path.string(), prog);
 }
 
 LpcObject::HandleType Sandbox::find_object (const std::filesystem::path &path) {

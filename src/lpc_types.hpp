@@ -266,14 +266,14 @@ private:
     }
 };
 
-class RuntimeClass;
-class RuntimeState;
+class ObjectClass;
+class ObjectState;
 
 class LpcObject {
 public:
     using HandleType = LpcHandle<LpcObject, LpcObjectRef>;
 
-    static HandleType create(std::string_view name, std::shared_ptr<RuntimeClass> program) {
+    static HandleType create(std::string_view name, std::shared_ptr<ObjectClass> program) {
         auto obj_ref = lpcvm::make_shared<LpcObject>(program);
         obj_ref->name_ = std::string(name);
         if (auto it = named_collection.find(name); it != named_collection.end()) {
@@ -304,17 +304,17 @@ public:
     ~LpcObject() = default;
 
     const std::string& name() const noexcept { return name_; }
-    std::shared_ptr<RuntimeClass> program() const noexcept { return program_; }
+    std::shared_ptr<ObjectClass> program() const noexcept { return program_; }
 
 private:
     template <typename U, typename... Args>
     friend LpcSharedPtr<U> lpcvm::make_shared(Args&&... args);
 
-    LpcObject(std::shared_ptr<RuntimeClass> program); // private ctor: use LpcObject::create() instead
+    LpcObject(std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
 
     std::string name_;
-    std::shared_ptr<RuntimeClass> program_;
-    std::shared_ptr<RuntimeState> state_;
+    std::shared_ptr<ObjectClass> program_;
+    std::shared_ptr<ObjectState> state_;
 
     static std::unordered_map<std::string_view, LpcObjectRef> named_collection; // named references to LpcObject instances
 };

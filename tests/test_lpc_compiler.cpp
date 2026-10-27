@@ -18,10 +18,10 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     ASSERT_NE(compiler.get_ast(), nullptr);
 
     // generate the bytecode of object methods (runtime class)
-    auto rt_class = compiler.generate_code();
-    ASSERT_NE(rt_class, nullptr);
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
     BytecodeView entry;
-    ASSERT_TRUE(rt_class->lookup_method("f", &entry));
+    ASSERT_TRUE(prog->lookup_method("f", &entry));
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
     // Execute the bytecode for the method 'f' and check the operand stack
@@ -42,7 +42,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1}),
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1})
     };
-    RuntimeClass rt_class(&consts);
+    ObjectClass prog(&consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -52,7 +52,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     bgen.emit(F_BIN_OP, oparg::ADD); // push result of arg#1 + (1 + 1)
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
-    BytecodeView view(bytecode.data(), bytecode.size(), &rt_class);
+    BytecodeView view(bytecode.data(), bytecode.size(), &prog);
     DataStack stack;
     stack.push(SValue(int32_t{1})); // argument 1
     EXPECT_EQ(view.execute(stack, 1), 1);

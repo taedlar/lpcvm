@@ -11,17 +11,17 @@
 
 class BytecodeView;
 
-class RuntimeClass {
+class ObjectClass {
     friend class LpcCompiler;
     std::vector<uint8_t> bytecode_;
-    std::vector<std::shared_ptr<RuntimeClass>> inherits_;
+    std::vector<std::shared_ptr<ObjectClass>> inherits_;
     std::shared_ptr<ConstPool> const_pool_;
     std::shared_ptr<VirtualTable> virtual_table_;
     std::size_t num_variables_; // (not including inherited variables)
 
 public:
-    RuntimeClass(ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
-    ~RuntimeClass() = default;
+    ObjectClass(ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
+    ~ObjectClass() = default;
 
     void set_num_variables(std::size_t num) { num_variables_ = num; }
     std::size_t num_variables() const { return num_variables_; }
@@ -37,5 +37,5 @@ public:
 
     bool lookup_method (const std::string_view name, BytecodeView* entry) const;
 
-    void inherit_from(std::shared_ptr<RuntimeClass> parent);
+    void inherit_from(std::shared_ptr<ObjectClass> parent);
 };
