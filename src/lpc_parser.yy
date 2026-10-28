@@ -217,7 +217,7 @@ def
             auto func_scope = lpcc->current_scope;
             lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
             if ($body.node.index()) {
-                $entry->signature.b.is_const = 1; // mark the function name symbol as const (declaration with body)
+                $entry->signature.b.is_const = 1; // mark the function name symbol as const (has body)
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
                     $entry,
                     std::make_unique<ASTNode>(std::move($params))
@@ -714,6 +714,7 @@ function_call
                 entry = std::make_shared<SymbolTable::Entry>($1, sig);
                 lpcc->current_scope->emplace($1, entry);
             }
+            entry->signature.b.referenced = 1; // mark the function as referenced
             $$ = AST::FunctionCall{ std::move(entry), std::make_unique<ASTNode>(std::move($3)) };
         }
     ;

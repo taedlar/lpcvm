@@ -20,10 +20,9 @@ class ObjectClass {
     std::size_t num_variables_; // (not including inherited variables)
 
 public:
-    ObjectClass(ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
+    ObjectClass(std::size_t num_vars = 0,ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
     ~ObjectClass() = default;
 
-    void set_num_variables(std::size_t num) { num_variables_ = num; }
     std::size_t num_variables() const { return num_variables_; }
     std::size_t num_variables_inheriting() const {
         std::size_t total = num_variables_;

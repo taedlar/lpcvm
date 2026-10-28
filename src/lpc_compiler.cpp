@@ -89,55 +89,55 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
 }
 
 std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
-    if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false)
+    if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false) {
+        messages_.push_back({-1, -1, "No valid AST available"});
         return nullptr;
-    try {
-        // intern method names first.
-        for (auto& elt: std::get<AST::Program>(ast_->node).defs) {
-            if (std::holds_alternative<AST::FunctionDef>(elt.node)) {
-                AST::FunctionDef& func_def = std::get<AST::FunctionDef>(elt.node);
-                if (!func_def.body)
-                    continue;
-                AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
-                consts_->find_or_add(func_decl.entry->name);
-            }
-        }
+    }
 
-        auto prog = std::make_shared<ObjectClass>();
-        prog->const_pool_ = consts_->make_intern();
-        prog->virtual_table_ = std::make_shared<VirtualTable>(prog->const_pool_);
-        globals_->emit_symbolic_bindings(prog->virtual_table_);
-        prog->set_num_variables(globals_->size());
-        for(auto& elt: std::get<AST::Program>(ast_->node).defs) {
-            if (std::holds_alternative<AST::Inheritance>(elt.node)) {
-                // TODO: Implement inheritance handling
-                // prog->inherit_from(std::make_shared<ObjectClass>());
-            }
-            else if (std::holds_alternative<AST::FunctionDef>(elt.node)) {
-                // Extract the function declaration from the function definition
-                AST::FunctionDef& func_def = std::get<AST::FunctionDef>(elt.node);
-                if (!func_def.body)
-                    continue; // Skip functions without a body
-                AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
-                auto name_idx = consts_->find_or_add(func_decl.entry->name);
-                std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
-                VirtualTable::Binding binding;
-                binding.signature = func_decl.entry->signature;
-                binding.inheriting = -1;
-                // Generate the bytecode for the function body
-                binding.bytecode_offset = prog->bytecode_.size();
-                lpcvm::FunctionBuilder func_builder(prog->bytecode_);
-                func_builder.emit_body(std::get<AST::Block>(func_def.body->node), num_formal_params);
-                binding.bytecode_length = prog->bytecode_.size() - binding.bytecode_offset;
-                // Add the method binding to the virtual table
-                prog->virtual_table_->emplace(name_idx, binding);
-            }
+    AST::Program& prog_node = std::get<AST::Program>(ast_->node);
+    std::shared_ptr<ObjectClass> prog;
+    try {
+        std::size_t num_global_vars = globals_->size();
+        for(auto& [key, entry]: globals_->symbols()) {
+            if (entry->signature.b.is_const)
+                --num_global_vars;
         }
-        return prog;
+        prog = std::make_shared<ObjectClass>(num_global_vars, consts_.get(), globals_.get());
+        for(auto& elt: prog_node.defs) {
+            std::visit (overloaded {
+                [&](AST::Inheritance& inh) {
+                    // TODO: Implement inheritance handling
+                    // prog->inherit_from(std::make_shared<ObjectClass>());
+                },
+                [&](AST::FunctionDef& func_def) {
+                    // Extract the function declaration from the function definition
+                    if (!func_def.body)
+                        return; // Skip functions without a body (forward declaration)
+
+                    AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
+                    VirtualTable::Binding binding;
+                    binding.signature = func_decl.entry->signature; // use signatures declared with function body
+                    binding.inheriting = -1;
+                    auto name_idx = consts_->find(func_decl.entry->name);
+                    if (name_idx == consts_->INVALID_INDEX)
+                        throw std::runtime_error("Failed to find function name in constant pool");
+                    std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
+
+                    // Generate the bytecode for the function body
+                    binding.bytecode_offset = prog->bytecode_.size();
+                    lpcvm::FunctionBuilder func_builder(prog->bytecode_);
+                    func_builder.emit_body(std::get<AST::Block>(func_def.body->node), num_formal_params);
+                    binding.bytecode_length = prog->bytecode_.size() - binding.bytecode_offset;
+
+                    prog->virtual_table_->emplace(name_idx, binding); // add function binding to the virtual table
+                },
+                [&](auto&) { /* Ignore other AST node types */ }
+            }, elt.node);
+        }
     }
     catch (const std::exception& e) {
         SPDLOG_ERROR("code generation failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
-        return nullptr;
     }
+    return prog;
 }

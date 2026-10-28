@@ -34,6 +34,35 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 579);
 }
 
+TEST(LpcCompilerTest, MultipleFunctionBytecodeRanges) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        int first();
+        int first() { return 11; }
+        int second() { return 22; }
+    )"));
+
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    BytecodeView first;
+    BytecodeView second;
+    ASSERT_TRUE(prog->lookup_method("first", &first));
+    ASSERT_TRUE(prog->lookup_method("second", &second));
+    EXPECT_EQ(first.length(), 4);
+    EXPECT_EQ(second.length(), 4);
+    EXPECT_FALSE(prog->lookup_method("missing", nullptr));
+
+    ReturnStack control;
+    DataStack stack;
+    EXPECT_EQ(second.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1);
+    EXPECT_EQ(std::get<uint32_t>(stack.top()), 22);
+
+    EXPECT_EQ(first.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 2);
+    EXPECT_EQ(std::get<uint32_t>(stack.top()), 11);
+}
+
 TEST(LpcCompilerTest, BytecodeGenerationContext) {
     // construct an AST of binary addition
     ConstTable consts;
@@ -43,7 +72,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1}),
         std::make_unique<ASTNode>(AST::NumericConst{int32_t{1}, c1})
     };
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);

@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -34,6 +35,7 @@ public:
 
     using SlotType = uint32_t; // flattened unit of storage
     using IndexType = uint32_t; // runtime index (this is the max width, extended from 8-bit via F_EXTENDED_ARG in bytecode)
+    constexpr static IndexType INVALID_INDEX = std::numeric_limits<IndexType>::max();
 
     /** @brief Read a numeric constant at slot @p index (alignment-safe). */
     template<typename T>
@@ -78,6 +80,10 @@ public:
     using LValueType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double, std::string>;
     using ValueType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double, std::string_view>;
     using NumericType = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double>;
+
+    ConstPool::IndexType INVALID_INDEX = ConstPool::INVALID_INDEX;
+
+    ConstPool::IndexType find(const ValueType& value) const;
 
     /** @brief Return the slot index of @p value, adding it if not present
      * 
