@@ -21,7 +21,10 @@
     X(F_CONST_F4) \
     X(F_CONST_F8) \
     X(F_CONST_STR) \
+    X(F_LOAD_GLOBAL) \
     X(F_STORE_GLOBAL) \
+    X(F_LOAD_LOCAL) \
+    X(F_STORE_LOCAL) \
     X(F_BIN_OP) \
 
 /// \brief The enum definition for opcodes using the X-macro technique.

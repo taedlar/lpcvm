@@ -21,7 +21,7 @@
  * This is a smart pointer that manages the lifetime of LPC compound data
  * types using reference counting with a co-allocated prefix control block.
  *
- * The std::shared_ptr is too expensive for a virtual machine's operand
+ * The std::shared_ptr is too expensive for a virtual machine's data
  * stack due to its size overhead and separate allocation of the control
  * block, so we use a cheaper alternative with a co-allocated prefix control
  * block. Weak references (LpcHandle) share the control block's weak_count.

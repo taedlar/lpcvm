@@ -24,7 +24,7 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     ASSERT_TRUE(prog->lookup_method("f", &entry));
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
-    // Execute the bytecode for the method 'f' and check the operand stack
+    // Execute the bytecode for the method 'f' and check the data stack
     ReturnStack control;
     DataStack stack;
     EXPECT_EQ(entry.execute(control, stack), 1);
@@ -93,7 +93,7 @@ TEST(LpcCompilerTest, BlockLocalAllocation) {
         builder.emit_body(std::get<AST::Block>(function.body->node), test.num_params);
         EXPECT_EQ(bytecode, test.expected);
 
-        builder.emit(F_RETURN, 0);
+        builder.emit(F_RETURN, 0); // void return
         ReturnStack control;
         DataStack stack;
         stack.push(SValue(int32_t{99}));
@@ -115,9 +115,9 @@ TEST(LpcCompilerTest, ReturnFromNestedBlockCleansUpLocals) {
     ReturnStack control;
     DataStack stack;
     stack.push(SValue(int32_t{99}));
-    stack.push(SValue(int32_t{7}));
+    stack.push(SValue(int32_t{7})); // argument for the function
     EXPECT_EQ(entry.execute(control, stack, 1), 1);
-    ASSERT_EQ(stack.size(), 2);
+    ASSERT_EQ(stack.size(), 2); // argument popped, result pushed
     EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
     ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 42);
