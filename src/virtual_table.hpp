@@ -33,6 +33,12 @@ public:
 
     using Binding = binding_s;
 
+    const Binding& operator[](std::size_t index) const {
+        if (index >= static_bindings_.size())
+            throw std::out_of_range("VirtualTable: static binding index out of range");
+        return static_bindings_.at(index);
+    }
+
     /**
      * \brief Looks up a method binding by its name (binary search).
      *
@@ -46,6 +52,9 @@ private:
     friend class SymbolTable;
     friend class LpcCompiler;
 
+    std::shared_ptr<ConstPool> name_pool_;
+    std::vector<Binding> static_bindings_;
+
     /**
      * \brief Adds a new method binding to the virtual table.
      *
@@ -53,8 +62,6 @@ private:
      * \param binding The binding information for the method.
      */
     void emplace (ConstPool::IndexType name_index, const Binding& binding);
-
-    std::shared_ptr<ConstPool> name_pool_;
 
     /**
      * \brief The list of method bindings in the virtual table, sorted by

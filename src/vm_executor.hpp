@@ -81,11 +81,12 @@ class ReturnStack {
 public:
     struct Frame {
         const uint8_t* return_address;
-        std::size_t num_locals;
+        const uint8_t* end_of_bytecode;
+        std::size_t return_fp;
     };
 
-    void push(const uint8_t* return_address, std::size_t num_locals) {
-        stack_.push_back({return_address, num_locals});
+    void push(const uint8_t* return_address, const uint8_t* end_of_bytecode, std::size_t return_fp) {
+        stack_.push_back({return_address, end_of_bytecode, return_fp});
     }
 
     void pop() {

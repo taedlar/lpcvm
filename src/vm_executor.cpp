@@ -21,6 +21,7 @@
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
 int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args) {
+    auto entry_frame = control.size();
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
 #else
@@ -70,14 +71,6 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args)
     std::size_t sp; // stack pointer, this must be fetched in each instruction handler
     SValue result;
     VM_LOOP_START()
-
-    VM_HANDLER(F_RETURN) {
-        oparg = (extended_arg << 8) | *pc++; // number of return values on the stack
-        if (stack.size() - oparg < fp)
-            throw std::runtime_error("Stack underflow on return");        
-        stack.pop_i(fp, stack.size() - oparg - fp); // pop arguments and locals
-        return oparg;
-    }
 
     VM_HANDLER(F_EXTENDED_ARG) {
         extended_arg = (extended_arg << 8) | *pc++; // extended argument for the next opcode (CPython style)
@@ -205,6 +198,41 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args)
         VM_DISPATCH();
     }
 
+    VM_HANDLER(F_PUSH_FRAME) {
+        oparg = (extended_arg << 8) | *pc++;
+        // The number of actual arguments for the new frame is in oparg
+        control.push(nullptr, end_, fp);
+        fp = stack.size() - oparg;
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_CALL) {
+        oparg = (extended_arg << 8) | *pc++;
+        // The function index is in oparg
+        // Arguments are already pushed on the stack, and a control frame was setup by F_PUSH_FRAME
+        control.top().return_address = pc; // save the return address for the current frame
+        auto binding = prog_->get_method(oparg);
+        pc = start_ = prog_->bytecode() + binding.bytecode_offset;
+        end_ = start_ + binding.bytecode_length;
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_RETURN) {
+        oparg = (extended_arg << 8) | *pc++; // number of return values on the stack
+        if (stack.size() - oparg < fp)
+            throw std::runtime_error("Stack underflow on return");        
+        stack.pop_i(fp, stack.size() - oparg - fp); // pop arguments and locals
+        if (control.size() == entry_frame) {
+            // we are done with the VM execution, now return to C++ caller.
+            return oparg;
+        }
+        pc = control.top().return_address;
+        end_ = control.top().end_of_bytecode;
+        fp = control.top().return_fp;
+        control.pop();
+        VM_DISPATCH();
+    }
+
     VM_LOOP_END()
 
 invalid_opcode:
@@ -213,6 +241,8 @@ invalid_opcode:
 end_of_bytecode:
     // stops execution if end of bytecode is reached without encountering op_return
     stack.pop_n(stack.size() - fp);
+    if (control.size() != entry_frame)
+        throw std::runtime_error("Unexpected end of bytecode with non-empty control stack");
     return 0;
 
 #undef VM_LOOP_START

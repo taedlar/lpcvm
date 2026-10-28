@@ -43,3 +43,9 @@ bool ObjectClass::lookup_method(const std::string_view name, BytecodeView* entry
     }
     return false;
 }
+
+const VirtualTable::Binding& ObjectClass::get_method(std::size_t index) const {
+    if (!virtual_table_)
+        throw std::runtime_error("VirtualTable not initialized");
+    return (*virtual_table_)[index];
+}

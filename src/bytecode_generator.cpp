@@ -49,6 +49,14 @@ BytecodeGenerator& BytecodeGenerator::emit_expression(const ASTNode& expr) {
             emit_expression(*bin_op.rhs);
             emit(F_BIN_OP, bin_op.arg);
         },
+        [&](const AST::FunctionCall& func_call) {
+            const auto& args = std::get<AST::List>(func_call.arguments->node);
+            for(auto& arg: args.elts)
+                emit_expression(arg);
+            emit(F_PUSH_FRAME, args.elts.size()); // setup a new frame with the number of actual arguments
+            auto func_idx = std::get<uint32_t>(*func_call.entry->value);
+            emit(F_CALL, func_idx);
+        },
         [&](auto&) {
             // Handle other expression types
         }
