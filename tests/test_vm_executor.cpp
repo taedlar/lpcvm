@@ -45,6 +45,19 @@ TEST(VMExecutorTest, BasicExecution) {
     EXPECT_EQ(std::get<int32_t>(res), 123 + 456);
 }
 
+TEST(VMExecutorTest, ReturnUnderflow) {
+    ConstTable consts;
+    ObjectClass prog(0, &consts);
+    std::vector<uint8_t> bytecode;
+    lpcvm::BytecodeGenerator bgen(bytecode);
+    bgen.emit(F_RETURN, 1);
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog);
+
+    ReturnStack control;
+    DataStack stack;
+    EXPECT_THROW(code.execute(control, stack), std::runtime_error);
+}
+
 TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});

@@ -25,7 +25,7 @@
     X(F_LOAD_LOCAL) \
     X(F_STORE_LOCAL) \
     X(F_BIN_OP) \
-    X(F_PUSH_FRAME) \
+    X(F_PUSH_FUNC) \
     X(F_CALL) \
     X(F_RETURN) \
 

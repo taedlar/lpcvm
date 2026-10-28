@@ -80,13 +80,14 @@ private:
 class ReturnStack {
 public:
     struct Frame {
-        const uint8_t* return_address;
-        const uint8_t* end_of_bytecode;
-        std::size_t return_fp;
+        const uint8_t* pc;
+        std::size_t fp;
+        const uint8_t* start; // for branch target calculations
+        const uint8_t* end;   // end of the bytecode segment for the current function frame
     };
 
-    void push(const uint8_t* return_address, const uint8_t* end_of_bytecode, std::size_t return_fp) {
-        stack_.push_back({return_address, end_of_bytecode, return_fp});
+    void push(const uint8_t* pc, std::size_t fp, const uint8_t* start, const uint8_t* end) {
+        stack_.push_back({pc, fp, start, end});
     }
 
     void pop() {
@@ -126,7 +127,7 @@ public:
 
     std::size_t length() const { return start_ ? (end_ - start_) : 0; }
 
-    int execute(ReturnStack& control, DataStack& stack, int num_args = 0);
+    int execute(ReturnStack& control, DataStack& stack, std::size_t num_args = 0);
 
 private:
     const uint8_t* start_;

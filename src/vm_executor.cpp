@@ -16,11 +16,16 @@
  *
  * @param control The return stack used by the VM.
  * @param stack The data stack used by the VM.
- * @param num_args The number of arguments expected on the stack.
+ * @param num_args The number of arguments on the stack.
  * @return The number of return values on the stack. Arguments are popped before returning
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
-int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args) {
+int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t num_args) {
+    if (!start_ || start_ >= end_) {
+        stack.pop_n(num_args);
+        return 0; // No bytecode to execute
+    }
+
     auto entry_frame = control.size();
 #if defined(__GNUC__) || defined(__clang__)
     #define VM_HAS_COMPUTED_GOTO 1
@@ -41,34 +46,36 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args)
     #define VM_HANDLER(op) do_##op:
     #define VM_DISPATCH() \
         extended_arg = 0; \
-        if (pc < end_) goto *dispatch_table[*pc++]; else goto end_of_bytecode;
+        if (pc < end_) { goto *dispatch_table[*pc++]; } else { pc = nullptr; goto do_F_RETURN; }
     #define VM_DISPATCH_EXTENDED() \
-        if (pc < end_) goto *dispatch_table[*pc++]; else goto end_of_bytecode;
+        if (pc < end_) { goto *dispatch_table[*pc++]; } else { pc = nullptr; goto do_F_RETURN; }
 #else
     // Computed goto is not supported, using switch-case instead
     #define VM_LOOP_START() \
-        while (pc < end_) { \
+        static uint8_t force_return[] = { F_RETURN, 0 }; \
+        do { \
             switch (*pc++) {
     #define VM_LOOP_END() \
             default: \
                 goto invalid_opcode; \
             } \
-        }
+            if (pc >= end_) \
+                pc = &force_return[0]; \
+        } while (true);
     #define VM_HANDLER(op) case op:
     #define VM_DISPATCH() \
         extended_arg = 0; \
-        break
+        break;
     #define VM_DISPATCH_EXTENDED() \
-        break
+        break;
 #endif
 
-    int fp = stack.size() - num_args; // frame pointer, points to the base of the current function's stack frame
-    if (fp < 0)
+    if (stack.size() < num_args)
         throw std::runtime_error("Not enough arguments on the stack");
-    const uint8_t *pc = start_;
+    std::size_t fp = stack.size() - num_args; // frame pointer, points to the base of the current function's stack frame (first argument)
+    const uint8_t *pc = start_; // program counter, points to the current instruction in the bytecode
     uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
     uint32_t oparg; // holds the extendable argument for the current opcode
-    std::size_t sp; // stack pointer, this must be fetched in each instruction handler
     SValue result;
     VM_LOOP_START()
 
@@ -168,7 +175,7 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args)
 
     VM_HANDLER(F_BIN_OP) {
         oparg = (extended_arg << 8) | *pc++; // fetch the binary operation code
-        sp = stack.size();
+        auto sp = stack.size();
         auto& rhs = stack[sp - 1];
         auto& lhs = stack[sp - 2];
         result = std::visit([&](const auto& lhs_value, const auto& rhs_value) -> SValue {
@@ -198,52 +205,51 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args)
         VM_DISPATCH();
     }
 
-    VM_HANDLER(F_PUSH_FRAME) {
+    VM_HANDLER(F_PUSH_FUNC) {
         oparg = (extended_arg << 8) | *pc++;
-        // The number of actual arguments for the new frame is in oparg
-        control.push(nullptr, end_, fp);
-        fp = stack.size() - oparg;
+        stack.push(oparg); // push the function index onto the stack
+        // control.push(nullptr, end_, fp);
+        // fp = stack.size() - oparg;
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CALL) {
-        oparg = (extended_arg << 8) | *pc++;
-        // The function index is in oparg
-        // Arguments are already pushed on the stack, and a control frame was setup by F_PUSH_FRAME
-        control.top().return_address = pc; // save the return address for the current frame
-        auto binding = prog_->get_method(oparg);
+        oparg = (extended_arg << 8) | *pc++; // number of items on the stack for this call (func_index + arguments)
+        if (oparg < 1)
+            throw std::runtime_error("Invalid call with no function index on the stack");
+        auto func_index = std::get<uint32_t>(stack[stack.size() - oparg]);
+        auto binding = prog_->get_method(func_index);
+        control.push(pc, fp, start_, end_); // save the current execution context on the return stack
+        fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
         pc = start_ = prog_->bytecode() + binding.bytecode_offset;
         end_ = start_ + binding.bytecode_length;
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_RETURN) {
-        oparg = (extended_arg << 8) | *pc++; // number of return values on the stack
-        if (stack.size() - oparg < fp)
-            throw std::runtime_error("Stack underflow on return");        
-        stack.pop_i(fp, stack.size() - oparg - fp); // pop arguments and locals
+        oparg = pc ? (extended_arg << 8) | *pc++ : 0; // number of return values on the stack
+        if (oparg > stack.size() || stack.size() - oparg < fp)
+            throw std::runtime_error("Stack underflow on return");
+        if (control.size() > entry_frame)
+            fp--; // if we are returning from F_CALL, adjust the frame pointer accordingly
+        stack.pop_i(fp, stack.size() - oparg - fp); // clean up the stack for the current frame
         if (control.size() == entry_frame) {
             // we are done with the VM execution, now return to C++ caller.
             return oparg;
         }
-        pc = control.top().return_address;
-        end_ = control.top().end_of_bytecode;
-        fp = control.top().return_fp;
+        pc = control.top().pc;
+        fp = control.top().fp;
+        start_ = control.top().start;
+        end_ = control.top().end;
         control.pop();
         VM_DISPATCH();
     }
 
     VM_LOOP_END()
+    return 0;
 
 invalid_opcode:
     throw std::runtime_error("Invalid opcode");
-
-end_of_bytecode:
-    // stops execution if end of bytecode is reached without encountering op_return
-    stack.pop_n(stack.size() - fp);
-    if (control.size() != entry_frame)
-        throw std::runtime_error("Unexpected end of bytecode with non-empty control stack");
-    return 0;
 
 #undef VM_LOOP_START
 #undef VM_LOOP_END
