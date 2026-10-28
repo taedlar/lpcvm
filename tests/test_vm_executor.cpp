@@ -10,7 +10,7 @@
 
 TEST(VMExecutorTest, EmptyFunction) {
     ConstTable consts;
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode = {};
     BytecodeView code(bytecode.data(), bytecode.size(), &prog); // zero-length bytecode
     EXPECT_EQ(code.length(), 0);
@@ -24,7 +24,7 @@ TEST(VMExecutorTest, BasicExecution) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
     auto c2 = consts.find_or_add(int32_t{456});
-    ObjectClass prog(&consts); 
+    ObjectClass prog(0, &consts); 
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -48,7 +48,7 @@ TEST(VMExecutorTest, BasicExecution) {
 TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -70,7 +70,7 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
 TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1);
@@ -87,7 +87,7 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
 TEST(VMExecutorTest, StoreGlobal) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
     ObjectState this_obj(1);
 
     std::vector<uint8_t> bytecode;
@@ -109,7 +109,7 @@ TEST(VMExecutorTest, StoreGlobal) {
 
 TEST(VMExecutorTest, LoadGlobal) {
     ConstTable consts;
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
     ObjectState this_obj(1);
     this_obj[0] = SValue(int32_t{123});
 
@@ -131,7 +131,7 @@ TEST(VMExecutorTest, LoadGlobal) {
 TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
     ConstTable consts;
     auto value = consts.find_or_add(int32_t{123});
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
     ReturnStack control;
 
     for (auto opcode : {F_LOAD_GLOBAL, F_STORE_GLOBAL}) {
@@ -150,7 +150,7 @@ TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
 TEST(VMExecutorTest, LoadAndStoreLocal) {
     ConstTable consts;
     auto local_value = consts.find_or_add(int32_t{99});
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);
@@ -185,7 +185,7 @@ TEST(VMExecutorTest, LoadAndStoreLocal) {
 
 TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
     ConstTable consts;
-    ObjectClass prog(&consts);
+    ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
     lpcvm::BytecodeGenerator bgen(bytecode);

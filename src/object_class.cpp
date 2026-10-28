@@ -5,17 +5,17 @@
 #include "vm_executor.hpp"
 #include "object_class.hpp"
 
-ObjectClass::ObjectClass(ConstTable* consts, SymbolTable* globals)
-    : num_variables_(0) {
+ObjectClass::ObjectClass(std::size_t num_vars, ConstTable* consts, SymbolTable* globals)
+    : num_variables_(num_vars) {
     if (consts) {
+        if (globals) {
+            globals->emit_names(consts);
+            // TODO: count variables only
+            num_variables_ = globals->size();
+        }
         const_pool_ = consts->make_intern();
     }
     virtual_table_ = std::make_shared<VirtualTable>(const_pool_);
-    if (globals) {
-        globals->emit_symbolic_bindings(virtual_table_);
-        // TODO: count variables only
-        num_variables_ = globals->size();
-    }
 }
 
 void ObjectClass::inherit_from(std::shared_ptr<ObjectClass> parent) {

@@ -35,6 +35,7 @@ typedef union symbol_signature_u {
         uint32_t is_static : 1; // storage class specifier
         uint32_t is_public : 1; // visibility specifier
         uint32_t is_nomask : 1; // indicates if the symbol cannot be overridden by derived classes
+        uint32_t referenced : 1; // indicates if the symbol has been referenced
     } b;
 } SymbolSignature;
 
@@ -99,11 +100,9 @@ public:
 
     std::size_t size() const { return symbols_.size(); }
 
-    /**
-     * \brief Emits symbolic bindings for the symbols in the current scope to the given virtual table.
-     * \param vt A shared pointer to the VirtualTable where the symbolic bindings will be emitted.
-     */
-    void emit_symbolic_bindings(std::shared_ptr<VirtualTable> vt) const;
+    const std::unordered_map<std::string, std::shared_ptr<Entry>>& symbols() const { return symbols_; }
+
+    void emit_names(ConstTable* consts) const;
 
 private:
     ScopeType scope_type_;

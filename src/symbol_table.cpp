@@ -19,8 +19,16 @@ void SymbolTable::emplace(const std::string_view key, std::shared_ptr<SymbolTabl
     symbols_[std::string(key)] = std::move(entry);
 }
 
-void SymbolTable::emit_symbolic_bindings(std::shared_ptr<VirtualTable> vt) const {
+void SymbolTable::emit_names(ConstTable* consts) const {
     for (const auto& [key, entry] : symbols_) {
-        //vt->bind(key, entry);
+        auto sig = entry->signature;
+        if (!sig.b.is_function)
+            continue; // only process function entries
+        if (!sig.b.is_const) {
+            if (sig.b.referenced)
+                throw std::runtime_error("Function referenced but not defined: " + key);
+            continue; // unreferenced function forward declarations
+        }
+        consts->find_or_add(key); // intern the function name in the constant pool
     }
 }
