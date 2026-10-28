@@ -103,6 +103,7 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
                 --num_global_vars;
         }
         prog = std::make_shared<ObjectClass>(num_global_vars, consts_.get(), globals_.get());
+        prog->virtual_table_->static_bindings_.resize(globals_->size() - num_global_vars);
         for(auto& elt: prog_node.defs) {
             std::visit (overloaded {
                 [&](AST::Inheritance& inh) {
@@ -121,6 +122,9 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
                     auto name_idx = consts_->find(func_decl.entry->name);
                     if (name_idx == consts_->INVALID_INDEX)
                         throw std::runtime_error("Failed to find function name in constant pool");
+                    auto func_idx = std::get<uint32_t>(*func_decl.entry->value);
+                    if (func_idx >= prog->virtual_table_->static_bindings_.size())
+                        throw std::runtime_error("Function index out of bounds");
                     std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
 
                     // Generate the bytecode for the function body
@@ -129,7 +133,10 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
                     func_builder.emit_body(std::get<AST::Block>(func_def.body->node), num_formal_params);
                     binding.bytecode_length = prog->bytecode_.size() - binding.bytecode_offset;
 
-                    prog->virtual_table_->emplace(name_idx, binding); // add function binding to the virtual table
+                    // resolve the function index in the static bindings array
+                    prog->virtual_table_->static_bindings_[func_idx] = binding;
+                    if (name_idx != consts_->INVALID_INDEX)
+                        prog->virtual_table_->emplace(name_idx, binding); // add function binding to the virtual table
                 },
                 [&](auto&) { /* Ignore other AST node types */ }
             }, elt.node);

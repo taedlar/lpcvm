@@ -218,6 +218,7 @@ def
             lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
             if ($body.node.index()) {
                 $entry->signature.b.is_const = 1; // mark the function name symbol as const (has body)
+                $entry->value = lpcc->next_func_idx++;
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
                     $entry,
                     std::make_unique<ASTNode>(std::move($params))

@@ -63,6 +63,30 @@ TEST(LpcCompilerTest, MultipleFunctionBytecodeRanges) {
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 11);
 }
 
+TEST(LpcCompilerTest, NestedFunctionCallsPassArgumentsAndReturnValues) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        int leaf(int ignored) { return 42; }
+        int middle() { return leaf(7); }
+        int caller() { return middle(); }
+    )"));
+
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    BytecodeView caller;
+    ASSERT_TRUE(prog->lookup_method("caller", &caller));
+
+    ReturnStack control;
+    DataStack stack;
+    stack.push(SValue(int32_t{99}));
+    EXPECT_EQ(caller.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
+    EXPECT_EQ(std::get<uint32_t>(stack.top()), 42);
+    EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
+    EXPECT_TRUE(control.empty());
+}
+
 TEST(LpcCompilerTest, BytecodeGenerationContext) {
     // construct an AST of binary addition
     ConstTable consts;

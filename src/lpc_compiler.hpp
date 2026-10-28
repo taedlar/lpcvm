@@ -27,10 +27,11 @@ public:
 
         std::string current_string;
         std::string raw_string_delimiter;
+        uint32_t next_func_idx; // index for the next function
         uint32_t next_global;
         uint32_t next_local;
     
-        Context(): consts(nullptr), next_global(0), next_local(0) {}
+        Context(): consts(nullptr), next_global(0), next_local(0), next_func_idx(0) {}
         ~Context() = default;
     };
 
