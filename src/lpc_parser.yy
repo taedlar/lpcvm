@@ -205,7 +205,7 @@ def
             // add formal parameters to current scope before proceed
             auto lpcc = yyget_extra(yyscanner);
             // TODO: number of formal parameters == lpcc->next_local.
-            // When pushing a control frame, actual parameters are expected to be on the operand stack in order.
+            // When pushing a control frame, actual parameters are expected to be on the data stack in order.
             // The number of actual parameters should not exceed the number of formal parameters. (in vararg case,
             // the last formal parameter is an array to catch all actual parameters).
             // If the caller provides fewer actual parameters than the number of formal parameters, the missing

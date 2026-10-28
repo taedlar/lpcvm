@@ -15,7 +15,7 @@
  * VM_DISPATCH macro is used to jump to the next instruction handler.
  *
  * @param control The return stack used by the VM.
- * @param stack The operand stack used by the VM.
+ * @param stack The data stack used by the VM.
  * @param num_args The number of arguments expected on the stack.
  * @return The number of return values on the stack. Arguments are popped before returning
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
@@ -144,9 +144,32 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, int num_args)
         VM_DISPATCH();
     }
 
+    VM_HANDLER(F_LOAD_GLOBAL) {
+        oparg = (extended_arg << 8) | *pc++;
+        if (!this_obj_)
+            throw std::runtime_error("Global variable access requires an object state");
+        stack.push((*this_obj_)[oparg]);
+        VM_DISPATCH();
+    }
+
     VM_HANDLER(F_STORE_GLOBAL) {
         oparg = (extended_arg << 8) | *pc++;
+        if (!this_obj_)
+            throw std::runtime_error("Global variable access requires an object state");
         (*this_obj_)[oparg] = stack.top();
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_LOAD_LOCAL) {
+        oparg = (extended_arg << 8) | *pc++;
+        result = stack[fp + oparg];
+        stack.push(result);
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_STORE_LOCAL) {
+        oparg = (extended_arg << 8) | *pc++;
+        stack[fp + oparg] = stack.top();
         VM_DISPATCH();
     }
 
