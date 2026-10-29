@@ -2,12 +2,75 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include "config.hpp"
 #include "ast_node.hpp"
-#include "bytecode_generator.hpp"
+#include "code_generator.hpp"
 #include "lpc_compiler.hpp"
 #include "object_class.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <gtest/gtest.h>
+
+TEST(CodeGeneratorTest, ArgumentWidthBoundaries) {
+    struct TestCase {
+        uint32_t argument;
+        std::vector<uint8_t> expected;
+    };
+    for (const auto& test : {
+        TestCase{0, {F_RETURN, 0}},
+        TestCase{0xff, {F_RETURN, 0xff}},
+        TestCase{0x100, {F_EXTENDED_ARG, 1, F_RETURN, 0}},
+        TestCase{0xffff, {F_EXTENDED_ARG, 0xff, F_RETURN, 0xff}},
+        TestCase{0x10000, {F_EXTENDED_ARG, 1, F_EXTENDED_ARG, 0, F_RETURN, 0}},
+        TestCase{0xffffff, {F_EXTENDED_ARG, 0xff, F_EXTENDED_ARG, 0xff, F_RETURN, 0xff}},
+        TestCase{0x1000000, {F_EXTENDED_ARG, 1, F_EXTENDED_ARG, 0,
+            F_EXTENDED_ARG, 0, F_RETURN, 0}},
+        TestCase{0xffffffff, {F_EXTENDED_ARG, 0xff, F_EXTENDED_ARG, 0xff,
+            F_EXTENDED_ARG, 0xff, F_RETURN, 0xff}},
+    }) {
+        SCOPED_TRACE(test.argument);
+        std::vector<uint8_t> bytecode{F_RETURN, 0};
+        auto expected = bytecode;
+        expected.insert(expected.end(), test.expected.begin(), test.expected.end());
+        lpcvm::CodeGenerator generator(bytecode);
+        EXPECT_EQ(&generator.emit(F_RETURN, test.argument), &generator);
+        EXPECT_EQ(bytecode, expected);
+        EXPECT_EQ(bytecode.size() % 2, 0);
+    }
+}
+
+TEST(CodeGeneratorTest, GeometricCapacityGrowth) {
+    std::vector<uint8_t> bytecode;
+    bytecode.reserve(3);
+    lpcvm::CodeGenerator generator(bytecode);
+    std::size_t allocations = 0;
+    for (std::size_t instruction = 0; instruction < 4096; ++instruction) {
+        const auto capacity = bytecode.capacity();
+        generator.emit(F_RETURN, 0xffffffff);
+        if (bytecode.capacity() != capacity) {
+            ++allocations;
+            EXPECT_GE(bytecode.capacity(), capacity * 2);
+            EXPECT_EQ(bytecode.capacity() % 64, 0);
+        }
+    }
+    EXPECT_LE(allocations, 10);
+    ASSERT_EQ(bytecode.size(), 4096 * 8);
+    const std::vector<uint8_t> expected{F_EXTENDED_ARG, 0xff, F_EXTENDED_ARG, 0xff,
+        F_EXTENDED_ARG, 0xff, F_RETURN, 0xff};
+    for (std::size_t offset = 0; offset < bytecode.size(); ++offset)
+        ASSERT_EQ(bytecode[offset], expected[offset % expected.size()]);
+}
+
+TEST(CodeGeneratorTest, ReusesReservedCapacity) {
+    std::vector<uint8_t> bytecode;
+    bytecode.reserve(128);
+    const auto storage = bytecode.data();
+    const auto capacity = bytecode.capacity();
+    lpcvm::CodeGenerator generator(bytecode);
+    for (std::size_t instruction = 0; instruction < 16; ++instruction)
+        generator.emit(F_RETURN, 0xffffffff);
+    EXPECT_EQ(bytecode.data(), storage);
+    EXPECT_EQ(bytecode.capacity(), capacity);
+    EXPECT_EQ(bytecode.size(), 128);
+}
 
 TEST(LpcCompilerTest, BytecodeGeneration) {
     // Compile a simple LPC function and generate its AST
@@ -99,7 +162,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::BytecodeGenerator bgen(bytecode);
+    lpcvm::CodeGenerator bgen(bytecode);
 
     bgen.emit_statement(root); // do a statenebt "1 + 1;" should not leave result on the stack
     bgen.emit_expression(root); // do a 1 + 1 expression, should leave result on the stack

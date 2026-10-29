@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 #include "config.hpp"
-#include "bytecode_generator.hpp"
+#include "code_generator.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"

@@ -34,8 +34,8 @@ add_library(lpcvm
     vm_svalue.cpp
     lpc_types.hpp
     lpc_object.cpp
-    bytecode_generator.hpp
-    bytecode_generator.cpp
+    code_generator.hpp
+    code_generator.cpp
     object_state.hpp
     vm_sandbox.hpp
     vm_sandbox.cpp
