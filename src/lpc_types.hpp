@@ -268,35 +268,16 @@ private:
 
 class ObjectClass;
 class ObjectState;
+namespace lpcvm { class Sandbox; }
 
 class LpcObject {
 public:
+    using VMType = lpcvm::Sandbox;
     using HandleType = LpcHandle<LpcObject, LpcObjectRef>;
 
-    static HandleType create(std::string_view name, std::shared_ptr<ObjectClass> program) {
-        auto obj_ref = lpcvm::make_shared<LpcObject>(program);
-        obj_ref->name_ = std::string(name);
-        if (auto it = named_collection.find(name); it != named_collection.end()) {
-            named_collection.erase(it); // also erase the string_view key for the old object
-        }
-        named_collection.emplace(std::string_view(obj_ref->name_), obj_ref);
-        return HandleType(obj_ref);
-    }
-
-    static LpcObjectRef find(std::string_view name) {
-        auto it = named_collection.find(name);
-        if (it != named_collection.end()) {
-            return it->second;
-        }
-        return LpcObjectRef();
-    }
-
-    static void destruct(LpcObjectRef obj) {
-        auto it = named_collection.find(obj->name());
-        if (it != named_collection.end() && it->second == obj) {
-            named_collection.erase(it);
-        }
-    }
+    static HandleType create(VMType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);
+    static LpcObjectRef find(VMType *sb, std::string_view name);
+    static void destruct(VMType *sb, LpcObjectRef obj);
 
     LpcObject() = delete;
     LpcObject(const LpcObject&) = delete;
@@ -315,6 +296,4 @@ private:
     std::string name_;
     std::shared_ptr<ObjectClass> program_;
     std::shared_ptr<ObjectState> state_;
-
-    static std::unordered_map<std::string_view, LpcObjectRef> named_collection; // named references to LpcObject instances
 };

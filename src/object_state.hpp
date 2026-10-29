@@ -6,7 +6,6 @@
 #include "vm_svalue.hpp"
 
 class ObjectState {
-    std::vector<SValue> variables_;
 public:
     ObjectState(std::size_t num_vars) {
         variables_.resize(num_vars);
@@ -26,4 +25,7 @@ public:
         }
         return variables_[index];
     }
+
+private:
+    std::vector<SValue> variables_;
 };
