@@ -13,7 +13,7 @@ flex_target(LPC_LEXER
     DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/lpc_lexer.hpp
 )
 
-add_library(lpcvm
+add_library(lpcvm_obj OBJECT
     ${BISON_LPC_PARSER_OUTPUTS}
     ${FLEX_LPC_LEXER_OUTPUTS}
     lpc_compiler.cpp
@@ -34,18 +34,25 @@ add_library(lpcvm
     vm_svalue.cpp
     lpc_types.hpp
     lpc_object.cpp
-    bytecode_generator.hpp
-    bytecode_generator.cpp
+    code_generator.hpp
+    code_generator.cpp
     object_state.hpp
     vm_sandbox.hpp
     vm_sandbox.cpp
 )
 
-target_include_directories(lpcvm PUBLIC
+target_include_directories(lpcvm_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-target_link_libraries(lpcvm PUBLIC spdlog)
+target_link_libraries(lpcvm_obj PUBLIC spdlog)
+
+add_library(lpcvm STATIC $<TARGET_OBJECTS:lpcvm_obj>)
+
+target_include_directories(lpcvm PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
 
 add_subdirectory(lpcfront)

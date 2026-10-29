@@ -2,13 +2,30 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 #include "config.hpp"
-#include "bytecode_generator.hpp"
+#include "code_generator.hpp"
+#include <algorithm>
 #include <stdexcept>
 #include <variant>
 
 using namespace lpcvm;
 
-BytecodeGenerator& BytecodeGenerator::emit_statement(const ASTNode& stmt) {
+void CodeGenerator::grow_bytecode(std::size_t length) {
+    constexpr std::size_t allocation_granularity = 64;
+    const auto max_capacity = bytecode_.max_size();
+    if (length > max_capacity - bytecode_.size())
+        throw std::length_error("Bytecode exceeds maximum size");
+    const auto capacity = bytecode_.capacity();
+    const auto growth = std::min(max_capacity - capacity,
+        std::max(capacity, allocation_granularity));
+    auto new_capacity = std::max(bytecode_.size() + length, capacity + growth);
+    const auto padding = (allocation_granularity -
+        new_capacity % allocation_granularity) % allocation_granularity;
+    if (padding <= max_capacity - new_capacity)
+        new_capacity += padding;
+    bytecode_.reserve(new_capacity);
+}
+
+CodeGenerator& CodeGenerator::emit_statement(const ASTNode& stmt) {
     context_ = STATEMENT;
     std::visit(overloaded {
         [&](const AST::Block& block) {
@@ -31,7 +48,7 @@ BytecodeGenerator& BytecodeGenerator::emit_statement(const ASTNode& stmt) {
     return *this;
 }
 
-BytecodeGenerator& BytecodeGenerator::emit_expression(const ASTNode& expr) {
+CodeGenerator& CodeGenerator::emit_expression(const ASTNode& expr) {
     context_ = EXPRESSION;
     std::visit(overloaded {
         [&](const AST::NumericConst& constant) {
@@ -65,7 +82,7 @@ BytecodeGenerator& BytecodeGenerator::emit_expression(const ASTNode& expr) {
     return *this;
 }
 
-BytecodeGenerator& BytecodeGenerator::emit_block(const AST::Block& block, std::size_t num_formal_params) {
+CodeGenerator& CodeGenerator::emit_block(const AST::Block& block, std::size_t num_formal_params) {
     if (!block.stmts || !std::holds_alternative<AST::List>(block.stmts->node))
         return *this;
     uint32_t num_locals = block.num_locals;

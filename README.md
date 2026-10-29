@@ -13,6 +13,32 @@ cmake -S . -B build
 cmake --build build
 ~~~
 
+### Bytecode Benchmarks
+With `BUILD_TESTING=ON`, build the `bench_bytecode` target. Use an optimized
+`Release` configuration in CMake Tools for performance comparisons, then run:
+
+~~~bash
+./build/benchmarks/bench_bytecode --benchmark_min_time=0.1s --benchmark_repetitions=5
+./build/benchmarks/bench_bytecode --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
+~~~
+
+- `BM_ReturnOnly` measures the execution entry/return baseline.
+- `BM_Dispatch` varies stream size, zero to three extended-argument prefixes,
+  and starting offsets from a known 64-byte-aligned address. Zero-valued prefixes
+  keep the workload identical while isolating decoding overhead; they are
+  intentionally redundant and are not emitted by the compiler.
+- `BM_IntegerAdd` measures constant loads and integer addition.
+- `BM_LocalAccess` measures repeated local loads, stores, and stack pops.
+
+Bytecode construction, constant-pool setup, and a validating stack warm-up are
+outside the timed loop. Arithmetic and local-access timings include popping one
+returned value per execution so stack capacity can be reused. These are repeated
+execution benchmarks, not cold-cache or isolated memory-bandwidth measurements.
+
+`items_per_second` counts decoded two-byte words, including extended-argument
+prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports
+bytecode bytes traversed, not physical memory traffic.
+
 ## Sandboxed Virtual Machine
 LPCVM intended to develop a compact virtual stack-machine that can be safely sandboxed.
 A LPC mudlib is a sandbox that is restricted to see only a portion of the filesystem.
