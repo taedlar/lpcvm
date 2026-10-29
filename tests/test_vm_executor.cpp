@@ -5,8 +5,142 @@
 #include <cstdint>
 #include "code_generator.hpp"
 #include "const_pool.hpp"
+#include "lpc_compiler.hpp"
+#include "source_exception.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
+
+class SourceExceptionTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        ASSERT_TRUE(compiler.parse(R"(
+            int f() { return 1; }
+            string filenames() {
+                "example.lpc";
+                "included.lpc";
+                "changed.lpc";
+                return "later.lpc";
+            }
+        )"));
+        object = compiler.generate_code();
+        ASSERT_NE(object, nullptr);
+        set_location(0, "example.lpc", 42);
+        set_location(2, "included.lpc", 7);
+    }
+
+    void set_location(std::size_t offset, std::string_view filename, std::size_t line) {
+        const auto index = compiler.get_consts()->find(filename);
+        ASSERT_NE(index, ConstPool::INVALID_INDEX);
+        object->set_source_location(offset, index, line);
+    }
+
+    LpcCompiler compiler;
+    std::shared_ptr<ObjectClass> object;
+};
+
+TEST_F(SourceExceptionTest, SourceLocationsReferenceInternedFileNames) {
+    static_assert(std::is_same_v<decltype(ObjectClass::SourceLocation::source_file), std::string_view>);
+    set_location(2, "example.lpc", 43);
+    const auto first = object->lookup_source_location(object->bytecode());
+    const auto second = object->lookup_source_location(object->bytecode() + 2);
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    const auto index = compiler.get_consts()->find(std::string_view("example.lpc"));
+    const auto interned = object->const_pool()->fetch_string(index);
+
+    EXPECT_EQ(first->source_file, "example.lpc");
+    EXPECT_EQ(first->source_file.data(), interned.data());
+    EXPECT_EQ(second->source_file.data(), interned.data());
+    EXPECT_EQ(second->line_number, 43);
+}
+
+TEST_F(SourceExceptionTest, SourceLocationsRequireValidPoolEntries) {
+    ObjectClass empty;
+    EXPECT_THROW(empty.set_source_location(0, 0, 1), std::runtime_error);
+    EXPECT_THROW(object->set_source_location(0, object->const_pool()->slot_count(), 1), std::out_of_range);
+    const auto location = object->lookup_source_location(object->bytecode());
+    ASSERT_TRUE(location.has_value());
+    EXPECT_EQ(location->source_file, "example.lpc");
+}
+
+TEST_F(SourceExceptionTest, IncludesSourceLocation) {
+    lpcvm::SourceException error(std::runtime_error("Stack underflow"), object.get(), object->bytecode());
+
+    EXPECT_EQ(error.source_file(), "example.lpc");
+    EXPECT_EQ(error.line_number(), 42);
+    EXPECT_STREQ(error.what(), "example.lpc:42: Stack underflow");
+}
+
+TEST_F(SourceExceptionTest, PreservesExceptionType) {
+    try {
+        throw lpcvm::SourceException(std::out_of_range("Invalid index"), object.get(), object->bytecode() + 2);
+    }
+    catch (const std::out_of_range& error) {
+        EXPECT_STREQ(error.what(), "included.lpc:7: Invalid index");
+        return;
+    }
+    FAIL() << "Expected the wrapped exception to be caught as std::out_of_range";
+}
+
+TEST_F(SourceExceptionTest, OwnsSourceFileAndMessage) {
+    lpcvm::SourceException error(std::runtime_error("Original message"), object.get(), object->bytecode());
+    set_location(0, "changed.lpc", 99);
+    object.reset();
+
+    EXPECT_EQ(error.source_file(), "example.lpc");
+    EXPECT_STREQ(error.what(), "example.lpc:42: Original message");
+}
+
+TEST_F(SourceExceptionTest, CopyOutlivesOriginal) {
+    const auto copy = [this] {
+        lpcvm::SourceException original(std::runtime_error("Failure"), object.get(), object->bytecode());
+        auto copied = original;
+        return copied;
+    }();
+
+    EXPECT_EQ(copy.source_file(), "example.lpc");
+    EXPECT_EQ(copy.line_number(), 42);
+    EXPECT_STREQ(copy.what(), "example.lpc:42: Failure");
+}
+
+TEST_F(SourceExceptionTest, LooksUpPrecedingEntry) {
+    lpcvm::SourceException first(std::runtime_error("Failure"), object.get(), object->bytecode() + 1);
+    lpcvm::SourceException second(std::runtime_error("Failure"), object.get(), object->bytecode() + 3);
+
+    EXPECT_STREQ(first.what(), "example.lpc:42: Failure");
+    EXPECT_STREQ(second.what(), "included.lpc:7: Failure");
+}
+
+TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("string f() { return \"later.lpc\"; }"));
+    auto unmapped = compiler.generate_code();
+    ASSERT_NE(unmapped, nullptr);
+    lpcvm::SourceException error(std::runtime_error("Failure"), unmapped.get(), unmapped->bytecode());
+
+    EXPECT_TRUE(error.source_file().empty());
+    EXPECT_EQ(error.line_number(), 0);
+    EXPECT_STREQ(error.what(), "Failure");
+    const auto filename = compiler.get_consts()->find(std::string_view("later.lpc"));
+    ASSERT_NE(filename, ConstPool::INVALID_INDEX);
+    unmapped->set_source_location(2, filename, 10);
+    EXPECT_FALSE(unmapped->lookup_source_location(unmapped->bytecode() + 1).has_value());
+}
+
+TEST_F(SourceExceptionTest, InvalidContextPreservesMessage) {
+    const uint8_t unrelated[] = {F_RETURN, 0};
+    lpcvm::SourceException no_object(std::runtime_error("Failure"), nullptr, object->bytecode());
+    lpcvm::SourceException no_pc(std::runtime_error("Failure"), object.get(), nullptr);
+    lpcvm::SourceException outside(std::runtime_error("Failure"), object.get(), unrelated);
+    const auto& last_function = object->get_method(1);
+    lpcvm::SourceException end(std::runtime_error("Failure"), object.get(),
+        object->bytecode() + last_function.bytecode_offset + last_function.bytecode_length);
+
+    EXPECT_STREQ(no_object.what(), "Failure");
+    EXPECT_STREQ(no_pc.what(), "Failure");
+    EXPECT_STREQ(outside.what(), "Failure");
+    EXPECT_STREQ(end.what(), "Failure");
+}
 
 TEST(VMExecutorTest, EmptyFunction) {
     ConstTable consts;

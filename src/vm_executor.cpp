@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 #include "config.hpp"
+#include "source_exception.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <stdexcept>

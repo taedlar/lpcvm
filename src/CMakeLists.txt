@@ -21,6 +21,7 @@ add_library(lpcvm_obj OBJECT
     vm_executor.hpp
     vm_executor.cpp
     vm_opcodes.hpp
+    source_exception.hpp
     ast_node.hpp
     symbol_table.hpp
     symbol_table.cpp

@@ -9,8 +9,10 @@
 #include <vector>
 #include "const_pool.hpp"
 #include "symbol_table.hpp"
+#include "object_class.hpp"
 
 struct ASTNode;
+struct SourceInfo;
 
 /**
  * Abstract Syntax Tree (AST) node definitions for the LPC virtual machine.
@@ -148,3 +150,7 @@ struct ASTNode {
     Storage node;
 };
 
+struct SourceInfo {
+    ConstPool::IndexType src_name;
+    int line;
+};
