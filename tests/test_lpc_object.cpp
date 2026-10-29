@@ -7,6 +7,7 @@
 #include <type_traits>
 #include "lpc_types.hpp"
 #include "object_class.hpp"
+#include "vm_sandbox.hpp"
 
 TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;
@@ -36,21 +37,22 @@ TEST(LpcObjectHandleTest, HandleOutlivesObject) {
 }
 
 TEST(LpcObjectTest, CreatingDuplicateNameReplacesWithoutInvalidatingOldName) {
-    auto old_object = LpcObject::create("duplicate-name", std::make_shared<ObjectClass>());
+    lpcvm::Sandbox sb ("/mudlib");
+    auto old_object = LpcObject::create(&sb, "duplicate-name", std::make_shared<ObjectClass>());
     auto old_ref = old_object.lock();
     ASSERT_TRUE(old_ref.has_value());
 
-    auto new_object = LpcObject::create("duplicate-name", std::make_shared<ObjectClass>());
+    auto new_object = LpcObject::create(&sb, "duplicate-name", std::make_shared<ObjectClass>());
     auto new_ref = new_object.lock();
     ASSERT_TRUE(new_ref.has_value());
 
     EXPECT_EQ((*old_ref)->name(), "duplicate-name");
-    EXPECT_EQ(LpcObject::find("duplicate-name"), *new_ref);
+    EXPECT_EQ(LpcObject::find(&sb, "duplicate-name"), *new_ref);
 
-    LpcObject::destruct(*old_ref);
-    EXPECT_EQ(LpcObject::find("duplicate-name"), *new_ref);
-    LpcObject::destruct(*new_ref);
-    EXPECT_FALSE(LpcObject::find("duplicate-name"));
+    LpcObject::destruct(&sb, *old_ref);
+    EXPECT_EQ(LpcObject::find(&sb, "duplicate-name"), *new_ref);
+    LpcObject::destruct(&sb, *new_ref);
+    EXPECT_FALSE(LpcObject::find(&sb, "duplicate-name"));
 }
 
 // Thread-confinement contract: counts are plain integers, not atomics.
