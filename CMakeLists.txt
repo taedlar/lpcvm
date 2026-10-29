@@ -32,6 +32,11 @@ FetchContent_Declare(
 	GIT_TAG v1.17.0
 	EXCLUDE_FROM_ALL
 )
+FetchContent_Declare(
+    benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG v1.10.0
+)
 FetchContent_MakeAvailable(argparse spdlog)
 
 # generate configuration header and add source directories
@@ -44,6 +49,10 @@ add_subdirectory(src)
 
 # unit tests
 if(BUILD_TESTING)
-    FetchContent_MakeAvailable(GTest)
+    set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(GTest benchmark)
     add_subdirectory(tests)
+    add_subdirectory(benchmarks)
 endif()

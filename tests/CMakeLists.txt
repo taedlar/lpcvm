@@ -12,7 +12,7 @@ add_executable(test_lpcvm
     test_vm_sandbox.cpp
 )
 
-target_link_libraries(test_lpcvm PRIVATE lpcvm GTest::gtest_main)
+target_link_libraries(test_lpcvm PRIVATE lpcvm spdlog GTest::gtest_main)
 
 include(GoogleTest)
 gtest_discover_tests(test_lpcvm)
