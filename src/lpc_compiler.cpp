@@ -11,55 +11,55 @@
 #include <cstdio>
 #include <stdexcept>
 
-// Wrapper class for the lexer (yyscan_t) and parser (LpcParser)
-class LpcCompiler::Impl {
-public:
-    Impl(): scanner_(nullptr) {
-    }
-    ~Impl() {
-        if (scanner_) {
-            yylex_destroy (scanner_);
-            scanner_ = nullptr;
-        }
-    }
-
-    std::shared_ptr<ASTNode> parse_file (FILE* f, ConstTable& consts, std::shared_ptr<SymbolTable> current_scope) {
-        // Reinitialize the scanner for the new parse session.
-        if (scanner_) {
-            yylex_destroy (scanner_);
-            scanner_ = nullptr;
-        }
-        LpcCompiler::Context ctx;
-        ctx.current_scope = current_scope;
-        ctx.consts = &consts;
-        yylex_init_extra (&ctx, &scanner_);
-        yyrestart(f, scanner_);
-
-        // Parse the input
-        using namespace yy;
-        LpcParser parser{scanner_};
-        parser.parse();
-
-        return ctx.root;
-    }
-
-    int get_lineno() const { return yyget_lineno(scanner_); }
-    int get_column() const { return yyget_column(scanner_); }
-
-private:
-    yyscan_t scanner_;
+struct LpcCompiler::internal_s {
+    LpcCompiler::Context ctx;
+    yyscan_t scanner;
+    yy::LpcParser* parser{nullptr};
 };
 
-LpcCompiler::LpcCompiler(FILE* source_file) : pimpl_(new Impl()), source_file_(source_file) {}
-LpcCompiler::~LpcCompiler() = default;
+LpcCompiler::LpcCompiler(FILE* source_file)
+    : source_file_(source_file), impl_(nullptr)
+{
+    if (source_file_) {
+        impl_ = new internal_s();
+        yylex_init_extra(&impl_->ctx, &impl_->scanner); // create lexial scanner
+        yyrestart(source_file_, impl_->scanner); // set the input for the scanner
+        impl_->parser = new yy::LpcParser{impl_->scanner}; // create parser with the scanner
+    }
+    else {
+        messages_.push_back({-1, -1, "No source file provided"});
+    }
+}
+
+LpcCompiler::~LpcCompiler() {
+    if (impl_) {
+        if (impl_->scanner)
+            yylex_destroy(impl_->scanner); // destroy the lexical scanner
+        if (impl_->parser)
+            delete impl_->parser; // destroy the parser instance
+        delete impl_;
+    }
+}
+
+bool LpcCompiler::init() {
+    if (!impl_)
+        return false;
+    messages_.clear();
+    consts_ = std::make_shared<ConstTable>();
+    impl_->ctx.consts = consts_;
+    globals_ = std::make_shared<SymbolTable>(SymbolTable::ScopeType::GLOBAL, 0, nullptr);
+    impl_->ctx.current_scope = globals_;
+    ast_.reset();
+    return true;
+}
 
 bool LpcCompiler::parse() noexcept {
     bool result = false;
     try {
-        consts_ = std::make_shared<ConstTable>();
-        globals_ = std::make_shared<SymbolTable>(SymbolTable::ScopeType::GLOBAL, 0, nullptr);
-        messages_.clear();
-        ast_ = pimpl_->parse_file(source_file_, *consts_, globals_);
+        if (!init())
+            return false;
+        impl_->parser->parse();
+        ast_ = impl_->ctx.root;
         SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());
         messages_.push_back({-1, -1, "parsing succeeded"});
         result = true;
@@ -77,14 +77,33 @@ bool LpcCompiler::parse() noexcept {
     return result;
 }
 
+/**
+ * @brief Parses the given source code string.
+ *
+ * @param source The source code to parse.
+ * @return true if parsing succeeded, false otherwise.
+ */
 bool LpcCompiler::parse (const std::string& source) noexcept {
-    FILE* saved_source_file = source_file_;
-    source_file_ = fmemopen((void*)source.c_str(), source.size(), "r");
-
-    bool result = parse();
-
-    fclose(source_file_);
-    source_file_ = saved_source_file;
+    bool result = false;
+    auto saved_impl = impl_;
+    struct internal_s tmp;
+    try {
+        yylex_init_extra(&tmp.ctx, &tmp.scanner); // create lexial scanner
+        auto bs = yy_scan_bytes(source.data(), source.size(), tmp.scanner);
+        bs->yy_bs_lineno = 1; // initialize the line number for the buffer state
+        bs->yy_bs_column = 0; // initialize the column number for the buffer state
+        yy::LpcParser parser{tmp.scanner};
+        tmp.parser = &parser; // use local parser instance (unwinding safe)
+        impl_ = &tmp;
+        result = parse(); // route the parsing through the main parse function
+    }
+    catch (const std::exception& e) {
+        SPDLOG_ERROR("parse failed: {}", e.what());
+        messages_.push_back({-1, -1, e.what()});
+    }
+    if (tmp.scanner)
+        yylex_destroy(tmp.scanner); // ensure the lexical scanner is destroyed even if an exception occurs
+    impl_ = saved_impl; // restore the original impl_ to avoid dangling pointer
     return result;
 }
 

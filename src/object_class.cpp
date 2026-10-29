@@ -6,11 +6,11 @@
 #include "object_class.hpp"
 #include <iterator>
 
-void ObjectClass::set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, std::size_t line_number) {
+void ObjectClass::set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, int lineno, int column) {
     if (!const_pool_)
         throw std::runtime_error("Source location requires a constant pool");
     source_locations_.insert_or_assign(bytecode_offset,
-        SourceLocation{const_pool_->fetch_string(source_file), line_number});
+        SourceLocation{const_pool_->fetch_string(source_file), lineno, column});
 }
 
 std::optional<ObjectClass::SourceLocation> ObjectClass::lookup_source_location(const uint8_t* pc) const {

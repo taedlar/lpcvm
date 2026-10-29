@@ -11,8 +11,15 @@
 #include "symbol_table.hpp"
 #include "object_class.hpp"
 
+/**
+ * @brief Represents the location of a token in the source code.
+ */
+struct ScannerLocation {
+    int32_t lineno;
+    int32_t column;
+};
+
 struct ASTNode;
-struct SourceInfo;
 
 /**
  * Abstract Syntax Tree (AST) node definitions for the LPC virtual machine.
@@ -148,9 +155,5 @@ struct ASTNode {
     ASTNode(T&& value) : node(std::forward<T>(value)) {}
 
     Storage node;
-};
-
-struct SourceInfo {
-    ConstPool::IndexType src_name;
-    int line;
+    ScannerLocation src;
 };

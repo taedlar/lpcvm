@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "lpc_types.hpp"
+#include "vm_sandbox.hpp"
 
 struct ASTNode;
 class ConstTable;
@@ -23,7 +24,7 @@ public:
     struct Context {
         std::shared_ptr<ASTNode> root;
         std::shared_ptr<SymbolTable> current_scope;
-        ConstTable* consts;
+        std::shared_ptr<ConstTable> consts;
 
         std::string current_string;
         std::string raw_string_delimiter;
@@ -42,6 +43,8 @@ public:
         std::string text;
     };
 
+    void set_source_id(const std::string& id) { source_id = id; }
+
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
     std::shared_ptr<ObjectClass> generate_code() noexcept;
@@ -53,12 +56,16 @@ public:
     const ASTNode* get_ast() const { return ast_.get(); }
 
 private:
-    class Impl;
-    std::unique_ptr<Impl> pimpl_;
+    struct internal_s;
+    internal_s* impl_;
+
     FILE* source_file_;
+    std::string source_id; // for source info in AST
     std::vector<Message> messages_;
 
     std::shared_ptr<ConstTable> consts_;
     std::shared_ptr<SymbolTable> globals_;
     std::shared_ptr<ASTNode> ast_;
+
+    bool init();
 };

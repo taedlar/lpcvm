@@ -24,7 +24,8 @@ class ObjectClass {
 public:
     struct SourceLocation {
         std::string_view source_file;
-        std::size_t line_number = 0;
+        int lineno;
+        int column;
     };
 
     ObjectClass(std::size_t num_vars = 0,ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
@@ -42,7 +43,7 @@ public:
     const uint8_t* bytecode() const { return bytecode_.data(); }
     const ConstPool* const_pool() const { return const_pool_.get(); }
 
-    void set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, std::size_t line_number);
+    void set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, int lineno, int column);
     std::optional<SourceLocation> lookup_source_location(const uint8_t* pc) const;
 
     bool lookup_method (const std::string_view name, BytecodeView* entry) const;
