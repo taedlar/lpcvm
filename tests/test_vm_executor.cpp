@@ -14,8 +14,9 @@ class SourceExceptionTest : public ::testing::Test {
 protected:
     void SetUp() override {
         ASSERT_TRUE(compiler.parse(R"(
-            int f() { return 1; }
+            int f() { "f"; return 1; }
             string filenames() {
+                "filenames";
                 "example.lpc";
                 "included.lpc";
                 "changed.lpc";
@@ -24,14 +25,16 @@ protected:
         )"));
         object = compiler.generate_code();
         ASSERT_NE(object, nullptr);
-        set_location(0, "example.lpc", 42);
-        set_location(2, "included.lpc", 7);
+        set_location(0, "example.lpc", "f", 42);
+        set_location(2, "included.lpc", "filenames", 7);
     }
 
-    void set_location(std::size_t offset, std::string_view filename, std::size_t line) {
+    void set_location(std::size_t offset, std::string_view filename, std::string_view function, std::size_t line) {
         const auto index = compiler.get_consts()->find(filename);
+        const auto function_index = compiler.get_consts()->find(function);
         ASSERT_NE(index, ConstPool::INVALID_INDEX);
-        object->set_source_location(offset, index, line, 1);
+        ASSERT_NE(function_index, ConstPool::INVALID_INDEX);
+        object->set_source_location(offset, index, function_index, line, 1);
     }
 
     LpcCompiler compiler;
@@ -39,8 +42,8 @@ protected:
 };
 
 TEST_F(SourceExceptionTest, SourceLocationsReferenceInternedFileNames) {
-    static_assert(std::is_same_v<decltype(ObjectClass::SourceLocation::source_file), std::string_view>);
-    set_location(2, "example.lpc", 43);
+    static_assert(std::is_same_v<decltype(ObjectClass::SourceLocation::file_name), std::string_view>);
+    set_location(2, "example.lpc", "f", 43);
     const auto first = object->lookup_source_location(object->bytecode());
     const auto second = object->lookup_source_location(object->bytecode() + 2);
     ASSERT_TRUE(first.has_value());
@@ -48,19 +51,20 @@ TEST_F(SourceExceptionTest, SourceLocationsReferenceInternedFileNames) {
     const auto index = compiler.get_consts()->find(std::string_view("example.lpc"));
     const auto interned = object->const_pool()->fetch_string(index);
 
-    EXPECT_EQ(first->source_file, "example.lpc");
-    EXPECT_EQ(first->source_file.data(), interned.data());
-    EXPECT_EQ(second->source_file.data(), interned.data());
+    EXPECT_EQ(first->file_name, "example.lpc");
+    EXPECT_EQ(first->file_name.data(), interned.data());
+    EXPECT_EQ(second->file_name.data(), interned.data());
+    EXPECT_EQ(second->func_name, "f");
     EXPECT_EQ(second->lineno, 43);
 }
 
 TEST_F(SourceExceptionTest, SourceLocationsRequireValidPoolEntries) {
     ObjectClass empty;
-    EXPECT_THROW(empty.set_source_location(0, 0, 1, 1), std::runtime_error);
-    EXPECT_THROW(object->set_source_location(0, object->const_pool()->slot_count(), 1, 1), std::out_of_range);
+    EXPECT_THROW(empty.set_source_location(0, 0, ConstPool::INVALID_INDEX, 1, 1), std::runtime_error);
+    EXPECT_THROW(object->set_source_location(0, object->const_pool()->slot_count(), ConstPool::INVALID_INDEX, 1, 1), std::out_of_range);
     const auto location = object->lookup_source_location(object->bytecode());
     ASSERT_TRUE(location.has_value());
-    EXPECT_EQ(location->source_file, "example.lpc");
+    EXPECT_EQ(location->file_name, "example.lpc");
 }
 
 TEST_F(SourceExceptionTest, IncludesSourceLocation) {
@@ -68,7 +72,8 @@ TEST_F(SourceExceptionTest, IncludesSourceLocation) {
 
     EXPECT_EQ(error.source_file(), "example.lpc");
     EXPECT_EQ(error.lineno(), 42);
-    EXPECT_STREQ(error.what(), "example.lpc:42:1: Stack underflow");
+    EXPECT_EQ(error.func_name(), "f");
+    EXPECT_STREQ(error.what(), "example.lpc:42:1: In function `f()': Stack underflow");
 }
 
 TEST_F(SourceExceptionTest, PreservesExceptionType) {
@@ -76,7 +81,7 @@ TEST_F(SourceExceptionTest, PreservesExceptionType) {
         throw lpcvm::SourceException(std::out_of_range("Invalid index"), object.get(), object->bytecode() + 2);
     }
     catch (const std::out_of_range& error) {
-        EXPECT_STREQ(error.what(), "included.lpc:7:1: Invalid index");
+        EXPECT_STREQ(error.what(), "included.lpc:7:1: In function `filenames()': Invalid index");
         return;
     }
     FAIL() << "Expected the wrapped exception to be caught as std::out_of_range";
@@ -84,11 +89,11 @@ TEST_F(SourceExceptionTest, PreservesExceptionType) {
 
 TEST_F(SourceExceptionTest, OwnsSourceFileAndMessage) {
     lpcvm::SourceException error(std::runtime_error("Original message"), object.get(), object->bytecode());
-    set_location(0, "changed.lpc", 99);
+    set_location(0, "changed.lpc", "f", 99);
     object.reset();
 
     EXPECT_EQ(error.source_file(), "example.lpc");
-    EXPECT_STREQ(error.what(), "example.lpc:42:1: Original message");
+    EXPECT_STREQ(error.what(), "example.lpc:42:1: In function `f()': Original message");
 }
 
 TEST_F(SourceExceptionTest, CopyOutlivesOriginal) {
@@ -100,15 +105,15 @@ TEST_F(SourceExceptionTest, CopyOutlivesOriginal) {
 
     EXPECT_EQ(copy.source_file(), "example.lpc");
     EXPECT_EQ(copy.lineno(), 42);
-    EXPECT_STREQ(copy.what(), "example.lpc:42:1: Failure");
+    EXPECT_STREQ(copy.what(), "example.lpc:42:1: In function `f()': Failure");
 }
 
 TEST_F(SourceExceptionTest, LooksUpPrecedingEntry) {
     lpcvm::SourceException first(std::runtime_error("Failure"), object.get(), object->bytecode() + 1);
     lpcvm::SourceException second(std::runtime_error("Failure"), object.get(), object->bytecode() + 3);
 
-    EXPECT_STREQ(first.what(), "example.lpc:42:1: Failure");
-    EXPECT_STREQ(second.what(), "included.lpc:7:1: Failure");
+    EXPECT_STREQ(first.what(), "example.lpc:42:1: In function `f()': Failure");
+    EXPECT_STREQ(second.what(), "included.lpc:7:1: In function `filenames()': Failure");
 }
 
 TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
@@ -118,12 +123,13 @@ TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
     ASSERT_NE(unmapped, nullptr);
     lpcvm::SourceException error(std::runtime_error("Failure"), unmapped.get(), unmapped->bytecode());
 
-    EXPECT_TRUE(error.source_file().empty());
+    EXPECT_EQ(error.source_file(), "<unknown-file>");
+    EXPECT_TRUE(error.func_name().empty());
     EXPECT_EQ(error.lineno(), 0);
     EXPECT_STREQ(error.what(), "Failure");
     const auto filename = compiler.get_consts()->find(std::string_view("later.lpc"));
     ASSERT_NE(filename, ConstPool::INVALID_INDEX);
-    unmapped->set_source_location(2, filename, 10, 1);
+    unmapped->set_source_location(2, filename, ConstPool::INVALID_INDEX, 10, 1);
     EXPECT_FALSE(unmapped->lookup_source_location(unmapped->bytecode() + 1).has_value());
 }
 

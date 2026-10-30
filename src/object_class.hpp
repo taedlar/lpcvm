@@ -32,11 +32,12 @@ public:
     const ConstPool* const_pool() const { return const_pool_.get(); }
 
     struct SourceLocation {
-        std::string_view source_file;
+        std::string_view file_name;
+        std::string_view func_name;
         int lineno;
         int column;
     };
-    void set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, int lineno, int column);
+    void set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, ConstPool::IndexType func_name, int lineno, int column);
     std::optional<SourceLocation> lookup_source_location(const uint8_t* pc) const;
 
     bool lookup_method (const std::string_view name, BytecodeView* entry) const;
