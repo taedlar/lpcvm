@@ -14,7 +14,13 @@ namespace lpcvm {
     class code_generator {
     private:
         std::vector<uint8_t>& bytecode_;
+        ObjectClass* prog_;
         void grow_bytecode(std::size_t length);
+        void set_source_location(const ASTNode& expr) {
+            if (prog_ && expr.src.lineno > 0)
+                prog_->set_source_location(position(), expr.src.current_file, expr.src.current_func,
+                    expr.src.lineno, expr.src.column);
+        }
 
         enum Context {
             STATEMENT,
@@ -22,8 +28,8 @@ namespace lpcvm {
         } context_;
 
     public:
-        code_generator(std::vector<uint8_t>& bytecode)
-            : bytecode_(bytecode), context_(STATEMENT) {}
+        code_generator(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr)
+            : bytecode_(bytecode), prog_(prog), context_(STATEMENT) {}
 
         std::size_t position() const { return bytecode_.size(); }
 

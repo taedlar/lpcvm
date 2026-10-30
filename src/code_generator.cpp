@@ -50,6 +50,7 @@ code_generator& code_generator::emit_statement(const ASTNode& stmt) {
 
 code_generator& code_generator::emit_expression(const ASTNode& expr) {
     context_ = EXPRESSION;
+    set_source_location(expr);
     std::visit(overloaded {
         [&](const AST::NumericConst& constant) {
             std::visit(overloaded {
@@ -64,6 +65,7 @@ code_generator& code_generator::emit_expression(const ASTNode& expr) {
         [&](const AST::BinaryOp& bin_op) {
             emit_expression(*bin_op.lhs);
             emit_expression(*bin_op.rhs);
+            set_source_location(expr);
             emit(F_BIN_OP, bin_op.arg);
         },
         [&](const AST::FunctionCall& func_call) {

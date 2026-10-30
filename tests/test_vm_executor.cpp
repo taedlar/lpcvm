@@ -121,16 +121,14 @@ TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
     ASSERT_TRUE(compiler.parse("string f() { return \"later.lpc\"; }"));
     auto unmapped = compiler.generate_code();
     ASSERT_NE(unmapped, nullptr);
-    lpcvm::SourceException error(std::runtime_error("Failure"), unmapped.get(), unmapped->bytecode());
+    const auto& function = unmapped->get_method(0);
+    const auto* end = unmapped->bytecode() + function.bytecode_offset + function.bytecode_length;
+    lpcvm::SourceException error(std::runtime_error("Failure"), unmapped.get(), end);
 
     EXPECT_EQ(error.source_file(), "<unknown-file>");
     EXPECT_TRUE(error.func_name().empty());
     EXPECT_EQ(error.lineno(), 0);
     EXPECT_STREQ(error.what(), "Failure");
-    const auto filename = compiler.get_consts()->find(std::string_view("later.lpc"));
-    ASSERT_NE(filename, ConstPool::INVALID_INDEX);
-    unmapped->set_source_location(2, filename, ConstPool::INVALID_INDEX, 10, 1);
-    EXPECT_FALSE(unmapped->lookup_source_location(unmapped->bytecode() + 1).has_value());
 }
 
 TEST_F(SourceExceptionTest, InvalidContextPreservesMessage) {
@@ -183,6 +181,26 @@ TEST(VMExecutorTest, BasicExecution) {
     auto res = stack.pop();
     ASSERT_TRUE(std::holds_alternative<int32_t>(res));
     EXPECT_EQ(std::get<int32_t>(res), 123 + 456);
+}
+
+TEST(VMExecutorTest, DivisionByZeroIncludesExpressionSourceLocation) {
+    LpcCompiler compiler;
+    compiler.set_filename("division.lpc");
+    ASSERT_TRUE(compiler.parse("int divide() {\n    return 12 / 0;\n}"));
+    auto object = compiler.generate_code();
+    ASSERT_NE(object, nullptr);
+    BytecodeView code;
+    ASSERT_TRUE(object->lookup_method("divide", &code));
+
+    ReturnStack control;
+    DataStack stack;
+    try {
+        code.execute(control, stack);
+        FAIL() << "Expected division by zero to throw";
+    }
+    catch (const std::runtime_error& error) {
+        EXPECT_STREQ(error.what(), "division.lpc:2:12: In function `divide()': Division by zero");
+    }
 }
 
 TEST(VMExecutorTest, ReturnUnderflow) {

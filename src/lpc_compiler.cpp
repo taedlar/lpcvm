@@ -140,7 +140,7 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
         prog->virtual_table_->static_bindings_.resize(num_functions);
 
         // generate code for each top-level definition in the program
-        lpcvm::code_generator codegen(prog->bytecode_);
+        lpcvm::code_generator codegen(prog->bytecode_, prog.get());
         for(auto& elt: prog_node.defs) {
             std::visit (overloaded {
                 [&](AST::Inheritance& inh) {

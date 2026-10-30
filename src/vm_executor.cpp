@@ -182,6 +182,10 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
         result = std::visit([&](const auto& lhs_value, const auto& rhs_value) -> SValue {
             using LhsType = std::decay_t<decltype(lhs_value)>;
             using RhsType = std::decay_t<decltype(rhs_value)>;
+            if constexpr (std::is_arithmetic_v<LhsType> && std::is_arithmetic_v<RhsType>) {
+                if (oparg == oparg::DIV && rhs_value == 0)
+                    throw lpcvm::SourceException<std::runtime_error>(std::runtime_error("Division by zero"), prog_, pc - 1);
+            }
             if constexpr (std::is_same_v<LhsType, RhsType> &&
                 (std::is_same_v<LhsType, int32_t> || std::is_same_v<LhsType, uint32_t>)) {
                 switch (oparg) {
