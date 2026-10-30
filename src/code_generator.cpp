@@ -9,7 +9,7 @@
 
 using namespace lpcvm;
 
-void CodeGenerator::grow_bytecode(std::size_t length) {
+void code_generator::grow_bytecode(std::size_t length) {
     constexpr std::size_t allocation_granularity = 64;
     const auto max_capacity = bytecode_.max_size();
     if (length > max_capacity - bytecode_.size())
@@ -25,7 +25,7 @@ void CodeGenerator::grow_bytecode(std::size_t length) {
     bytecode_.reserve(new_capacity);
 }
 
-CodeGenerator& CodeGenerator::emit_statement(const ASTNode& stmt) {
+code_generator& code_generator::emit_statement(const ASTNode& stmt) {
     context_ = STATEMENT;
     std::visit(overloaded {
         [&](const AST::Block& block) {
@@ -48,7 +48,7 @@ CodeGenerator& CodeGenerator::emit_statement(const ASTNode& stmt) {
     return *this;
 }
 
-CodeGenerator& CodeGenerator::emit_expression(const ASTNode& expr) {
+code_generator& code_generator::emit_expression(const ASTNode& expr) {
     context_ = EXPRESSION;
     std::visit(overloaded {
         [&](const AST::NumericConst& constant) {
@@ -82,24 +82,54 @@ CodeGenerator& CodeGenerator::emit_expression(const ASTNode& expr) {
     return *this;
 }
 
-CodeGenerator& CodeGenerator::emit_block(const AST::Block& block, std::size_t num_formal_params) {
+code_generator& code_generator::emit_block(const AST::Block& block, std::size_t num_formal_params) {
     if (!block.stmts || !std::holds_alternative<AST::List>(block.stmts->node))
         return *this;
+
+    // when entering the block, allocate space for local variables (excluding formal parameters)
     uint32_t num_locals = block.num_locals;
     if (num_formal_params > num_locals)
         throw std::runtime_error("Number of formal parameters exceeds number of local variables");
     num_locals -= num_formal_params; // arguments are pushed by the caller
     if (num_locals > 0)
         emit(F_PUSH_N, num_locals);
+
+    // emit code for each statement in the block
     auto& stmts = std::get<AST::List>(block.stmts->node).elts;
     for(auto& stmt: stmts)
         emit_statement(stmt);
+
+    // when exiting the block, deallocate space for local variables (excluding formal parameters)
+    // TODO: back patch for jump instructions that may need to skip over the local variable deallocation.
     if (num_locals > 0)
         emit(F_POP_N, num_locals);
     return *this;
 }
 
-FunctionBuilder& FunctionBuilder::emit_body(const AST::Block& body, std::size_t num_formal_params) {
-    emit_block(body, num_formal_params);
-    return *this;
+void function_builder::build(const AST::FunctionDef& func_def) {
+    // AST::FunctionDef contains the function declaration and body.
+    // - The function index (assigned when parsing) is retrieved from the function name's
+    //   symbol table entry associated with the function declaration.
+    // - The number of formal parameters is determined from the function declaration's
+    //   parameter list.
+    const AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
+    auto func_idx = std::get<uint32_t>(*func_decl.entry->value);
+    std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
+
+    VirtualTable::Binding func_binding;
+    func_binding.signature = func_decl.entry->signature;
+    func_binding.inheriting = -1; // or some appropriate default value indicating no inheritance
+    func_binding.bytecode_offset = codegen_.position(); // entry point of the function's bytecode
+
+    // generate bytecode for the function body
+    const AST::Block& body = std::get<AST::Block>(func_def.body->node);
+    codegen_.emit_block(body, num_formal_params);
+    func_binding.bytecode_length = codegen_.position() - func_binding.bytecode_offset;
+
+    // register function bindings
+    vtable_.bind(func_idx, func_binding);
+    if (name_idx_ != ConstPool::INVALID_INDEX) {
+        // TODO: Handle the case where the function has a name and should be added to the virtual table by name
+        vtable_.emplace(name_idx_, func_binding);
+    }
 }

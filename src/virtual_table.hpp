@@ -8,6 +8,8 @@
 #include "symbol_table.hpp"
 #include "const_pool.hpp"
 
+namespace lpcvm { struct function_builder; }
+
 /**
  * \brief Represents the virtual table for a runtime class, managing method
  * bindings and enabling dynamic dispatch.
@@ -48,12 +50,14 @@ public:
      */
     bool lookup (const std::string_view name, Binding& out_binding) const;
 
-private:
-    friend class SymbolTable;
-    friend class LpcCompiler;
-
-    std::shared_ptr<ConstPool> name_pool_;
-    std::vector<Binding> static_bindings_;
+    /**
+     * \brief Binds a method to a specific index in the static bindings.
+     * This is used for F_CALL static binding resolution at runtime.
+     *
+     * \param index The function index at which to bind the method.
+     * \param binding The binding information for the method.
+     */
+    bool bind (std::size_t index, const Binding& binding);
 
     /**
      * \brief Adds a new method binding to the virtual table.
@@ -63,9 +67,18 @@ private:
      */
     void emplace (ConstPool::IndexType name_index, const Binding& binding);
 
+private:
+    friend class SymbolTable;
+    friend class LpcCompiler;
+
+    std::shared_ptr<ConstPool> name_pool_;
+    std::vector<Binding> static_bindings_; // used for F_CALL static binding resolution
+
     /**
      * \brief The list of method bindings in the virtual table, sorted by
      * method name. The method name must be interned in the constant pool.
+     * 
+     * Used for inheritance-based method resolution at runtime and F_CALL_OTHER.
      */
     std::vector<std::pair<std::string_view, Binding>> bindings_;
 };

@@ -71,4 +71,6 @@ private:
     std::shared_ptr<ASTNode> ast_;
 
     bool init();
+
+    struct FunctionBuilder;
 };

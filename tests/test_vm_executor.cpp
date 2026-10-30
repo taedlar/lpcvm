@@ -161,7 +161,7 @@ TEST(VMExecutorTest, BasicExecution) {
     ObjectClass prog(0, &consts); 
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_CONST_I4, c2)
         .emit(F_BIN_OP, oparg::ADD)
@@ -183,7 +183,7 @@ TEST(VMExecutorTest, ReturnUnderflow) {
     ConstTable consts;
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
@@ -198,7 +198,7 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
@@ -219,7 +219,7 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
@@ -238,7 +238,7 @@ TEST(VMExecutorTest, StoreGlobal) {
     ObjectState this_obj(1);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_STORE_GLOBAL, 0)
         .emit(F_POP_N, 1)
@@ -261,7 +261,7 @@ TEST(VMExecutorTest, LoadGlobal) {
     this_obj[0] = SValue(int32_t{123});
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_LOAD_GLOBAL, 0)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog, &this_obj);
@@ -283,7 +283,7 @@ TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
 
     for (auto opcode : {F_LOAD_GLOBAL, F_STORE_GLOBAL}) {
         std::vector<uint8_t> bytecode;
-        lpcvm::CodeGenerator bgen(bytecode);
+        lpcvm::code_generator bgen(bytecode);
         if (opcode == F_STORE_GLOBAL)
             bgen.emit(F_CONST_I4, value);
         bgen.emit(opcode, 0);
@@ -300,7 +300,7 @@ TEST(VMExecutorTest, LoadAndStoreLocal) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_PUSH_N, 1)
         .emit(F_CONST_I4, local_value)
         .emit(F_STORE_LOCAL, 1)
@@ -335,7 +335,7 @@ TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_LOAD_LOCAL, 0)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);

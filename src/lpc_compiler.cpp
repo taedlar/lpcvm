@@ -108,56 +108,49 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
 }
 
 std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
+    // the AST must contain a valid program node
     if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false) {
         messages_.push_back({-1, -1, "No valid AST available"});
         return nullptr;
     }
-
     AST::Program& prog_node = std::get<AST::Program>(ast_->node);
-    std::shared_ptr<ObjectClass> prog;
+
+    std::shared_ptr<ObjectClass> prog; // the object representing the compiled program
     try {
+        // compute number of global variables (for F_LOAD_GLOBAL / F_STORE_GLOBAL)
         std::size_t num_global_vars = globals_->size();
         for(auto& [key, entry]: globals_->symbols()) {
             if (entry->signature.b.is_const)
                 --num_global_vars;
         }
         prog = std::make_shared<ObjectClass>(num_global_vars, consts_.get(), globals_.get());
-        prog->virtual_table_->static_bindings_.resize(globals_->size() - num_global_vars);
+
+        // compute number of functions (for F_CALL)
+        std::size_t num_functions = globals_->size() - num_global_vars;
+        prog->virtual_table_->static_bindings_.resize(num_functions);
+
+        // generate code for each top-level definition in the program
+        lpcvm::code_generator codegen(prog->bytecode_);
         for(auto& elt: prog_node.defs) {
             std::visit (overloaded {
                 [&](AST::Inheritance& inh) {
-                    // TODO: Implement inheritance handling
+                    // TODO: Implement inheritance handling (requires Sandbox integration)
                     // prog->inherit_from(std::make_shared<ObjectClass>());
                 },
                 [&](AST::FunctionDef& func_def) {
-                    // Extract the function declaration from the function definition
                     if (!func_def.body)
-                        return; // Skip functions without a body (forward declaration)
-
+                        return; // forward declaration
                     AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
-                    VirtualTable::Binding binding;
-                    binding.signature = func_decl.entry->signature; // use signatures declared with function body
-                    binding.inheriting = -1;
                     auto name_idx = consts_->find(func_decl.entry->name);
-                    if (name_idx == consts_->INVALID_INDEX)
+                    if (name_idx == ConstPool::INVALID_INDEX)
                         throw std::runtime_error("Failed to find function name in constant pool");
                     auto func_idx = std::get<uint32_t>(*func_decl.entry->value);
                     if (func_idx >= prog->virtual_table_->static_bindings_.size())
                         throw std::runtime_error("Function index out of bounds");
-                    std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
-
-                    // Generate the bytecode for the function body
-                    binding.bytecode_offset = prog->bytecode_.size();
-                    lpcvm::FunctionBuilder func_builder(prog->bytecode_);
-                    func_builder.emit_body(std::get<AST::Block>(func_def.body->node), num_formal_params);
-                    binding.bytecode_length = prog->bytecode_.size() - binding.bytecode_offset;
-
-                    // resolve the function index in the static bindings array
-                    prog->virtual_table_->static_bindings_[func_idx] = binding;
-                    if (name_idx != consts_->INVALID_INDEX)
-                        prog->virtual_table_->emplace(name_idx, binding); // add function binding to the virtual table
+                    lpcvm::function_builder func{codegen, name_idx, *prog->virtual_table_};
+                    func.build(func_def);
                 },
-                [&](auto&) { /* Ignore other AST node types */ }
+                [&](auto&) { /* ignore other node types */ }
             }, elt.node);
         }
     }

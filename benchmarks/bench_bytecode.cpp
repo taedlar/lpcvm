@@ -101,7 +101,7 @@ void BM_IntegerAdd(benchmark::State& state) {
     const auto one = constants.find_or_add(int32_t{1});
     ObjectClass program(0, &constants);
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator generator(bytecode);
+    lpcvm::code_generator generator(bytecode);
     generator.emit(F_CONST_I4, zero);
     for (std::size_t addition = 0; addition < additions; ++addition)
         generator.emit(F_CONST_I4, one).emit(F_BIN_OP, oparg::ADD);
@@ -118,7 +118,7 @@ void BM_LocalAccess(benchmark::State& state) {
     const auto value = constants.find_or_add(int32_t{42});
     ObjectClass program(0, &constants);
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator generator(bytecode);
+    lpcvm::code_generator generator(bytecode);
     generator.emit(F_CONST_I4, value);
     for (std::size_t access = 0; access < accesses; ++access)
         generator.emit(F_LOAD_LOCAL, 0).emit(F_STORE_LOCAL, 0).emit(F_POP_N, 1);
