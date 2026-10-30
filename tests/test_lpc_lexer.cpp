@@ -83,6 +83,23 @@ TEST_F(LpcLexerTest, TokenLocationsAcrossComments) {
     expect_token(yy::LpcParser::symbol_kind::S_YYEOF, 3, 7, 7);
 }
 
+TEST_F(LpcLexerTest, TokenLocationsPreserveFilename) {
+    const std::string filename = "example.lpc";
+    context.location.initialize(&filename);
+    scan("first /* comment\n */ \"text\" R\"(raw\ntext)\"");
+    for (const auto kind : {
+        yy::LpcParser::symbol_kind::S_L_IDENTIFIER,
+        yy::LpcParser::symbol_kind::S_L_STRING_LITERAL,
+        yy::LpcParser::symbol_kind::S_L_STRING_LITERAL,
+        yy::LpcParser::symbol_kind::S_YYEOF,
+    }) {
+        const auto token = yylex(scanner);
+        EXPECT_EQ(token.kind(), kind);
+        EXPECT_EQ(token.location.begin.filename, &filename);
+        EXPECT_EQ(token.location.end.filename, &filename);
+    }
+}
+
 TEST_F(LpcLexerTest, StringLocationsStartAtOpeningDelimiter) {
     scan("\"a\\n\" \"b\\\nc\" R\"tag(raw\n)wrong\"\nend)tag\" next");
     const auto expect_location = [&](int line, int column, int end_line, int end_column) {

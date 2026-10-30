@@ -18,7 +18,7 @@ struct LpcCompiler::internal_s {
 };
 
 LpcCompiler::LpcCompiler(FILE* source_file)
-    : source_file_(source_file), impl_(nullptr)
+    : source_file_(source_file), filename_("<unknown>"), impl_(nullptr)
 {
     if (source_file_) {
         impl_ = new internal_s();
@@ -48,7 +48,11 @@ bool LpcCompiler::init() {
     consts_ = std::make_shared<ConstTable>();
     impl_->ctx.consts = consts_;
     globals_ = std::make_shared<SymbolTable>(SymbolTable::ScopeType::GLOBAL, 0, nullptr);
+    impl_->ctx.location.initialize(&filename_);
     impl_->ctx.current_scope = globals_;
+    if (!filename_.empty() && filename_ != "<unknown>") {
+        impl_->ctx.current_file = consts_->find_or_add(filename_); // make an interned copy of current filename
+    }
     ast_.reset();
     return true;
 }
@@ -66,8 +70,14 @@ bool LpcCompiler::parse() noexcept {
     }
     catch (const yy::parse_error& e) {
         // Handle parsing errors
-        SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
-        messages_.push_back({e.lineno, e.column, e.what()});
+        if (filename_.empty()) {
+            SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
+            messages_.push_back({e.lineno, e.column, e.what()});
+        } else {
+            auto text = fmt::format("{}:{}:{}: {}", filename_, e.lineno, e.column, e.what());
+            SPDLOG_ERROR("parsing error: {}", text);
+            messages_.push_back({e.lineno, e.column, std::move(text)});
+        }
     }
     catch (const std::exception& e) {
         // Handle other exceptions

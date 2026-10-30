@@ -15,6 +15,8 @@
  * @brief Represents a 1-based source position (zero means unknown).
  */
 struct ScannerLocation {
+    ConstPool::IndexType current_file; // index of the current source filename in the constant pool
+    ConstPool::IndexType current_func; // index of the current function name in the constant pool
     int32_t lineno;
     int32_t column;
 };

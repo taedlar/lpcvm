@@ -15,13 +15,15 @@ static_assert(std::is_move_assignable_v<ASTNode>);
 static_assert(std::is_assignable_v<ASTNode&, ASTNode&>);
 
 TEST(ASTNodeTest, MutableAssignmentTransfersOwnership) {
-    ASTNode source{AST::Return{std::make_unique<ASTNode>(AST::NumericConst{42L})}, {3, 5}};
+    ASTNode source{AST::Return{std::make_unique<ASTNode>(AST::NumericConst{42L})}, {0, 0, 3, 5}};
     auto* child = std::get<AST::Return>(source.node).expr.get();
     ASTNode destination{AST::Block{}};
 
     EXPECT_EQ(&(destination = source), &destination);
     EXPECT_EQ(std::get<AST::Return>(destination.node).expr.get(), child);
     EXPECT_EQ(std::get<AST::Return>(source.node).expr, nullptr);
+    EXPECT_EQ(destination.src.current_file, 0);
+    EXPECT_EQ(destination.src.current_func, 0);
     EXPECT_EQ(destination.src.lineno, 3);
     EXPECT_EQ(destination.src.column, 5);
 }
@@ -150,6 +152,28 @@ TEST(LpcParserTest, ErrorsIncludeTokenColumn) {
     ASSERT_FALSE(compiler.parse("int x\n  "));
     EXPECT_EQ(compiler.messages().back().lineno, 2);
     EXPECT_EQ(compiler.messages().back().column, 3);
+}
+
+TEST(LpcParserTest, ErrorsIncludeFilename) {
+    LpcCompiler compiler;
+    compiler.set_filename("example.lpc");
+    for (const auto& source : {"\n  int string x;", "\n  @", "void f() { return missing; }"}) {
+        SCOPED_TRACE(source);
+        ASSERT_FALSE(compiler.parse(source));
+        ASSERT_FALSE(compiler.messages().empty());
+        const auto& message = compiler.messages().back();
+        const auto prefix = "example.lpc:" + std::to_string(message.lineno)
+            + ":" + std::to_string(message.column) + ": ";
+        EXPECT_EQ(message.text.find(prefix), 0);
+    }
+
+    compiler.set_filename("other.lpc");
+    ASSERT_FALSE(compiler.parse("\n  @"));
+    EXPECT_EQ(compiler.messages().back().text, "other.lpc:2:3: Unexpected character");
+
+    compiler.set_filename("");
+    ASSERT_FALSE(compiler.parse("\n  @"));
+    EXPECT_EQ(compiler.messages().back().text, "Unexpected character");
 }
 
 TEST(LpcParserTest, NonemptyDeclarationPrefixes) {

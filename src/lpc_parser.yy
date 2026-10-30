@@ -12,22 +12,6 @@
     #include "config.hpp"
 }
 
-%code {
-    static ScannerLocation source_location(const yy::location& location) {
-        return {location.begin.line, location.begin.column};
-    }
-
-    /**
-     * Helper macro to assign an AST node (move-assignment assumed) to a target variable.
-     * It uses the given arguments and source location to synthesize an AST node.
-     * @param target The variable to assign the AST node to.
-     * @param location The source location of the AST node.
-     * @param ... The arguments to construct the AST node.
-     */
-    #define ASSIGN_AST(target, location, ...) \
-        ((target) = ASTNode((__VA_ARGS__), source_location(location)))
-}
-
 %code requires {
     /*
     * SPDX-License-Identifier: MIT
@@ -89,6 +73,26 @@
 
     extern int yyget_lineno (yyscan_t yyscanner);
     extern int yyget_column (yyscan_t yyscanner);
+
+    inline ScannerLocation source_location(const yy::location& location, YY_EXTRA_TYPE lpcc) {
+        return {
+            lpcc ? lpcc->current_file : ConstPool::INVALID_INDEX,
+            lpcc ? lpcc->current_func : ConstPool::INVALID_INDEX,
+            location.begin.line,
+            location.begin.column
+        };
+    }
+
+    /**
+     * Helper macro to assign an AST node (move-assignment assumed) to a target variable.
+     * It uses the given arguments and source location to synthesize an AST node.
+     * File and function information is retrieved from the compiler context (YY_EXTRA_TYPE).
+     * @param target The variable to assign the AST node to.
+     * @param location The source location of the AST node as tracked by the Bison parser (yy::location object).
+     * @param ... The arguments to construct the AST node.
+     */
+    #define ASSIGN_AST(target, location, ...) \
+        ((target) = ASTNode((__VA_ARGS__), source_location(location, yyget_extra(yyscanner))))
 
     namespace yy {
         // Exception type for parse errors.
@@ -168,6 +172,8 @@
  *
  * $$: product of the rule's right-hand side symbols.
  * $n: value of the nth symbol on the right-hand side of the rule.
+ * @$: The source location of the left-hand side symbol of the rule
+ * @n: The source location of the nth symbol on the right-hand side of the rule
  *
  * NOTE: The grammar is not from original LPMud source code. It is designed for the
  * LPCVM project with some enhancements and simplifications for this implementation.
@@ -175,12 +181,11 @@
  * Use yyget_extra(yyscanner) to access compiler context data (e.g., symbol tables,
  * constant pool, and current program state) in the parser actions.
  *
- * Use std::shared_ptr for dynamically allocated AST nodes to manage memory
+ * Use std::shared_ptr for dynamically allocated symbol table entries to manage memory
  * automatically when exceptions are thrown at parse time.
  *
- * Keep the parser actions concise and focused on AST construction by delegating
- * details to the methods in the AST builder classes. The AstProgramNode represents
- * the root of the AST for the entire program if parsing is successful.
+ * Use ASSIGN_AST macro to create and assign AST nodes for target variables with
+ * proper source location tracking.
  */
 
 all:
@@ -215,6 +220,7 @@ def
             if (lpcc->current_scope->lookup($entry->name) && $entry->signature.b.is_const)
                 throw parse_error("Function already defined: " + $entry->name, yyscanner);
             lpcc->current_scope->emplace($entry->name, $entry); // add the function to the current scope
+            lpcc->current_func = lpcc->consts->find_or_add($entry->name); // set the current function being parsed
             lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::FUNCTION, 0); // enter a new subscope for the function body
             lpcc->next_local = 0; // reset overlay base for the function scope
         }
@@ -234,13 +240,14 @@ def
             auto lpcc = yyget_extra(yyscanner);
             auto func_scope = lpcc->current_scope;
             lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
+            lpcc->current_func = ConstPool::INVALID_INDEX; // reset the current function being parsed
             if ($body.node.index()) {
                 $entry->signature.b.is_const = 1; // mark the function name symbol as const (has body)
                 $entry->value = lpcc->next_func_idx++;
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
                     $entry,
                     std::make_unique<ASTNode>(std::move($params))
-                }, source_location(@entry));
+                }, source_location(@entry, lpcc));
                 ASSIGN_AST($$, @entry, AST::FunctionDef{
                     std::move(decl),
                     std::make_unique<ASTNode>(std::move($body))
@@ -360,7 +367,7 @@ new_var
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
             ASSIGN_AST($$, @2, AST::BinaryOp{
                 oparg::ASSIGN,
-                std::make_unique<ASTNode>(AST::Variable{ std::move(entry) }, source_location(@2)), // lhs
+                std::make_unique<ASTNode>(AST::Variable{ std::move(entry) }, source_location(@2, lpcc)), // lhs
                 std::make_unique<ASTNode>(std::move($4))
             });
             if (!$1.b.is_array)
