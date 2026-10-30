@@ -24,6 +24,9 @@ public:
 
     // context data used by the lexer and parser
     struct Context {
+        void* ppscanner{nullptr}; // pointer to the preprocessor scanner (reentrant lexer handle)
+        std::vector<char> ppbuffer;
+
         std::shared_ptr<ASTNode> root;
         std::shared_ptr<SymbolTable> current_scope;
         std::shared_ptr<ConstTable> consts;
@@ -76,3 +79,6 @@ private:
 
     bool init();
 };
+
+#undef YY_EXTRA_TYPE
+#define YY_EXTRA_TYPE LpcCompiler::Context*

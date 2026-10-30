@@ -67,8 +67,6 @@
     extern yy::LpcParser::symbol_type yylex (yyscan_t yyscanner);
 
     // forward declarations for lexer helper functions
-    #undef YY_EXTRA_TYPE
-    #define YY_EXTRA_TYPE LpcCompiler::Context*
     extern YY_EXTRA_TYPE yyget_extra(yyscan_t yyscanner);
 
     extern int yyget_lineno (yyscan_t yyscanner);

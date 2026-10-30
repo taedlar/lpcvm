@@ -1,13 +1,22 @@
 %{
-/*
- * SPDX-License-Identifier: MIT
- * SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
- */
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
+
+#include "config.hpp"
 #include <algorithm>
 #include <climits>
 #include <string>
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
+
+extern int preprocess (char* buf, int max_len, YY_EXTRA_TYPE lpcc);
+
+#undef YY_INPUT
+#define YY_INPUT(buf, result, max_size) \
+    { \
+        auto lpcc = yyget_extra(yyscanner); \
+        result = preprocess(buf, max_size, lpcc); \
+    }
 
 #define YY_USER_ACTION \
     yyextra->location.step(); \
