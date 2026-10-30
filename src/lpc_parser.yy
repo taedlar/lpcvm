@@ -4,6 +4,7 @@
 %define api.token.constructor
 %define api.value.type variant
 %define api.parser.class {LpcParser}
+%locations
 %lex-param { yyscan_t yyscanner }
 %parse-param { yyscan_t yyscanner }
 
@@ -73,13 +74,34 @@
     extern int yyget_lineno (yyscan_t yyscanner);
     extern int yyget_column (yyscan_t yyscanner);
 
+    inline ScannerLocation source_location(const yy::location& location, YY_EXTRA_TYPE lpcc) {
+        return {
+            lpcc ? lpcc->current_file : ConstPool::INVALID_INDEX,
+            lpcc ? lpcc->current_func : ConstPool::INVALID_INDEX,
+            location.begin.line,
+            location.begin.column
+        };
+    }
+
+    /**
+     * Helper macro to assign an AST node (move-assignment assumed) to a target variable.
+     * It uses the given arguments and source location to synthesize an AST node.
+     * File and function information is retrieved from the compiler context (YY_EXTRA_TYPE).
+     * @param target The variable to assign the AST node to.
+     * @param location The source location of the AST node as tracked by the Bison parser (yy::location object).
+     * @param ... The arguments to construct the AST node.
+     */
+    #define ASSIGN_AST(target, location, ...) \
+        ((target) = ASTNode((__VA_ARGS__), source_location(location, yyget_extra(yyscanner))))
+
     namespace yy {
         // Exception type for parse errors.
         struct parse_error: std::runtime_error {
             parse_error(const std::string& message, int lineno, int column, YY_EXTRA_TYPE lpcc = nullptr)
                 : std::runtime_error(message), lineno(lineno), column(column), lpcc(lpcc) {}
             parse_error(const std::string& message, yyscan_t yyscanner)
-                : parse_error(message, yyget_lineno(yyscanner), yyget_column(yyscanner), yyget_extra(yyscanner)) {}
+                : parse_error(message, yyget_extra(yyscanner)->location.begin.line,
+                    yyget_extra(yyscanner)->location.begin.column, yyget_extra(yyscanner)) {}
             int lineno;
             int column;
             YY_EXTRA_TYPE lpcc;
@@ -150,6 +172,8 @@
  *
  * $$: product of the rule's right-hand side symbols.
  * $n: value of the nth symbol on the right-hand side of the rule.
+ * @$: The source location of the left-hand side symbol of the rule
+ * @n: The source location of the nth symbol on the right-hand side of the rule
  *
  * NOTE: The grammar is not from original LPMud source code. It is designed for the
  * LPCVM project with some enhancements and simplifications for this implementation.
@@ -157,12 +181,11 @@
  * Use yyget_extra(yyscanner) to access compiler context data (e.g., symbol tables,
  * constant pool, and current program state) in the parser actions.
  *
- * Use std::shared_ptr for dynamically allocated AST nodes to manage memory
+ * Use std::shared_ptr for dynamically allocated symbol table entries to manage memory
  * automatically when exceptions are thrown at parse time.
  *
- * Keep the parser actions concise and focused on AST construction by delegating
- * details to the methods in the AST builder classes. The AstProgramNode represents
- * the root of the AST for the entire program if parsing is successful.
+ * Use ASSIGN_AST macro to create and assign AST nodes for target variables with
+ * proper source location tracking.
  */
 
 all:
@@ -170,7 +193,7 @@ all:
     ;
 
 program
-    : %empty { $$ = AST::Program{}; }
+    : %empty { ASSIGN_AST($$, @$, AST::Program{}); }
     | program inheritance
         {
             $$ = $1;
@@ -197,6 +220,7 @@ def
             if (lpcc->current_scope->lookup($entry->name) && $entry->signature.b.is_const)
                 throw parse_error("Function already defined: " + $entry->name, yyscanner);
             lpcc->current_scope->emplace($entry->name, $entry); // add the function to the current scope
+            lpcc->current_func = lpcc->consts->find_or_add($entry->name); // set the current function being parsed
             lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::FUNCTION, 0); // enter a new subscope for the function body
             lpcc->next_local = 0; // reset overlay base for the function scope
         }
@@ -216,26 +240,27 @@ def
             auto lpcc = yyget_extra(yyscanner);
             auto func_scope = lpcc->current_scope;
             lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
+            lpcc->current_func = ConstPool::INVALID_INDEX; // reset the current function being parsed
             if ($body.node.index()) {
                 $entry->signature.b.is_const = 1; // mark the function name symbol as const (has body)
                 $entry->value = lpcc->next_func_idx++;
                 auto decl = std::make_unique<ASTNode>(AST::FunctionDecl{
                     $entry,
                     std::make_unique<ASTNode>(std::move($params))
-                });
-                $$ = AST::FunctionDef{
+                }, source_location(@entry, lpcc));
+                ASSIGN_AST($$, @entry, AST::FunctionDef{
                     std::move(decl),
                     std::make_unique<ASTNode>(std::move($body))
-                 };
+                });
                 SPDLOG_DEBUG("Added definition of function: {}", $entry->name);
             }
             else {
                 // no function body => a forward declaration (allows calling a function before its definition)
                 auto lpcc = yyget_extra(yyscanner);
-                $$ = AST::FunctionDecl{
+                ASSIGN_AST($$, @entry, AST::FunctionDecl{
                     $entry,
                     std::make_unique<ASTNode>(std::move($params))
-                };
+                });
                 SPDLOG_DEBUG("Forward declaration of function: {}", $entry->name);
             }
         }
@@ -271,7 +296,8 @@ function_head
             sig.b.data_type = LpcDataType::T_INT; // implicit function return type
             sig.b.is_function = 1; // mark as function
             $$ = std::make_shared<SymbolTable::Entry>($2, sig);
-
+            if (!$1.b.is_array)
+                @$.begin = @2.begin;
         }
     | storage_or_type opt_star L_IDENTIFIER
         {
@@ -299,11 +325,11 @@ var_list
                 $$ = $3;
             }
             else {
-                $$ = AST::BinaryOp{
+                ASSIGN_AST($$, @1, AST::BinaryOp{
                     oparg::COMMA,
                     std::make_unique<ASTNode>(std::move($1)),
                     std::make_unique<ASTNode>(std::move($3))
-                };
+                });
             }
         }
     ;
@@ -322,7 +348,9 @@ new_var
             else
                 entry->value = uint32_t{lpcc->next_global++};
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            $$ = ASTNode{}; // no-op
+            ASSIGN_AST($$, @2, std::monostate{}); // no-op
+            if (!$1.b.is_array)
+                @$.begin = @2.begin;
         }
     | opt_star L_IDENTIFIER L_ASSIGN expr0
         {
@@ -337,11 +365,13 @@ new_var
             else
                 entry->value = uint32_t{lpcc->next_global++};
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            $$ = AST::BinaryOp{
+            ASSIGN_AST($$, @2, AST::BinaryOp{
                 oparg::ASSIGN,
-                std::make_unique<ASTNode>(AST::Variable{ std::move(entry) }), // lhs
+                std::make_unique<ASTNode>(AST::Variable{ std::move(entry) }, source_location(@2, lpcc)), // lhs
                 std::make_unique<ASTNode>(std::move($4))
-            };
+            });
+            if (!$1.b.is_array)
+                @$.begin = @2.begin;
         }
     ;
 
@@ -361,7 +391,7 @@ inheritance
                 auto entry = std::make_shared<SymbolTable::Entry>(alias, SymbolSignature{0}); // alias symbol
                 entry->value = $2;
                 lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
-                $$ = AST::Inheritance{ entry };
+                ASSIGN_AST($$, @$, AST::Inheritance{ entry });
             }
             else if (!$3.empty()) {
                 throw parse_error("Alias already defined: " + alias, yyscanner);
@@ -375,7 +405,7 @@ inheritance
                 auto entry = std::make_shared<SymbolTable::Entry>(alias, $1); // alias symbol
                 entry->value = $3;
                 lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
-                $$ = AST::Inheritance{ entry };
+                ASSIGN_AST($$, @$, AST::Inheritance{ entry });
             }
             else if (!$4.empty()) {
                 throw parse_error("Alias already defined: " + alias, yyscanner);
@@ -392,14 +422,14 @@ str_literal
 
 formal_parameters
     : %empty
-        { $$ = AST::ParameterList{}; }
+        { ASSIGN_AST($$, @$, AST::ParameterList{}); }
     | parameter_list
     ;
 
 parameter_list
     : parameter_decl
         {
-            $$ = AST::ParameterList{};
+            ASSIGN_AST($$, @$, AST::ParameterList{});
             std::get<AST::ParameterList>($$.node).parameters.push_back(std::move($1));
         }
     | parameter_list ',' parameter_decl
@@ -464,7 +494,7 @@ parameter_decl
 
 block_or_semicolon
     : ';'
-        { $$ = ASTNode{}; }
+        { ASSIGN_AST($$, @$, std::monostate{}); }
     | block
     ;
 
@@ -493,20 +523,23 @@ block
             else if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::LOCAL) {
                 lpcc->next_local = 0;
             }
-            $$ = AST::Block{
+            ASSIGN_AST($$, @$, AST::Block{
                 .num_locals = num_locals,
                 .stmts = std::make_unique<ASTNode>(std::move($3))
-            };
+            });
         }
     ;
 
 stmt_list
     : %empty
-        { $$ = AST::List{}; /* No-op */ }
+        { ASSIGN_AST($$, @$, AST::List{}); /* No-op */ }
     | stmt_list stmt
         {
-            if ($2.node.index() != 0)
+            if ($2.node.index() != 0) {
+                if (std::get<AST::List>($1.node).elts.empty())
+                    $1.src = $2.src;
                 std::get<AST::List>($1.node).elts.push_back(std::move($2));
+            }
             $$ = $1;
         }
     ;
@@ -521,62 +554,62 @@ stmt
     | while_stmt
     | block
     | L_BREAK ';'
-        { $$ = AST::Break{}; }
+        { ASSIGN_AST($$, @$, AST::Break{}); }
     | L_CONTINUE ';'
-        { $$ = AST::Continue{}; }
+        { ASSIGN_AST($$, @$, AST::Continue{}); }
     ;
 
 comma_expr
     : expr0
     | comma_expr ',' expr0
-        { $$ = AST::BinaryOp{oparg::COMMA, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::COMMA, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     ;
 
 expr0
     : lvalue L_ASSIGN expr0
-        { $$ = AST::Assign{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::Assign{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '?' expr0 ':' expr0 %prec '?'
-        { $$ = AST::TernaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3)), std::make_unique<ASTNode>(std::move($5))}; }
+        { ASSIGN_AST($$, @$, AST::TernaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3)), std::make_unique<ASTNode>(std::move($5))}); }
     | expr0 L_LOR expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_LAND expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '|' expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '^' expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '&' expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_LSH expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_RSH expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '+' expr0
-        { $$ = AST::BinaryOp{oparg::ADD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::ADD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '-' expr0
-        { $$ = AST::BinaryOp{oparg::SUB, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::SUB, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '*' expr0
-        { $$ = AST::BinaryOp{oparg::MUL, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::MUL, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '/' expr0
-        { $$ = AST::BinaryOp{oparg::DIV, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::DIV, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '%' expr0
-        { $$ = AST::BinaryOp{oparg::MOD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::MOD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_ORDER expr0
-        { $$ = AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}; }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | L_INC lvalue %prec L_NOT
-        { $$ = AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}; }
+        { ASSIGN_AST($$, @$, AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}); }
     | L_DEC lvalue %prec L_NOT
-        { $$ = AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}; }
+        { ASSIGN_AST($$, @$, AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}); }
     | lvalue L_INC
-        { $$ = AST::Assign{std::make_unique<ASTNode>(std::move($1)), nullptr}; }
+        { ASSIGN_AST($$, @$, AST::Assign{std::make_unique<ASTNode>(std::move($1)), nullptr}); }
     | lvalue L_DEC
-        { $$ = AST::Assign{std::make_unique<ASTNode>(std::move($1)), nullptr}; }
+        { ASSIGN_AST($$, @$, AST::Assign{std::make_unique<ASTNode>(std::move($1)), nullptr}); }
     | L_NOT expr0
-        { $$ = AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}; }
+        { ASSIGN_AST($$, @$, AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}); }
     | '~' expr0
-        { $$ = AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}; }
+        { ASSIGN_AST($$, @$, AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}); }
     | '-' expr0 %prec L_NOT
-        { $$ = AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}; }
+        { ASSIGN_AST($$, @$, AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}); }
     | expr4
     | L_INTEGER
         {
@@ -585,28 +618,28 @@ expr0
                 // determine if $1 fits in an unsigned 32-bit integer
                 if ($1 > std::numeric_limits<uint32_t>::min() && $1 < std::numeric_limits<uint32_t>::max()) {
                     uint32_t u32 = static_cast<uint32_t>($1);
-                    $$ = AST::NumericConst{ u32, consts->find_or_add(u32) };
+                    ASSIGN_AST($$, @$, AST::NumericConst{ u32, consts->find_or_add(u32) });
                 }
                 else
-                    $$ = AST::NumericConst{ $1, consts->find_or_add($1) };
+                    ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
             }
             else {
                 // determine if $1 fits in a signed 32-bit integer
                 if ($1 > std::numeric_limits<int32_t>::min() && $1 < std::numeric_limits<int32_t>::max()) {
                     int32_t i32 = static_cast<int32_t>($1);
-                    $$ = AST::NumericConst{ i32, consts->find_or_add(i32) };
+                    ASSIGN_AST($$, @$, AST::NumericConst{ i32, consts->find_or_add(i32) });
                 }
                 else
-                    $$ = AST::NumericConst{ $1, consts->find_or_add($1) };
+                        ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
             }
         }
     | L_REAL_NUMBER
         {
             auto consts = yyget_extra(yyscanner)->consts;
-            $$ = AST::NumericConst{ $1, consts->find_or_add($1) };
+            ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
         }    
     | str_literal
-        { $$ = AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts}; }
+        { ASSIGN_AST($$, @$, AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts}); }
     ;
 
 lvalue
@@ -623,7 +656,7 @@ expr4
                 // Handle the error, e.g., throw an exception or report an undefined variable
                 throw parse_error("Undefined variable: " + std::string($1), yyscanner);
             }
-            $$ = AST::Variable{ entry };
+            ASSIGN_AST($$, @$, AST::Variable{ entry });
         }
     | function_call
     | expr4 '[' comma_expr ']'
@@ -631,7 +664,7 @@ expr4
 
 local_decl_list
     : ';'
-        { $$ = ASTNode{}; /* i.e. No-op */ }
+        { ASSIGN_AST($$, @$, std::monostate{}); /* i.e. No-op */ }
     | storage_or_type var_list ';'
         { $$ = $2; }
     ;
@@ -639,17 +672,17 @@ local_decl_list
 if_stmt
     : L_IF '(' comma_expr[cond] ')' stmt[body] opt_else_stmt[else_body]
         {
-            $$ = AST::Cond{
+            ASSIGN_AST($$, @$, AST::Cond{
                 std::make_unique<ASTNode>(std::move($cond)),
                 std::make_unique<ASTNode>(std::move($body)),
                 std::make_unique<ASTNode>(std::move($else_body))
-            };
+            });
         }
     ;
 
 opt_else_stmt
     : %empty %prec LOWER_THAN_ELSE
-        { $$ = ASTNode{}; }
+        { ASSIGN_AST($$, @$, std::monostate{}); }
     | L_ELSE stmt
         { $$ = $2;}
     ;
@@ -658,16 +691,18 @@ for_stmt
     : L_FOR '(' local_decl_list[init] comma_expr[cond] ';' comma_expr[step] ')' stmt[body]
         {
             auto lpcc = yyget_extra(yyscanner);
-            ASTNode for_loop = AST::PreTestedLoop{
+            ASTNode for_loop;
+            ASSIGN_AST(for_loop, @$, AST::PreTestedLoop{
                 std::make_unique<ASTNode>(std::move($cond)),
                 std::make_unique<ASTNode>(std::move($step)),
                 std::make_unique<ASTNode>(std::move($body))
-            };
+            });
             if ($init.node.index() != 0) {
                 std::vector<ASTNode> stmts;
+                auto list_source = $init.src;
                 stmts.push_back(std::move($init));
                 stmts.push_back(std::move(for_loop));
-                $$ = AST::Block{ lpcc->next_local, std::make_unique<ASTNode>(AST::List{ std::move(stmts) }) };
+                ASSIGN_AST($$, @$, AST::Block{ lpcc->next_local, std::make_unique<ASTNode>(AST::List{ std::move(stmts) }, list_source) });
             }
             else {
                 $$ = for_loop;
@@ -678,29 +713,29 @@ for_stmt
 while_stmt
     : L_WHILE '(' comma_expr[cond] ')' stmt[body]
         {
-            $$ = AST::PreTestedLoop{
+            ASSIGN_AST($$, @$, AST::PreTestedLoop{
                 std::make_unique<ASTNode>(std::move($cond)),
                 nullptr,
                 std::make_unique<ASTNode>(std::move($body))
-            };
+            });
         }
     ;
 
 do_stmt
     : L_DO stmt[body] L_WHILE '(' comma_expr[cond] ')' ';'
         {
-            $$ = AST::PostTestedLoop{
+            ASSIGN_AST($$, @$, AST::PostTestedLoop{
                 std::make_unique<ASTNode>(std::move($body)),
                 std::make_unique<ASTNode>(std::move($cond))
-            };
+            });
         }
     ;
 
 return_stmt
     : L_RETURN ';'
-        { $$ = AST::Return{nullptr}; }
+        { ASSIGN_AST($$, @$, AST::Return{nullptr}); }
     | L_RETURN comma_expr ';'
-        { $$ = AST::Return{std::make_unique<ASTNode>(std::move($2))}; }
+        { ASSIGN_AST($$, @$, AST::Return{std::make_unique<ASTNode>(std::move($2))}); }
     ;
 
 function_call
@@ -716,16 +751,16 @@ function_call
                 lpcc->current_scope->emplace($1, entry);
             }
             entry->signature.b.referenced = 1; // mark the function as referenced
-            $$ = AST::FunctionCall{ std::move(entry), std::make_unique<ASTNode>(std::move($3)) };
+            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move(entry), std::make_unique<ASTNode>(std::move($3)) });
         }
     ;
 
 arg_list
     : %empty
-        { $$ = AST::List{}; }
+        { ASSIGN_AST($$, @$, AST::List{}); }
     | expr0
         {
-            $$ = AST::List{};
+            ASSIGN_AST($$, @$, AST::List{});
             std::get<AST::List>($$.node).elts.push_back(std::move($1));
         }
     | arg_list ',' expr0
@@ -738,6 +773,6 @@ arg_list
 %%
 
 // User subroutines section
-void yy::LpcParser::error(const std::string &msg) {
-    throw parse_error(msg, yyget_lineno(yyscanner), yyget_column(yyscanner), yyget_extra(yyscanner));
+void yy::LpcParser::error(const location_type& location, const std::string &msg) {
+    throw parse_error(msg, location.begin.line, location.begin.column, yyget_extra(yyscanner));
 }

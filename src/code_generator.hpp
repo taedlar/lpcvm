@@ -7,13 +7,20 @@
 #include <cstdint>
 #include "ast_node.hpp"
 #include "vm_opcodes.hpp"
+#include "virtual_table.hpp"
 
 namespace lpcvm {
 
-    class CodeGenerator {
+    class code_generator {
     private:
         std::vector<uint8_t>& bytecode_;
+        ObjectClass* prog_;
         void grow_bytecode(std::size_t length);
+        void set_source_location(const ASTNode& expr) {
+            if (prog_ && expr.src.lineno > 0)
+                prog_->set_source_location(position(), expr.src.current_file, expr.src.current_func,
+                    expr.src.lineno, expr.src.column);
+        }
 
         enum Context {
             STATEMENT,
@@ -21,8 +28,10 @@ namespace lpcvm {
         } context_;
 
     public:
-        CodeGenerator(std::vector<uint8_t>& bytecode)
-            : bytecode_(bytecode), context_(STATEMENT) {}
+        code_generator(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr)
+            : bytecode_(bytecode), prog_(prog), context_(STATEMENT) {}
+
+        std::size_t position() const { return bytecode_.size(); }
 
         /**
          * @brief Emits a bytecode instruction with its argument.
@@ -48,7 +57,7 @@ namespace lpcvm {
          * @param op The opcode to emit.
          * @param index The argument for the opcode, defaulting to 0.
          */
-        CodeGenerator& emit(uint8_t op, uint32_t index = 0) {
+        code_generator& emit(uint8_t op, uint32_t index = 0) {
             const std::size_t length = index > 0x00ffffff ? 8 :
                 index > 0x0000ffff ? 6 : index > 0x000000ff ? 4 : 2;
             if (length > bytecode_.capacity() - bytecode_.size())
@@ -76,18 +85,21 @@ namespace lpcvm {
          * This function dispatches the statement to the appropriate bytecode
          * emission logic based on its type.
          */
-        CodeGenerator& emit_statement(const ASTNode& stmt);
+        code_generator& emit_statement(const ASTNode& stmt);
 
-        CodeGenerator& emit_expression(const ASTNode& expr);
+        code_generator& emit_expression(const ASTNode& expr);
 
-        CodeGenerator& emit_block(const AST::Block& block, std::size_t num_formal_params = 0);
+        code_generator& emit_block(const AST::Block& block, std::size_t num_formal_params = 0);
     };
 
-    class FunctionBuilder: public CodeGenerator {
-    public:
-        FunctionBuilder(std::vector<uint8_t>& bytecode)
-            : CodeGenerator(bytecode) {}
-        FunctionBuilder& emit_body(const AST::Block& body, std::size_t num_formal_params = 0);
-    };
+    // ===================================================================
+    // code generation helpers
 
+    struct function_builder {
+        lpcvm::code_generator& codegen_;
+        ConstPool::IndexType name_idx_;
+        VirtualTable& vtable_;
+
+        void build(const AST::FunctionDef& func_def);
+    };
 } // namespace lpcvm

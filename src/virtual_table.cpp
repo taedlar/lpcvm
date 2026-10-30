@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
+#include "config.hpp"
 #include "virtual_table.hpp"
 #include <algorithm>
 
@@ -15,6 +16,15 @@ bool VirtualTable::lookup (const std::string_view name, Binding& out_binding) co
         return true;
     }
     return false;
+}
+
+bool VirtualTable::bind (std::size_t index, const Binding& binding) {
+    if (index >= static_bindings_.size()) {
+        SPDLOG_ERROR("VirtualTable: static binding index out of range: {}", index);
+        return false;
+    }
+    static_bindings_[index] = binding;
+    return true;
 }
 
 void VirtualTable::emplace (ConstPool::IndexType name_index, const Binding& binding) {

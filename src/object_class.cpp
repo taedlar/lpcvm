@@ -4,6 +4,34 @@
 #include "lpc_parser.hpp"
 #include "vm_executor.hpp"
 #include "object_class.hpp"
+#include <iterator>
+
+void ObjectClass::set_source_location(std::size_t bytecode_offset, ConstPool::IndexType file_name, ConstPool::IndexType func_name, int lineno, int column) {
+    if (!const_pool_)
+        throw std::runtime_error("Source location requires a constant pool");
+    SourceLocation loc{
+        file_name == ConstPool::INVALID_INDEX ? "<unknown-file>" : const_pool_->fetch_string(file_name),
+        func_name == ConstPool::INVALID_INDEX ? "" : const_pool_->fetch_string(func_name),
+        lineno,
+        column
+    };
+    source_locations_.insert_or_assign(bytecode_offset, loc);
+}
+
+std::optional<ObjectClass::SourceLocation> ObjectClass::lookup_source_location(const uint8_t* pc) const {
+    if (!pc || bytecode_.empty() || source_locations_.empty())
+        return std::nullopt;
+
+    const auto address = reinterpret_cast<std::uintptr_t>(pc);
+    const auto start = reinterpret_cast<std::uintptr_t>(bytecode_.data());
+    if (address < start || address - start >= bytecode_.size())
+        return std::nullopt;
+
+    const auto next = source_locations_.upper_bound(address - start);
+    if (next == source_locations_.begin())
+        return std::nullopt;
+    return std::prev(next)->second;
+}
 
 ObjectClass::ObjectClass(std::size_t num_vars, ConstTable* consts, SymbolTable* globals)
     : num_variables_(num_vars) {

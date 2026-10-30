@@ -55,6 +55,7 @@ int main(int argc, char* argv[]) {
     }
 
     LpcCompiler compiler;
+    compiler.set_filename(source_file);
     compiler.parse(source.str());
     if (compiler.get_ast()) {
         ast_dump(compiler.get_ast(), true);

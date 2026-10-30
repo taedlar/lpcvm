@@ -7,7 +7,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "const_pool.hpp"
+#include "location.hh"
 #include "lpc_types.hpp"
+#include "vm_sandbox.hpp"
 
 struct ASTNode;
 class ConstTable;
@@ -23,15 +26,20 @@ public:
     struct Context {
         std::shared_ptr<ASTNode> root;
         std::shared_ptr<SymbolTable> current_scope;
-        ConstTable* consts;
+        std::shared_ptr<ConstTable> consts;
 
-        std::string current_string;
-        std::string raw_string_delimiter;
+        ConstPool::IndexType current_file; // index of the current source filename in the constant pool
+        ConstPool::IndexType current_func; // index of the current function name in the constant pool
         uint32_t next_func_idx; // index for the next function
         uint32_t next_global;
         uint32_t next_local;
+
+        std::string current_string;
+        std::string raw_string_delimiter;
+        yy::location location;
+        yy::position string_begin;
     
-        Context(): consts(nullptr), next_global(0), next_local(0), next_func_idx(0) {}
+        Context(): current_file(ConstPool::INVALID_INDEX), current_func(ConstPool::INVALID_INDEX), next_func_idx(0), next_global(0), next_local(0) {}
         ~Context() = default;
     };
 
@@ -41,6 +49,8 @@ public:
         int column;
         std::string text;
     };
+
+    void set_filename(const std::string_view fn) { filename_ = fn; }
 
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
@@ -53,12 +63,16 @@ public:
     const ASTNode* get_ast() const { return ast_.get(); }
 
 private:
-    class Impl;
-    std::unique_ptr<Impl> pimpl_;
+    struct internal_s;
+    internal_s* impl_;
+
     FILE* source_file_;
+    std::string filename_;  // for yylloc
     std::vector<Message> messages_;
 
     std::shared_ptr<ConstTable> consts_;
     std::shared_ptr<SymbolTable> globals_;
     std::shared_ptr<ASTNode> ast_;
+
+    bool init();
 };

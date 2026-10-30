@@ -5,8 +5,146 @@
 #include <cstdint>
 #include "code_generator.hpp"
 #include "const_pool.hpp"
+#include "lpc_compiler.hpp"
+#include "source_exception.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
+
+class SourceExceptionTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        ASSERT_TRUE(compiler.parse(R"(
+            int f() { "f"; return 1; }
+            string filenames() {
+                "filenames";
+                "example.lpc";
+                "included.lpc";
+                "changed.lpc";
+                return "later.lpc";
+            }
+        )"));
+        object = compiler.generate_code();
+        ASSERT_NE(object, nullptr);
+        set_location(0, "example.lpc", "f", 42);
+        set_location(2, "included.lpc", "filenames", 7);
+    }
+
+    void set_location(std::size_t offset, std::string_view filename, std::string_view function, std::size_t line) {
+        const auto index = compiler.get_consts()->find(filename);
+        const auto function_index = compiler.get_consts()->find(function);
+        ASSERT_NE(index, ConstPool::INVALID_INDEX);
+        ASSERT_NE(function_index, ConstPool::INVALID_INDEX);
+        object->set_source_location(offset, index, function_index, line, 1);
+    }
+
+    LpcCompiler compiler;
+    std::shared_ptr<ObjectClass> object;
+};
+
+TEST_F(SourceExceptionTest, SourceLocationsReferenceInternedFileNames) {
+    static_assert(std::is_same_v<decltype(ObjectClass::SourceLocation::file_name), std::string_view>);
+    set_location(2, "example.lpc", "f", 43);
+    const auto first = object->lookup_source_location(object->bytecode());
+    const auto second = object->lookup_source_location(object->bytecode() + 2);
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(second.has_value());
+    const auto index = compiler.get_consts()->find(std::string_view("example.lpc"));
+    const auto interned = object->const_pool()->fetch_string(index);
+
+    EXPECT_EQ(first->file_name, "example.lpc");
+    EXPECT_EQ(first->file_name.data(), interned.data());
+    EXPECT_EQ(second->file_name.data(), interned.data());
+    EXPECT_EQ(second->func_name, "f");
+    EXPECT_EQ(second->lineno, 43);
+}
+
+TEST_F(SourceExceptionTest, SourceLocationsRequireValidPoolEntries) {
+    ObjectClass empty;
+    EXPECT_THROW(empty.set_source_location(0, 0, ConstPool::INVALID_INDEX, 1, 1), std::runtime_error);
+    EXPECT_THROW(object->set_source_location(0, object->const_pool()->slot_count(), ConstPool::INVALID_INDEX, 1, 1), std::out_of_range);
+    const auto location = object->lookup_source_location(object->bytecode());
+    ASSERT_TRUE(location.has_value());
+    EXPECT_EQ(location->file_name, "example.lpc");
+}
+
+TEST_F(SourceExceptionTest, IncludesSourceLocation) {
+    lpcvm::SourceException error(std::runtime_error("Stack underflow"), object.get(), object->bytecode());
+
+    EXPECT_EQ(error.source_file(), "example.lpc");
+    EXPECT_EQ(error.lineno(), 42);
+    EXPECT_EQ(error.func_name(), "f");
+    EXPECT_STREQ(error.what(), "example.lpc:42:1: In function `f()': Stack underflow");
+}
+
+TEST_F(SourceExceptionTest, PreservesExceptionType) {
+    try {
+        throw lpcvm::SourceException(std::out_of_range("Invalid index"), object.get(), object->bytecode() + 2);
+    }
+    catch (const std::out_of_range& error) {
+        EXPECT_STREQ(error.what(), "included.lpc:7:1: In function `filenames()': Invalid index");
+        return;
+    }
+    FAIL() << "Expected the wrapped exception to be caught as std::out_of_range";
+}
+
+TEST_F(SourceExceptionTest, OwnsSourceFileAndMessage) {
+    lpcvm::SourceException error(std::runtime_error("Original message"), object.get(), object->bytecode());
+    set_location(0, "changed.lpc", "f", 99);
+    object.reset();
+
+    EXPECT_EQ(error.source_file(), "example.lpc");
+    EXPECT_STREQ(error.what(), "example.lpc:42:1: In function `f()': Original message");
+}
+
+TEST_F(SourceExceptionTest, CopyOutlivesOriginal) {
+    const auto copy = [this] {
+        lpcvm::SourceException original(std::runtime_error("Failure"), object.get(), object->bytecode());
+        auto copied = original;
+        return copied;
+    }();
+
+    EXPECT_EQ(copy.source_file(), "example.lpc");
+    EXPECT_EQ(copy.lineno(), 42);
+    EXPECT_STREQ(copy.what(), "example.lpc:42:1: In function `f()': Failure");
+}
+
+TEST_F(SourceExceptionTest, LooksUpPrecedingEntry) {
+    lpcvm::SourceException first(std::runtime_error("Failure"), object.get(), object->bytecode() + 1);
+    lpcvm::SourceException second(std::runtime_error("Failure"), object.get(), object->bytecode() + 3);
+
+    EXPECT_STREQ(first.what(), "example.lpc:42:1: In function `f()': Failure");
+    EXPECT_STREQ(second.what(), "included.lpc:7:1: In function `filenames()': Failure");
+}
+
+TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("string f() { return \"later.lpc\"; }"));
+    auto unmapped = compiler.generate_code();
+    ASSERT_NE(unmapped, nullptr);
+    const auto& function = unmapped->get_method(0);
+    const auto* end = unmapped->bytecode() + function.bytecode_offset + function.bytecode_length;
+    lpcvm::SourceException error(std::runtime_error("Failure"), unmapped.get(), end);
+
+    EXPECT_EQ(error.source_file(), "<unknown-file>");
+    EXPECT_TRUE(error.func_name().empty());
+    EXPECT_EQ(error.lineno(), 0);
+    EXPECT_STREQ(error.what(), "Failure");
+}
+
+TEST_F(SourceExceptionTest, InvalidContextPreservesMessage) {
+    const uint8_t unrelated[] = {F_RETURN, 0};
+    lpcvm::SourceException no_object(std::runtime_error("Failure"), nullptr, object->bytecode());
+    lpcvm::SourceException no_pc(std::runtime_error("Failure"), object.get(), nullptr);
+    lpcvm::SourceException outside(std::runtime_error("Failure"), object.get(), unrelated);
+    const auto& last_function = object->get_method(1);
+    lpcvm::SourceException end(std::runtime_error("Failure"), object.get(),
+        object->bytecode() + last_function.bytecode_offset + last_function.bytecode_length);
+
+    EXPECT_STREQ(no_object.what(), "Failure");
+    EXPECT_STREQ(no_pc.what(), "Failure");
+    EXPECT_STREQ(outside.what(), "Failure");
+    EXPECT_STREQ(end.what(), "Failure");
+}
 
 TEST(VMExecutorTest, EmptyFunction) {
     ConstTable consts;
@@ -27,7 +165,7 @@ TEST(VMExecutorTest, BasicExecution) {
     ObjectClass prog(0, &consts); 
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_CONST_I4, c2)
         .emit(F_BIN_OP, oparg::ADD)
@@ -45,11 +183,31 @@ TEST(VMExecutorTest, BasicExecution) {
     EXPECT_EQ(std::get<int32_t>(res), 123 + 456);
 }
 
+TEST(VMExecutorTest, DivisionByZeroIncludesExpressionSourceLocation) {
+    LpcCompiler compiler;
+    compiler.set_filename("division.lpc");
+    ASSERT_TRUE(compiler.parse("int divide() {\n    return 12 / 0;\n}"));
+    auto object = compiler.generate_code();
+    ASSERT_NE(object, nullptr);
+    BytecodeView code;
+    ASSERT_TRUE(object->lookup_method("divide", &code));
+
+    ReturnStack control;
+    DataStack stack;
+    try {
+        code.execute(control, stack);
+        FAIL() << "Expected division by zero to throw";
+    }
+    catch (const std::runtime_error& error) {
+        EXPECT_STREQ(error.what(), "division.lpc:2:12: In function `divide()': Division by zero");
+    }
+}
+
 TEST(VMExecutorTest, ReturnUnderflow) {
     ConstTable consts;
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
@@ -64,7 +222,7 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
@@ -85,7 +243,7 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
@@ -104,7 +262,7 @@ TEST(VMExecutorTest, StoreGlobal) {
     ObjectState this_obj(1);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_STORE_GLOBAL, 0)
         .emit(F_POP_N, 1)
@@ -127,7 +285,7 @@ TEST(VMExecutorTest, LoadGlobal) {
     this_obj[0] = SValue(int32_t{123});
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_LOAD_GLOBAL, 0)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog, &this_obj);
@@ -149,7 +307,7 @@ TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
 
     for (auto opcode : {F_LOAD_GLOBAL, F_STORE_GLOBAL}) {
         std::vector<uint8_t> bytecode;
-        lpcvm::CodeGenerator bgen(bytecode);
+        lpcvm::code_generator bgen(bytecode);
         if (opcode == F_STORE_GLOBAL)
             bgen.emit(F_CONST_I4, value);
         bgen.emit(opcode, 0);
@@ -166,7 +324,7 @@ TEST(VMExecutorTest, LoadAndStoreLocal) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_PUSH_N, 1)
         .emit(F_CONST_I4, local_value)
         .emit(F_STORE_LOCAL, 1)
@@ -201,7 +359,7 @@ TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::CodeGenerator bgen(bytecode);
+    lpcvm::code_generator bgen(bytecode);
     bgen.emit(F_LOAD_LOCAL, 0)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
