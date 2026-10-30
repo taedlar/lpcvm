@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "location.hh"
 #include "lpc_types.hpp"
 #include "vm_sandbox.hpp"
 
@@ -28,6 +29,8 @@ public:
 
         std::string current_string;
         std::string raw_string_delimiter;
+        yy::location location;
+        yy::position string_begin;
         uint32_t next_func_idx; // index for the next function
         uint32_t next_global;
         uint32_t next_local;

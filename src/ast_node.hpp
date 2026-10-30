@@ -12,7 +12,7 @@
 #include "object_class.hpp"
 
 /**
- * @brief Represents the location of a token in the source code.
+ * @brief Represents a 1-based source position (zero means unknown).
  */
 struct ScannerLocation {
     int32_t lineno;
@@ -152,8 +152,8 @@ struct ASTNode {
     ASTNode& operator=(ASTNode&&) = default;
 
     template<typename T>
-    ASTNode(T&& value) : node(std::forward<T>(value)) {}
+    ASTNode(T&& value, ScannerLocation source = {}) : node(std::forward<T>(value)), src(source) {}
 
     Storage node;
-    ScannerLocation src;
+    ScannerLocation src{};
 };

@@ -9,24 +9,33 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 
+#define YY_USER_ACTION \
+    yyextra->location.step(); \
+    for (int offset = 0; offset < yyleng; ++offset) { \
+        if (yytext[offset] == '\n') yyextra->location.lines(1); \
+        else yyextra->location.columns(1); \
+    } \
+    yycolumn = yyextra->location.end.column - 1;
+
 static unsigned int parse_escape (const char* digits, int length,
-                                  unsigned int base, unsigned int limit) {
+                                  unsigned int base, unsigned int limit,
+                                  const yy::location& location) {
     unsigned int value = 0;
     for (int i = 0; i < length; ++i) {
         const char c = digits[i];
         const unsigned int digit = c <= '9' ? c - '0'
             : c <= 'F' ? c - 'A' + 10 : c - 'a' + 10;
         if (value > (limit - digit) / base) {
-            throw yy::LpcParser::syntax_error("Escape sequence out of range");
+            throw yy::LpcParser::syntax_error(location, "Escape sequence out of range");
         }
         value = value * base + digit;
     }
     return value;
 }
 
-static void append_utf8 (std::string& out, unsigned int value) {
+static void append_utf8 (std::string& out, unsigned int value, const yy::location& location) {
     if (value >= 0xd800 && value <= 0xdfff) {
-        throw yy::LpcParser::syntax_error("Invalid Unicode escape sequence");
+        throw yy::LpcParser::syntax_error(location, "Invalid Unicode escape sequence");
     }
     if (value <= 0x7f) {
         out += static_cast<char>(value);
@@ -68,71 +77,75 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 <MULTILINE_COMMENT>\n       { /* Line tracking is handled by YY_USER_ACTION. */ }
 <MULTILINE_COMMENT><<EOF>> {
     BEGIN(INITIAL);
-    throw yy::LpcParser::syntax_error("Unterminated multiline comment");
+    yyextra->location.step();
+    throw yy::LpcParser::syntax_error(yyextra->location, "Unterminated multiline comment");
 }
 
-"inherit"       { return yy::LpcParser::make_L_INHERIT(); }
-"as"            { return yy::LpcParser::make_LAS(); }
-"if"            { return yy::LpcParser::make_L_IF(); }
-"else"          { return yy::LpcParser::make_L_ELSE(); }
-"while"         { return yy::LpcParser::make_L_WHILE(); }
-"do"            { return yy::LpcParser::make_L_DO(); }
-"for"           { return yy::LpcParser::make_L_FOR(); }
-"foreach"       { return yy::LpcParser::make_L_FOREACH(); }
-"in"            { return yy::LpcParser::make_L_IN(); }
-"break"         { return yy::LpcParser::make_L_BREAK(); }
-"continue"      { return yy::LpcParser::make_L_CONTINUE(); }
-"return"        { return yy::LpcParser::make_L_RETURN(); }
-"switch"        { return yy::LpcParser::make_L_SWITCH(); }
-"case"          { return yy::LpcParser::make_L_CASE(); }
-"default"       { return yy::LpcParser::make_L_DEFAULT(); }
-"try"           { return yy::LpcParser::make_L_TRY(); }
-"catch"         { return yy::LpcParser::make_L_CATCH(); }
-"new"           { return yy::LpcParser::make_L_NEW(); }
+"inherit"       { return yy::LpcParser::make_L_INHERIT(yyextra->location); }
+"as"            { return yy::LpcParser::make_LAS(yyextra->location); }
+"if"            { return yy::LpcParser::make_L_IF(yyextra->location); }
+"else"          { return yy::LpcParser::make_L_ELSE(yyextra->location); }
+"while"         { return yy::LpcParser::make_L_WHILE(yyextra->location); }
+"do"            { return yy::LpcParser::make_L_DO(yyextra->location); }
+"for"           { return yy::LpcParser::make_L_FOR(yyextra->location); }
+"foreach"       { return yy::LpcParser::make_L_FOREACH(yyextra->location); }
+"in"            { return yy::LpcParser::make_L_IN(yyextra->location); }
+"break"         { return yy::LpcParser::make_L_BREAK(yyextra->location); }
+"continue"      { return yy::LpcParser::make_L_CONTINUE(yyextra->location); }
+"return"        { return yy::LpcParser::make_L_RETURN(yyextra->location); }
+"switch"        { return yy::LpcParser::make_L_SWITCH(yyextra->location); }
+"case"          { return yy::LpcParser::make_L_CASE(yyextra->location); }
+"default"       { return yy::LpcParser::make_L_DEFAULT(yyextra->location); }
+"try"           { return yy::LpcParser::make_L_TRY(yyextra->location); }
+"catch"         { return yy::LpcParser::make_L_CATCH(yyextra->location); }
+"new"           { return yy::LpcParser::make_L_NEW(yyextra->location); }
 
-"void"          { return yy::LpcParser::make_L_TYPE(LpcDataType::T_VOID); }
-"double"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_DOUBLE); }
-"float"         { return yy::LpcParser::make_L_TYPE(LpcDataType::T_FLOAT); }
-"int"|"bool"    { return yy::LpcParser::make_L_TYPE(LpcDataType::T_INT); }
-"mapping"       { return yy::LpcParser::make_L_TYPE(LpcDataType::T_MAPPING); }
-"object"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_OBJECT); }
-"string"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_STRING); }
-"mixed"         { return yy::LpcParser::make_L_TYPE(LpcDataType::T_MIXED); }
+"void"          { return yy::LpcParser::make_L_TYPE(LpcDataType::T_VOID, yyextra->location); }
+"double"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_DOUBLE, yyextra->location); }
+"float"         { return yy::LpcParser::make_L_TYPE(LpcDataType::T_FLOAT, yyextra->location); }
+"int"|"bool"    { return yy::LpcParser::make_L_TYPE(LpcDataType::T_INT, yyextra->location); }
+"mapping"       { return yy::LpcParser::make_L_TYPE(LpcDataType::T_MAPPING, yyextra->location); }
+"object"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_OBJECT, yyextra->location); }
+"string"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_STRING, yyextra->location); }
+"mixed"         { return yy::LpcParser::make_L_TYPE(LpcDataType::T_MIXED, yyextra->location); }
 
-"const"         { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_const = 1}}); }
-"auto"          { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_static = 0}}); }
-"static"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_static = 1}}); }
-"private"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_public = 0}}); }
-"public"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_public = 1}}); }
-"virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 0}}); }
-"nomask"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 1}}); }
+"const"         { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_const = 1}}, yyextra->location); }
+"auto"          { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_static = 0}}, yyextra->location); }
+"static"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_static = 1}}, yyextra->location); }
+"private"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_public = 0}}, yyextra->location); }
+"public"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_public = 1}}, yyextra->location); }
+"virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 0}}, yyextra->location); }
+"nomask"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 1}}, yyextra->location); }
 
-"true"          { return yy::LpcParser::make_L_INTEGER(1); }
-"false"         { return yy::LpcParser::make_L_INTEGER(0); }
+"true"          { return yy::LpcParser::make_L_INTEGER(1, yyextra->location); }
+"false"         { return yy::LpcParser::make_L_INTEGER(0, yyextra->location); }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
     /* Identifier */
-    return yy::LpcParser::make_L_IDENTIFIER(std::string(yytext));
+    return yy::LpcParser::make_L_IDENTIFIER(std::string(yytext), yyextra->location);
 }
 
 \" {
     /* Start of string literal */
+    yyextra->string_begin = yyextra->location.begin;
     BEGIN(STRING_LITERAL); yyextra->current_string = "";
 }
 <STRING_LITERAL>\" {
     /* End of string literal */
     BEGIN(INITIAL);
-    return yy::LpcParser::make_L_STRING_LITERAL(yyextra->current_string);
+    yyextra->location.begin = yyextra->string_begin;
+    return yy::LpcParser::make_L_STRING_LITERAL(yyextra->current_string, yyextra->location);
 }
 <STRING_LITERAL>\\[0-7]{1,3}|\\x[0-9a-fA-F]+|\\u[0-9a-fA-F]{4}|\\U[0-9a-fA-F]{8} {
     try {
         if (yytext[1] == 'u' || yytext[1] == 'U') {
-            append_utf8 (yyextra->current_string, parse_escape(yytext + 2, yyleng - 2, 16, 0x10ffff));
+            append_utf8 (yyextra->current_string, parse_escape(yytext + 2, yyleng - 2, 16, 0x10ffff,
+                yyextra->location), yyextra->location);
         } else {
             const bool hex = yytext[1] == 'x';
             const int offset = hex ? 2 : 1;
             append_utf8 (yyextra->current_string, parse_escape(
-                yytext + offset, yyleng - offset, hex ? 16 : 8, UCHAR_MAX));
+                yytext + offset, yyleng - offset, hex ? 16 : 8, UCHAR_MAX, yyextra->location), yyextra->location);
         }
     } catch (const yy::LpcParser::syntax_error&) {
         BEGIN(INITIAL);
@@ -157,15 +170,16 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 }
 <STRING_LITERAL>\\.|\\ {
     BEGIN(INITIAL);
-    throw yy::LpcParser::syntax_error("Invalid escape sequence");
+    throw yy::LpcParser::syntax_error(yyextra->location, "Invalid escape sequence");
 }
 <STRING_LITERAL>[\r\n] {
     BEGIN(INITIAL);
-    throw yy::LpcParser::syntax_error("Unescaped newline in string literal");
+    throw yy::LpcParser::syntax_error(yyextra->location, "Unescaped newline in string literal");
 }
 <STRING_LITERAL><<EOF>> {
     BEGIN(INITIAL);
-    throw yy::LpcParser::syntax_error("Unterminated string literal");
+    yyextra->location.step();
+    throw yy::LpcParser::syntax_error(yyextra->location, "Unterminated string literal");
 }
 <STRING_LITERAL>[^\\\r\n\"]+ {
     /* Append the matched text to the current string */
@@ -174,6 +188,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 
 (u8|u|U|L)?R\"{RAW_DELIMITER}\( {
     /* Start of raw string literal */
+    yyextra->string_begin = yyextra->location.begin;
     const std::string opening(yytext, yyleng);
     const auto delimiter_start = opening.find('"') + 1;
     yyextra->raw_string_delimiter = opening.substr(delimiter_start, opening.size() - delimiter_start - 1);
@@ -184,11 +199,18 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
     const std::string terminator = ")" + yyextra->raw_string_delimiter + '"';
     if (std::string(yytext, yyleng).compare(0, terminator.size(), terminator) == 0) {
         yyless(terminator.size());
+        yyextra->location.end = yyextra->location.begin;
+        yyextra->location.columns(yyleng);
+        yycolumn = yyextra->location.end.column - 1;
         BEGIN(INITIAL);
-        return yy::LpcParser::make_L_STRING_LITERAL(yyextra->current_string);
+        yyextra->location.begin = yyextra->string_begin;
+        return yy::LpcParser::make_L_STRING_LITERAL(yyextra->current_string, yyextra->location);
     }
     /* Rescan after ')' so an overlapping terminator is not missed. */
     yyless(1);
+    yyextra->location.end = yyextra->location.begin;
+    yyextra->location.columns(1);
+    yycolumn = yyextra->location.end.column - 1;
     yyextra->current_string += ')';
 }
 <RAW_STRING_LITERAL>[^)]+ {
@@ -200,54 +222,60 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 }
 <RAW_STRING_LITERAL><<EOF>> {
     BEGIN(INITIAL);
-    throw yy::LpcParser::syntax_error("Unterminated raw string literal");
+    yyextra->location.step();
+    throw yy::LpcParser::syntax_error(yyextra->location, "Unterminated raw string literal");
 }
 
-[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)? { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
-[0-9]+[eE][+-]?[0-9]+ { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext)); }
+[0-9]+\\.[0-9]+([eE][+-]?[0-9]+)? { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext), yyextra->location); }
+[0-9]+[eE][+-]?[0-9]+ { return yy::LpcParser::make_L_REAL_NUMBER(std::stod(yytext), yyextra->location); }
 
-[0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stol(yytext)); }
+[0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stol(yytext), yyextra->location); }
 
 "+"|"-"|"*"|"/"|"%"|"&"|"|"|"^" {
     /* binary operators */
-    return yytext[0];
+    return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }
 
-"=="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::EQUAL)); }
-"!="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::NOT_EQUAL)); }
-"++"    { return yy::LpcParser::make_L_INC(); }
-"--"    { return yy::LpcParser::make_L_DEC(); }
-"&&"    { return yy::LpcParser::make_L_LAND(); }
-"||"    { return yy::LpcParser::make_L_LOR(); }
-"!"     { return yy::LpcParser::make_L_NOT(); }
-"<<"    { return yy::LpcParser::make_L_LSH(); }
-">>"    { return yy::LpcParser::make_L_RSH(); }
-">="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER_EQUAL)); }
-">"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER)); }
-"<="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS_EQUAL)); }
-"<"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS)); }
-"="     { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ASSIGN)); }
-"+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ADD_ASSIGN)); }
-"-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::SUB_ASSIGN)); }
-"*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MUL_ASSIGN)); }
-" /="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::DIV_ASSIGN)); }
-"%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MOD_ASSIGN)); }
-"&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::AND_ASSIGN)); }
-"|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::OR_ASSIGN)); }
-"^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::XOR_ASSIGN)); }
+"=="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::EQUAL), yyextra->location); }
+"!="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::NOT_EQUAL), yyextra->location); }
+"++"    { return yy::LpcParser::make_L_INC(yyextra->location); }
+"--"    { return yy::LpcParser::make_L_DEC(yyextra->location); }
+"&&"    { return yy::LpcParser::make_L_LAND(yyextra->location); }
+"||"    { return yy::LpcParser::make_L_LOR(yyextra->location); }
+"!"     { return yy::LpcParser::make_L_NOT(yyextra->location); }
+"<<"    { return yy::LpcParser::make_L_LSH(yyextra->location); }
+">>"    { return yy::LpcParser::make_L_RSH(yyextra->location); }
+">="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER_EQUAL), yyextra->location); }
+">"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER), yyextra->location); }
+"<="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS_EQUAL), yyextra->location); }
+"<"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS), yyextra->location); }
+"="     { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ASSIGN), yyextra->location); }
+"+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ADD_ASSIGN), yyextra->location); }
+"-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::SUB_ASSIGN), yyextra->location); }
+"*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MUL_ASSIGN), yyextra->location); }
+" /="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::DIV_ASSIGN), yyextra->location); }
+"%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MOD_ASSIGN), yyextra->location); }
+"&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::AND_ASSIGN), yyextra->location); }
+"|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::OR_ASSIGN), yyextra->location); }
+"^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::XOR_ASSIGN), yyextra->location); }
 
-"..."   { return yy::LpcParser::make_L_ELLIPSIS(); }
+"..."   { return yy::LpcParser::make_L_ELLIPSIS(yyextra->location); }
 
 ","|";"|"."|"{"|"}"|"("|")" {
     /* punctuation symbols */
-    return yytext[0];
+    return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }
 
 [ \t\n] { /* ignore whitespace */ }
 
 . {
     /* Catch-all for any other character */
-    throw yy::LpcParser::syntax_error ("Unexpected character");
+    throw yy::LpcParser::syntax_error (yyextra->location, "Unexpected character");
+}
+
+<<EOF>> {
+    yyextra->location.step();
+    return yy::LpcParser::make_YYEOF(yyextra->location);
 }
 
 %%
