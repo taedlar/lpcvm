@@ -8,7 +8,7 @@
 // append the matched text to the preprocessed output
 #define EMIT() yyextra->ppbuffer.insert(yyextra->ppbuffer.end(), yytext, yytext + yyleng)
 
-int preprocess (char* buf, int max_len, LpcCompiler::Context* ctx);
+int preprocessor_feed (char* buf, int max_len, LpcCompiler::Context* ctx);
 %}
 
 %option prefix="pp"
@@ -44,7 +44,7 @@ int preprocess (char* buf, int max_len, LpcCompiler::Context* ctx);
  * Preprocessor stage feeding the LPC lexer (called from its YY_INPUT).
  * Fills buf with up to max_len bytes of preprocessed text; returns 0 at end of input.
  */
-int preprocess (char* buf, int max_len, LpcCompiler::Context* ctx) {
+int preprocessor_feed (char* buf, int max_len, LpcCompiler::Context* ctx) {
     auto scanner = static_cast<yyscan_t>(ctx->ppscanner);
     while (ctx->ppbuffer.empty()) {
         if (pplex(scanner) == 0)

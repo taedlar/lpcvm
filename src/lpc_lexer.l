@@ -9,13 +9,13 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 
-extern int preprocess (char* buf, int max_len, YY_EXTRA_TYPE lpcc);
+extern int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE lpcc);
 
 #undef YY_INPUT
 #define YY_INPUT(buf, result, max_size) \
     { \
         auto lpcc = yyget_extra(yyscanner); \
-        result = preprocess(buf, max_size, lpcc); \
+        result = preprocessor_feed(buf, max_size, lpcc); \
     }
 
 #define YY_USER_ACTION \

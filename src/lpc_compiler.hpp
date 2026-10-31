@@ -55,6 +55,8 @@ public:
 
     void set_filename(const std::string_view fn) { filename_ = fn; }
 
+    std::string preprocess() noexcept;
+
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
     std::shared_ptr<ObjectClass> generate_code() noexcept;

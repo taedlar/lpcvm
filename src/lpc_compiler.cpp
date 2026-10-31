@@ -64,6 +64,26 @@ bool LpcCompiler::init() {
     return true;
 }
 
+extern int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE lpcc);
+
+std::string LpcCompiler::preprocess() noexcept {
+    std::string result;
+    try {
+        if (!init())
+            return result;
+        char buffer[4096];
+        int read;
+        while ((read = preprocessor_feed(buffer, sizeof(buffer), &impl_->ctx)) > 0) {
+            result.append(buffer, read);
+        }
+    }
+    catch (const std::exception& e) {
+        SPDLOG_ERROR("preprocessing failed: {}", e.what());
+        messages_.push_back({-1, -1, e.what()});
+    }
+    return result;
+}
+
 bool LpcCompiler::parse() noexcept {
     bool result = false;
     try {

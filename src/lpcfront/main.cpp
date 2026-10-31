@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include "config.hpp"
 #include <argparse/argparse.hpp>
+#include <cstdio>
+#include <filesystem>
 #include <iostream>
-#include <fstream>
-#include <sstream>
 #include "ast_node.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
@@ -22,6 +22,8 @@ int main(int argc, char* argv[]) {
 
     program.add_argument("source")
         .help("The source file to compile");
+    program.add_argument("-E", "--preprocess").default_value(false).implicit_value(true).nargs(0)
+        .help("Preprocess the source file only");
     program.add_argument("-V", "--verbose").default_value(false).implicit_value(true).nargs(0)
         .action([&](const auto & /*unused*/) {
             if (log_level > spdlog::level::trace)
@@ -41,29 +43,33 @@ int main(int argc, char* argv[]) {
     }
 
     const std::string source_file = program.get<std::string>("source");
-    std::ifstream input(source_file, std::ios::binary);
-    if (!input) {
+    if (!std::filesystem::exists(source_file)) {
+        std::cerr << "Source file does not exist: " << source_file << std::endl;
+        return 1;
+    }
+    FILE* source_fp = std::fopen(source_file.c_str(), "rb");
+    if (!source_fp) {
         std::cerr << "Failed to open source file: " << source_file << std::endl;
         return 1;
     }
 
-    std::ostringstream source;
-    source << input.rdbuf();
-    if (input.bad() || source.bad()) {
-        std::cerr << "Failed to read source file: " << source_file << std::endl;
-        return 1;
-    }
-
-    LpcCompiler compiler;
+    int ret = EXIT_SUCCESS;
+    LpcCompiler compiler(source_fp);
     compiler.set_filename(source_file);
-    compiler.parse(source.str());
-    if (compiler.get_ast()) {
-        ast_dump(compiler.get_ast(), true);
-        std::cout << std::endl;
-        return EXIT_SUCCESS;
+    if (program.get<bool>("--preprocess")) {
+        std::cout << compiler.preprocess();
+    } else {
+        if (compiler.parse()) {
+            if (compiler.get_ast()) {
+                ast_dump(compiler.get_ast(), true);
+                std::cout << std::endl;
+            }
+        } else {
+            ret = EXIT_FAILURE;
+        }
     }
-
-    return EXIT_FAILURE;
+    std::fclose(source_fp);
+    return ret;
 }
 
 static void log_vm_info() {
