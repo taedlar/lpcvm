@@ -24,6 +24,9 @@ public:
 
     // context data used by the lexer and parser
     struct Context {
+        void* ppscanner{nullptr}; // pointer to the preprocessor scanner (reentrant lexer handle)
+        std::vector<char> ppbuffer;
+
         std::shared_ptr<ASTNode> root;
         std::shared_ptr<SymbolTable> current_scope;
         std::shared_ptr<ConstTable> consts;
@@ -52,6 +55,8 @@ public:
 
     void set_filename(const std::string_view fn) { filename_ = fn; }
 
+    std::string preprocess() noexcept;
+
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
     std::shared_ptr<ObjectClass> generate_code() noexcept;
@@ -76,3 +81,6 @@ private:
 
     bool init();
 };
+
+#undef YY_EXTRA_TYPE
+#define YY_EXTRA_TYPE LpcCompiler::Context*

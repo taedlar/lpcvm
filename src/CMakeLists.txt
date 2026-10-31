@@ -13,9 +13,16 @@ flex_target(LPC_LEXER
     DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/lpc_lexer.hpp
 )
 
+flex_target(PREPROCESSOR
+    preprocessor.l
+    ${CMAKE_CURRENT_BINARY_DIR}/preprocessor.cpp
+    DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/preprocessor.hpp
+)
+
 add_library(lpcvm_obj OBJECT
     ${BISON_LPC_PARSER_OUTPUTS}
     ${FLEX_LPC_LEXER_OUTPUTS}
+    ${FLEX_PREPROCESSOR_OUTPUTS}
     lpc_compiler.cpp
     lpc_compiler.hpp
     vm_executor.hpp

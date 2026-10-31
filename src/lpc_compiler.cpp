@@ -7,14 +7,16 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 #include "lpc_lexer.hpp"
+#include "preprocessor.hpp"
 #include "object_class.hpp"
 #include <cstdio>
 #include <stdexcept>
 
 struct LpcCompiler::internal_s {
     LpcCompiler::Context ctx;
-    yyscan_t scanner;
-    yy::LpcParser* parser{nullptr};
+    yyscan_t ppscanner{nullptr}; // preprocessor scanner handle
+    yyscan_t scanner{nullptr}; // LPC lexical scanner handle
+    yy::LpcParser* parser{nullptr}; // LPC parser instance
 };
 
 LpcCompiler::LpcCompiler(FILE* source_file)
@@ -22,8 +24,11 @@ LpcCompiler::LpcCompiler(FILE* source_file)
 {
     if (source_file_) {
         impl_ = new internal_s();
+        pplex_init_extra(&impl_->ctx, &impl_->ppscanner); // create preprocessor scanner
+        impl_->ctx.ppscanner = impl_->ppscanner;
+        pprestart(source_file_, impl_->ppscanner); // the preprocessor reads the source file
         yylex_init_extra(&impl_->ctx, &impl_->scanner); // create lexial scanner
-        yyrestart(source_file_, impl_->scanner); // set the input for the scanner
+        yyrestart(nullptr, impl_->scanner); // the lexer reads from the preprocessor via YY_INPUT
         impl_->parser = new yy::LpcParser{impl_->scanner}; // create parser with the scanner
     }
     else {
@@ -33,6 +38,8 @@ LpcCompiler::LpcCompiler(FILE* source_file)
 
 LpcCompiler::~LpcCompiler() {
     if (impl_) {
+        if (impl_->ppscanner)
+            pplex_destroy(impl_->ppscanner); // destroy the preprocessor scanner
         if (impl_->scanner)
             yylex_destroy(impl_->scanner); // destroy the lexical scanner
         if (impl_->parser)
@@ -55,6 +62,26 @@ bool LpcCompiler::init() {
     }
     ast_.reset();
     return true;
+}
+
+extern int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE lpcc);
+
+std::string LpcCompiler::preprocess() noexcept {
+    std::string result;
+    try {
+        if (!init())
+            return result;
+        char buffer[4096];
+        int read;
+        while ((read = preprocessor_feed(buffer, sizeof(buffer), &impl_->ctx)) > 0) {
+            result.append(buffer, read);
+        }
+    }
+    catch (const std::exception& e) {
+        SPDLOG_ERROR("preprocessing failed: {}", e.what());
+        messages_.push_back({-1, -1, e.what()});
+    }
+    return result;
 }
 
 bool LpcCompiler::parse() noexcept {
@@ -98,10 +125,11 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
+        pplex_init_extra(&tmp.ctx, &tmp.ppscanner); // create preprocessor scanner
+        tmp.ctx.ppscanner = tmp.ppscanner;
+        pp_scan_bytes(source.data(), source.size(), tmp.ppscanner); // preprocessor reads the string
         yylex_init_extra(&tmp.ctx, &tmp.scanner); // create lexial scanner
-        auto bs = yy_scan_bytes(source.data(), source.size(), tmp.scanner);
-        bs->yy_bs_lineno = 1; // initialize the line number for the buffer state
-        bs->yy_bs_column = 0; // initialize the column number for the buffer state
+        yyrestart(nullptr, tmp.scanner); // the lexer reads from the preprocessor via YY_INPUT
         yy::LpcParser parser{tmp.scanner};
         tmp.parser = &parser; // use local parser instance (unwinding safe)
         impl_ = &tmp;
@@ -111,6 +139,8 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
         SPDLOG_ERROR("parse failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
     }
+    if (tmp.ppscanner)
+        pplex_destroy(tmp.ppscanner);
     if (tmp.scanner)
         yylex_destroy(tmp.scanner); // ensure the lexical scanner is destroyed even if an exception occurs
     impl_ = saved_impl; // restore the original impl_ to avoid dangling pointer
