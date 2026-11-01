@@ -22,10 +22,11 @@ public:
     LpcCompiler(FILE* source_file = nullptr);
     ~LpcCompiler();
 
-    // context data used by the lexer and parser
+    // context data used by the preprocessor, lexer and parser
     struct Context {
         void* ppscanner{nullptr}; // pointer to the preprocessor scanner (reentrant lexer handle)
         std::vector<char> ppbuffer;
+        std::shared_ptr<SymbolTable> defines; // preprocessor defines (PREPROCESSOR scope)
 
         std::shared_ptr<ASTNode> root;
         std::shared_ptr<SymbolTable> current_scope;
@@ -53,9 +54,11 @@ public:
         std::string text;
     };
 
+    void use_predefines(std::shared_ptr<SymbolTable> predefines);
     void set_filename(const std::string_view fn) { filename_ = fn; }
 
     std::string preprocess() noexcept;
+    std::string preprocess(const std::string& source) noexcept;
 
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
@@ -74,6 +77,8 @@ private:
     FILE* source_file_;
     std::string filename_;  // for yylloc
     std::vector<Message> messages_;
+
+    std::shared_ptr<SymbolTable> predefines_;
 
     std::shared_ptr<ConstTable> consts_;
     std::shared_ptr<SymbolTable> globals_;

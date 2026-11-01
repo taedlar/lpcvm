@@ -42,9 +42,9 @@ typedef union symbol_signature_u {
 class VirtualTable;
 
 /**
- * \brief Represents a symbol table for managing variable and function symbols within a scope.
+ * \brief Represents a symbol table for managing symbols within a scope.
  *
- * The symbol table maintains a mapping from mangled symbol name to their corresponding
+ * The symbol table maintains a mapping from (mangled) symbol name to their corresponding
  * entries and allows efficient lookup and insertion of symbols.
  *
  * Supports nested scopes through the enclosing_scope_ pointer.
@@ -56,6 +56,7 @@ class VirtualTable;
 class SymbolTable: public std::enable_shared_from_this<SymbolTable> {
 public:
     enum class ScopeType {
+        PREPROCESSOR, // for preprocessor defines
         GLOBAL,
         FUNCTION,
         LOCAL,
@@ -85,18 +86,21 @@ public:
     uint32_t overlay_base() const { return overlay_base_; }
 
     /**
-     * \brief Looks up a symbol entry by its key in the current scope and enclosing scopes.
-     * \param mangled_name The mangled name of the symbol to look up.
+     * \brief Looks up a symbol entry in the current scope and enclosing scopes.
+     * \param key The symbol name (mangled as unique key, if necessary) to look up.
      * \return A pointer to the corresponding entry if found, or nullptr if not found.
      */
-    std::shared_ptr<Entry> lookup (const std::string_view mangled_name) const;
+    std::shared_ptr<Entry> lookup (const std::string_view key) const;
 
     /**
      * \brief Inserts a new symbol entry into the current scope of the symbol table.
-     * \param mangled_name The mangled name of the symbol to insert.
+     * \param key The symbol name (mangled as unique key, if necessary) to insert.
      * \param entry A shared pointer to the Entry to be inserted.
      */
-    void emplace (const std::string_view mangled_name, std::shared_ptr<Entry> entry);
+    void emplace (const std::string_view key, std::shared_ptr<Entry> entry);
+
+    /// @brief Removes a symbol from the current scope only. Returns true if it existed.
+    bool erase (const std::string_view key) { return symbols_.erase(std::string(key)) > 0; }
 
     std::size_t size() const { return symbols_.size(); }
 

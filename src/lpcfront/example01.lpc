@@ -1,9 +1,10 @@
 // Example LPC source file for testing the parser
 
-int g = 789;
+#define BASE 10
+
+int g = BASE;
 
 int add(x, y, ... argv) {
-    int a = 123, b = g;
-    g = a;
-    return 123 + 456;
+    int a = x, b = y - g;
+    return a + BASE + b;
 }

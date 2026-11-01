@@ -10,6 +10,7 @@ add_executable(test_lpcvm
     test_vm_svalue.cpp
     test_lpc_parser.cpp
     test_vm_sandbox.cpp
+    test_preprocessor.cpp
 )
 
 target_link_libraries(test_lpcvm PRIVATE lpcvm spdlog GTest::gtest_main)
