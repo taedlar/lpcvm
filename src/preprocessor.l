@@ -101,10 +101,11 @@ static void define_macro (LpcCompiler::Context* ctx, std::string_view operand, y
     if (function_like)
         sig.b.is_function = 1; // function-like macro
     auto entry = std::make_shared<SymbolTable::Entry>(name, sig);
-    for (const auto& param : params)
-        entry->push_token(*ctx->defines, ctx->defines->new_token(param, SymbolTable::TokenType::MACRO_ARGUMENT));
-    entry->push_token(*ctx->defines, ctx->defines->new_token(body, SymbolTable::TokenType::MACRO_BODY));
-    ctx->defines->emplace(name, entry);
+    entry->value = ctx->defines->new_token(body, SymbolTable::TokenType::MACRO_BODY);
+    for(int i = params.size() - 1; i >= 0; --i) {
+        entry->prepend_token(*ctx->defines, ctx->defines->new_token(params[i], SymbolTable::TokenType::MACRO_ARGUMENT));
+    }
+    ctx->defines->emplace(name, entry); // entry -> {arg#1}{arg#2}...{body}
 }
 
 static void undef_macro (LpcCompiler::Context* ctx, std::string_view operand) {

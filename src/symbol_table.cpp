@@ -15,6 +15,17 @@ void SymbolTable::Entry::push_token(SymbolTable& owner, TokenIndex token) {
     *next = token;
 }
 
+void SymbolTable::Entry::prepend_token(SymbolTable& owner, TokenIndex token) {
+    if (!value.has_value()) {
+        value = token;
+        return;
+    }
+    auto* next = &std::get<TokenIndex>(*value);
+    auto old_head = *next;
+    *next = token;
+    owner.tokens_.at(static_cast<std::size_t>(token)).next = old_head;
+}
+
 std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(const std::string_view key, const SymbolTable** owner) const {
     auto it = symbols_.find(std::string(key));
     if (it != symbols_.end()) {

@@ -80,8 +80,8 @@ public:
         Entry(std::string name, SymbolSignature signature)
             : name(std::move(name)), signature(signature) {}
 
-        // Append a token allocated by owner to this entry's token chain.
         void push_token(SymbolTable& owner, TokenIndex token);
+        void prepend_token(SymbolTable& owner, TokenIndex token);
     };
 
     enum class TokenType {
