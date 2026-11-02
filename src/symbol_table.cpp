@@ -4,14 +4,27 @@
 #include "config.hpp"
 #include "symbol_table.hpp"
 
-std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(const std::string_view key) const {
+void SymbolTable::Entry::push_token(SymbolTable& owner, TokenIndex token) {
+    if (!value.has_value()) {
+        value = token;
+        return;
+    }
+    auto* next = &std::get<TokenIndex>(*value);
+    while (*next != invalid_token)
+        next = &owner.tokens_.at(static_cast<std::size_t>(*next)).next;
+    *next = token;
+}
+
+std::shared_ptr<SymbolTable::Entry> SymbolTable::lookup(const std::string_view key, const SymbolTable** owner) const {
     auto it = symbols_.find(std::string(key));
     if (it != symbols_.end()) {
+        if (owner) *owner = this;
         return it->second;
     }
     if (enclosing_scope_) {
-        return enclosing_scope_->lookup(key);
+        return enclosing_scope_->lookup(key, owner);
     }
+    if (owner) *owner = nullptr;
     return nullptr;
 }
 

@@ -26,6 +26,8 @@ public:
     struct Context {
         void* ppscanner{nullptr}; // pointer to the preprocessor scanner (reentrant lexer handle)
         std::vector<char> ppbuffer;
+        bool pp_eof{false}; // EOF reached by macro argument lookahead
+        yy::location pp_location; // position in original preprocessor input
         std::shared_ptr<SymbolTable> defines; // preprocessor defines (PREPROCESSOR scope)
 
         std::shared_ptr<ASTNode> root;

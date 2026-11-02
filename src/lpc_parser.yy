@@ -387,7 +387,7 @@ inheritance
             std::string alias{$3.empty() ? $2 : $3};
             if (!lpcc->current_scope->lookup(alias)) {
                 auto entry = std::make_shared<SymbolTable::Entry>(alias, SymbolSignature{0}); // alias symbol
-                entry->value = $2;
+                entry->value = lpcc->current_scope->new_token($2, SymbolTable::TokenType::STRING_LITERAL);
                 lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
                 ASSIGN_AST($$, @$, AST::Inheritance{ entry });
             }
@@ -401,7 +401,7 @@ inheritance
             std::string alias{$4.empty() ? $3 : $4};
             if (!lpcc->current_scope->lookup(alias)) {
                 auto entry = std::make_shared<SymbolTable::Entry>(alias, $1); // alias symbol
-                entry->value = $3;
+                entry->value = lpcc->current_scope->new_token($3, SymbolTable::TokenType::STRING_LITERAL);
                 lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
                 ASSIGN_AST($$, @$, AST::Inheritance{ entry });
             }

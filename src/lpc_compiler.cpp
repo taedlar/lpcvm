@@ -66,6 +66,8 @@ bool LpcCompiler::init() {
         impl_->ctx.defines = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);
     globals_ = std::make_shared<SymbolTable>(SymbolTable::ScopeType::GLOBAL, 0, nullptr);
     impl_->ctx.location.initialize(&filename_);
+    impl_->ctx.pp_location.initialize(&filename_);
+    impl_->ctx.pp_eof = false;
     impl_->ctx.current_scope = globals_;
     if (!filename_.empty() && filename_ != "<unknown>") {
         impl_->ctx.current_file = consts_->find_or_add(filename_); // make an interned copy of current filename
@@ -87,9 +89,17 @@ std::string LpcCompiler::preprocess() noexcept {
             result.append(buffer, read);
         }
     }
+    catch (const yy::LpcParser::syntax_error& e) {
+        const auto& pos = e.location.begin;
+        auto text = fmt::format("{}:{}:{}: {}", filename_, pos.line, pos.column, e.what());
+        SPDLOG_DEBUG("preprocessing failed: {}", text);
+        messages_.push_back({pos.line, pos.column, std::move(text)});
+        return "";
+    }
     catch (const std::exception& e) {
-        SPDLOG_ERROR("preprocessing failed: {}", e.what());
+        SPDLOG_DEBUG("preprocessing failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
+        return "";
     }
     return result;
 }
@@ -112,9 +122,11 @@ std::string LpcCompiler::preprocess(const std::string& source) noexcept {
         result = preprocess();
     }
     catch (const std::exception& e) {
-        SPDLOG_ERROR("preprocessing failed: {}", e.what());
+        SPDLOG_DEBUG("preprocessing failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
     }
+    if (tmp.ppscanner)
+        pplex_destroy(tmp.ppscanner);
     impl_ = saved_impl;
     return result;
 }
@@ -133,17 +145,17 @@ bool LpcCompiler::parse() noexcept {
     catch (const yy::parse_error& e) {
         // Handle parsing errors
         if (filename_.empty()) {
-            SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
+            SPDLOG_DEBUG("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
             messages_.push_back({e.lineno, e.column, e.what()});
         } else {
             auto text = fmt::format("{}:{}:{}: {}", filename_, e.lineno, e.column, e.what());
-            SPDLOG_ERROR("parsing error: {}", text);
+            SPDLOG_DEBUG("parsing error: {}", text);
             messages_.push_back({e.lineno, e.column, std::move(text)});
         }
     }
     catch (const std::exception& e) {
         // Handle other exceptions
-        SPDLOG_ERROR("parse failed: {}", e.what());
+        SPDLOG_DEBUG("parse failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
     }
     return result;

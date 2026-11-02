@@ -4,10 +4,26 @@
 
 #include "config.hpp"
 #include "lpc_compiler.hpp"
+#undef yylex
+#include "lpc_parser.hpp"
+#define yylex pplex
+
+// The preprocessor returns feed status, not LPC parser tokens.
+#undef YY_DECL
+#define YY_DECL int pplex (yyscan_t yyscanner)
 #include "symbol_table.hpp"
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <string_view>
+
+// Track original input independently of the downstream lexer's buffered input.
+#define YY_USER_ACTION \
+    yyextra->pp_location.step(); \
+    for (int offset = 0; offset < yyleng; ++offset) { \
+        if (yytext[offset] == '\n') yyextra->pp_location.lines(1); \
+        else yyextra->pp_location.columns(1); \
+    }
 
 // append the matched text to the preprocessed output
 #define EMIT() yyextra->ppbuffer.insert(yyextra->ppbuffer.end(), yytext, yytext + yyleng)
@@ -26,88 +42,253 @@ static std::string_view directive_operand (const char* text, int len, std::strin
     return line;
 }
 
-static void define_macro (LpcCompiler::Context* ctx, std::string_view operand) {
+static void define_macro (LpcCompiler::Context* ctx, std::string_view operand, yy::location location) {
     size_t n = 0;
+    // find the end of the macro name
     while (n < operand.size() && is_ident_char(operand[n])) n++;
     if (n == 0 || !is_ident_start(operand[0])) {
-        SPDLOG_WARN("invalid macro name in #define");
-        return;
+        throw yy::LpcParser::syntax_error(location, "Invalid macro name in #define");
     }
     std::string name(operand.substr(0, n));
     std::string_view body = operand.substr(n);
-    if (!body.empty() && (body.front() == '(')) {
-        SPDLOG_WARN("function-like macro '{}' is not supported", name);
-        return;
+
+    std::vector<std::string> params;
+    const bool function_like = !body.empty() && body.front() == '(';
+    if (function_like) {
+        body.remove_prefix(1); // consume '('
+        auto skip_space = [&] {
+            while (!body.empty() && std::isspace(static_cast<unsigned char>(body.front())))
+                body.remove_prefix(1);
+        };
+        auto fail = [&](const char* message) {
+            auto error_location = location;
+            error_location.begin.columns(static_cast<int>(operand.size() - body.size()));
+            error_location.end = error_location.begin;
+            throw yy::LpcParser::syntax_error(error_location, message);
+        };
+        skip_space();
+        if (!body.empty() && body.front() == ')') {
+            body.remove_prefix(1); // empty parameter list
+        } else {
+            while (true) {
+                if (body.empty()) fail("Unterminated parameter list in #define");
+                if (!is_ident_start(body.front())) fail("Invalid macro parameter in #define");
+                size_t end = 1;
+                while (end < body.size() && is_ident_char(body[end])) end++;
+                params.emplace_back(body.substr(0, end));
+                body.remove_prefix(end);
+                skip_space();
+                if (body.empty()) fail("Unterminated parameter list in #define");
+                if (body.front() == ')') {
+                    body.remove_prefix(1);
+                    break;
+                }
+                if (body.front() != ',') fail("Expected ',' or ')' in #define parameter list");
+                body.remove_prefix(1);
+                skip_space();
+            }
+        }
     }
-    if (auto c = body.find("//"); c != std::string_view::npos) body = body.substr(0, c);
+
+    // Remove any trailing comments and trim whitespace from the macro body.
+    if (auto c = body.find("//"); c != std::string_view::npos)
+        body = body.substr(0, c);
     while (!body.empty() && std::isspace(static_cast<unsigned char>(body.front()))) body.remove_prefix(1);
     while (!body.empty() && std::isspace(static_cast<unsigned char>(body.back()))) body.remove_suffix(1);
 
     SymbolSignature sig{};
     sig.b.is_const = 1;
+    if (function_like)
+        sig.b.is_function = 1; // function-like macro
     auto entry = std::make_shared<SymbolTable::Entry>(name, sig);
-    entry->value = std::string(body);
+    for (const auto& param : params)
+        entry->push_token(*ctx->defines, ctx->defines->new_token(param, SymbolTable::TokenType::MACRO_ARGUMENT));
+    entry->push_token(*ctx->defines, ctx->defines->new_token(body, SymbolTable::TokenType::MACRO_BODY));
     ctx->defines->emplace(name, entry);
 }
 
 static void undef_macro (LpcCompiler::Context* ctx, std::string_view operand) {
     size_t n = 0;
     while (n < operand.size() && is_ident_char(operand[n])) n++;
-    if (n > 0) ctx->defines->erase(operand.substr(0, n));
+    if (n > 0)
+        ctx->defines->erase(operand.substr(0, n));
 }
 
-// Append the expansion of identifier 'id' to out; macros are rescanned, but a macro is never re-expanded inside itself.
-static void expand_identifier (LpcCompiler::Context* ctx, const std::string& id, std::vector<char>& out, std::vector<std::string>& active) {
-    std::shared_ptr<SymbolTable::Entry> entry = ctx->defines ? ctx->defines->lookup(id) : nullptr;
-    auto* body = entry && entry->value ? std::get_if<std::string>(&*entry->value) : nullptr;
-    if (!body || std::find(active.begin(), active.end(), id) != active.end()) {
+// The same expansion parser reads either a replacement body or the Flex input.
+struct ExpansionInput {
+    std::function<int()> peek;
+    std::function<int()> take;
+};
+
+static int scanner_peek (yyscan_t scanner);
+static int scanner_take (yyscan_t scanner);
+static void expand_text (LpcCompiler::Context* ctx, std::string_view text,
+                         std::vector<char>& out, std::vector<std::string>& active);
+
+static void expand_identifier (LpcCompiler::Context* ctx, std::string_view id,
+                               ExpansionInput& input, std::vector<char>& out,
+                               std::vector<std::string>& active) {
+    const SymbolTable* owner = nullptr;
+    auto entry = ctx->defines ? ctx->defines->lookup(id, &owner) : nullptr;
+    auto first_token = (entry && entry->value) ? std::get_if<SymbolTable::TokenIndex>(&*entry->value) : nullptr;
+    if (!first_token || std::find(active.begin(), active.end(), id) != active.end()) {
         out.insert(out.end(), id.begin(), id.end());
         return;
     }
-    active.push_back(id);
-    for (size_t i = 0; i < body->size();) {
-        char c = (*body)[i];
-        if (is_ident_start(c)) {
-            size_t j = i;
-            while (j < body->size() && is_ident_char((*body)[j])) j++;
-            expand_identifier(ctx, body->substr(i, j - i), out, active);
-            i = j;
-        } else if (c == '"') { // copy string literals verbatim
-            size_t j = i + 1;
-            while (j < body->size() && (*body)[j] != '"') j += ((*body)[j] == '\\') ? 2 : 1;
-            j = std::min(j + 1, body->size());
-            out.insert(out.end(), body->begin() + i, body->begin() + j);
-            i = j;
-        } else if (std::isdigit(static_cast<unsigned char>(c))) { // numbers, so suffixes are not taken as identifiers
-            size_t j = i;
-            while (j < body->size() && (is_ident_char((*body)[j]) || (*body)[j] == '.')) j++;
-            out.insert(out.end(), body->begin() + i, body->begin() + j);
-            i = j;
-        } else {
-            out.push_back(c);
-            i++;
-        }
+    std::vector<std::string_view> params;
+    auto body_token = *first_token;
+    while (body_token != SymbolTable::invalid_token &&
+           owner->token(body_token).type == SymbolTable::TokenType::MACRO_ARGUMENT) {
+        params.push_back(owner->token_text(body_token));
+        body_token = owner->token(body_token).next;
     }
+    if (body_token == SymbolTable::invalid_token ||
+        owner->token(body_token).type != SymbolTable::TokenType::MACRO_BODY) {
+        out.insert(out.end(), id.begin(), id.end());
+        return;
+    }
+    std::string body(owner->token_text(body_token));
+    if (entry->signature.b.is_function) {
+        const auto location = ctx->pp_location;
+        std::string space;
+        while (input.peek() && std::isspace(static_cast<unsigned char>(input.peek())))
+            space.push_back(static_cast<char>(input.take()));
+        if (input.peek() != '(') {
+            out.insert(out.end(), id.begin(), id.end());
+            out.insert(out.end(), space.begin(), space.end());
+            return;
+        }
+        input.take();
+        std::vector<std::string> args(1);
+        int depth = 0;
+        int quote = 0;
+        while (true) {
+            int c = input.take();
+            if (!c)
+                throw yy::LpcParser::syntax_error(location, "Unterminated macro argument list");
+            if (quote) {
+                args.back().push_back(static_cast<char>(c));
+                if (c == '\\') {
+                    if (int escaped = input.take()) args.back().push_back(static_cast<char>(escaped));
+                    else throw yy::LpcParser::syntax_error(location, "Unterminated macro argument list");
+                } else if (c == quote) quote = 0;
+                continue;
+            }
+            if (c == '/' && (input.peek() == '/' || input.peek() == '*')) {
+                int kind = input.take();
+                int previous = 0;
+                while (int comment = input.take()) {
+                    if (kind == '/' && comment == '\n') break;
+                    if (kind == '*' && previous == '*' && comment == '/') break;
+                    previous = comment;
+                }
+                args.back().push_back(' ');
+                continue;
+            }
+            if (c == '"' || c == '\'') quote = c;
+            else if (c == '(') ++depth;
+            else if (c == ')') {
+                if (depth == 0) break;
+                --depth;
+            } else if (c == ',' && depth == 0) {
+                args.emplace_back();
+                continue;
+            }
+            args.back().push_back(static_cast<char>(c));
+        }
+        for (auto& arg : args) {
+            auto first = arg.find_first_not_of(" \t\r\n");
+            arg = first == std::string::npos ? "" : arg.substr(first, arg.find_last_not_of(" \t\r\n") - first + 1);
+        }
+        if (args.size() == 1 && args[0].empty() && params.empty()) args.clear();
+        if (args.size() != params.size())
+            throw yy::LpcParser::syntax_error(location, "Wrong number of macro arguments for " + std::string(id));
+        for (auto& arg : args) {
+            std::vector<char> expanded;
+            expand_text(ctx, arg, expanded, active);
+            arg.assign(expanded.begin(), expanded.end());
+        }
+        // Substitute complete identifiers, leaving literals and numeric tokens intact.
+        std::string replacement;
+        for (size_t i = 0; i < body.size();) {
+            size_t start = i++;
+            if (body[start] == '"' || body[start] == '\'') {
+                while (i < body.size()) {
+                    char c = body[i++];
+                    if (c == '\\' && i < body.size()) ++i;
+                    else if (c == body[start]) break;
+                }
+            } else if (is_ident_char(body[start])) {
+                while (i < body.size() && (is_ident_char(body[i]) ||
+                       (std::isdigit(static_cast<unsigned char>(body[start])) && body[i] == '.'))) ++i;
+            }
+            auto token = body.substr(start, i - start);
+            auto param = std::find(params.begin(), params.end(), token);
+            replacement += param == params.end() ? token : args[param - params.begin()];
+        }
+        body = std::move(replacement);
+    }
+    active.emplace_back(id);
+    expand_text(ctx, body, out, active);
     active.pop_back();
+}
+
+static void expand_text (LpcCompiler::Context* ctx, std::string_view text,
+                         std::vector<char>& out, std::vector<std::string>& active) {
+    size_t i = 0;
+    ExpansionInput input{
+        [&]() -> int { return i < text.size() ? static_cast<unsigned char>(text[i]) : 0; },
+        [&]() -> int { return i < text.size() ? static_cast<unsigned char>(text[i++]) : 0; }
+    };
+    while (i < text.size()) {
+        size_t start = i++;
+        char c = text[start];
+        if (is_ident_start(c)) {
+            while (i < text.size() && is_ident_char(text[i])) ++i;
+            expand_identifier(ctx, text.substr(start, i - start), input, out, active);
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            while (i < text.size()) {
+                char next = text[i++];
+                if (next == '\\' && i < text.size()) ++i;
+                else if (next == c) break;
+            }
+        } else if (std::isdigit(static_cast<unsigned char>(c))) {
+            while (i < text.size() && (is_ident_char(text[i]) || text[i] == '.')) ++i;
+        } else if (c == '/' && i < text.size() && (text[i] == '*' || text[i] == '/')) {
+            if (text[i] == '/') {
+                while (i < text.size() && text[i] != '\n') ++i;
+            } else {
+                auto end = text.find("*/", i + 1);
+                i = end == std::string_view::npos ? text.size() : end + 2;
+            }
+        }
+        out.insert(out.end(), text.begin() + start, text.begin() + i);
+    }
 }
 %}
 
 %option prefix="pp"
 %option reentrant
 %option noyywrap
-%option nounput
-%option noinput
 
 %x COMMENT
 
 %%
 
  /* Directives are consumed; the newline is kept so line numbers stay in sync. */
-^[ \t]*"#"[ \t]*"define"[ \t]+.*   {
-    define_macro(yyextra, directive_operand(yytext, yyleng, "define"));
+^[ \t]*"#"[ \t]*"define"([ \t]+.*)?   {
+    auto operand = directive_operand(yytext, yyleng, "define");
+    auto location = yyextra->pp_location;
+    location.begin.columns(static_cast<int>(operand.data() - yytext));
+    define_macro(yyextra, operand, location);
 }
 
-^[ \t]*"#"[ \t]*"undef"[ \t]+.*    { undef_macro(yyextra, directive_operand(yytext, yyleng, "undef")); }
+^[ \t]*"#"[ \t]*"undef"[ \t]+.*    {
+    undef_macro(yyextra, directive_operand(yytext, yyleng, "undef"));
+}
+
 ^[ \t]*"#"[ \t]*"include"[ \t]+.*  { /* TODO: handle include directive */ }
 
  /* Comments and string literals pass through untouched so '#' inside them is not a directive. */
@@ -122,8 +303,12 @@ static void expand_identifier (LpcCompiler::Context* ctx, const std::string& id,
 
 [0-9][A-Za-z0-9_.]*                { EMIT(); return 1; }
 [A-Za-z_][A-Za-z0-9_]*             {
+    // expand the identifier using the preprocessor context (recursively if needed)
     std::vector<std::string> active;
-    expand_identifier(yyextra, std::string(yytext, yyleng), yyextra->ppbuffer, active);
+    const std::string id(yytext, yyleng);
+    ExpansionInput input{[&] { return scanner_peek(yyscanner); },
+                         [&] { return scanner_take(yyscanner); }};
+    expand_identifier(yyextra, id, input, yyextra->ppbuffer, active);
     return 1;
 }
 
@@ -131,13 +316,35 @@ static void expand_identifier (LpcCompiler::Context* ctx, const std::string& id,
 
 %%
 
+static int scanner_peek (yyscan_t yyscanner) {
+    auto* yyg = static_cast<yyguts_t*>(yyscanner);
+    auto* ctx = ppget_extra(yyscanner);
+    if (ctx->pp_eof) return 0;
+    int c = yyinput(yyscanner);
+    ctx->pp_eof = c == 0;
+    if (c) yyunput(c, yyg->yytext_ptr, yyscanner);
+    return c;
+}
+
+static int scanner_take (yyscan_t yyscanner) {
+    auto* yyg = static_cast<yyguts_t*>(yyscanner);
+    auto* ctx = ppget_extra(yyscanner);
+    if (ctx->pp_eof) return 0;
+    int c = yyinput(yyscanner);
+    ctx->pp_eof = c == 0;
+    if (c) yy_set_bol(c == '\n');
+    if (c == '\n') ctx->pp_location.lines(1);
+    else if (c) ctx->pp_location.columns(1);
+    return c;
+}
+
 /**
- * Preprocessor stage feeding the LPC lexer (called from its YY_INPUT).
+ * @brief Preprocessor stage feeding the LPC lexer (called from its YY_INPUT).
  * Fills buf with up to max_len bytes of preprocessed text; returns 0 at end of input.
  */
 int preprocessor_feed (char* buf, int max_len, LpcCompiler::Context* ctx) {
     auto scanner = static_cast<yyscan_t>(ctx->ppscanner);
-    while (ctx->ppbuffer.empty()) {
+    while (ctx->ppbuffer.empty() && !ctx->pp_eof) {
         if (pplex(scanner) == 0)
             break; // end of input
     }
