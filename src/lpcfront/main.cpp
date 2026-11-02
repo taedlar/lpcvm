@@ -14,7 +14,7 @@
 #include "vm_svalue.hpp"
 
 static void log_vm_info();
-static void ast_dump(const ASTNode* ast, bool newline);
+static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* globals);
 
 int main(int argc, char* argv[]) {
     int log_level = spdlog::level::warn;
@@ -57,14 +57,22 @@ int main(int argc, char* argv[]) {
     LpcCompiler compiler(source_fp);
     compiler.set_filename(source_file);
     if (program.get<bool>("--preprocess")) {
-        std::cout << compiler.preprocess();
+        auto preprocessed = compiler.preprocess();
+        if (preprocessed.empty()) {
+            for (auto& msg : compiler.messages())
+                std::cerr << msg.text << std::endl;
+            ret = EXIT_FAILURE;
+        }
+        std::cout << preprocessed;
     } else {
         if (compiler.parse()) {
             if (compiler.get_ast()) {
-                ast_dump(compiler.get_ast(), true);
+                ast_dump(compiler.get_ast(), true, compiler.get_globals());
                 std::cout << std::endl;
             }
         } else {
+            for (auto& msg : compiler.messages())
+                std::cerr << msg.text << std::endl;
             ret = EXIT_FAILURE;
         }
     }
@@ -81,9 +89,9 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof ASTNode {}", sizeof(ASTNode));
     SPDLOG_INFO("sizeof ConstTable {}", sizeof(ConstTable));
     SPDLOG_INFO("sizeof ConstTable::ValueType {}", sizeof(ConstTable::ValueType));
-    SPDLOG_INFO("sizeof ConstTable::LValueType {}", sizeof(ConstTable::LValueType));
     SPDLOG_INFO("sizeof SymbolTable {}", sizeof(SymbolTable));
     SPDLOG_INFO("sizeof SymbolTable::Entry {}", sizeof(SymbolTable::Entry));
+    SPDLOG_INFO("sizeof SymbolTable::Definition {}", sizeof(SymbolTable::Definition));
     SPDLOG_INFO("=======================================================");
     SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));
     SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<ObjectClass>));
@@ -95,7 +103,7 @@ static void log_vm_info() {
 const char* no_sep = "";
 const char* comma_sep = ",\n";
 
-static void ast_dump(const ASTNode* ast, bool newline) {
+static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* globals) {
     static int indent_level = 0;
     const char* sep = no_sep;
     if (!ast)
@@ -108,7 +116,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++; sep = "\n";
             for (auto& def : program.defs) {
                 std::cout << sep;
-                ast_dump(&def, true);
+                ast_dump(&def, true, globals);
                 sep = comma_sep;
             }
             indent_level--;
@@ -118,8 +126,10 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             std::cout << "AST::Inheritance(" << std::endl;
             indent_level++;
             if (inh.entry->value.has_value()) {
-                std::cout << std::string(indent_level * 2, ' ') << "path = \"" << std::get<std::string>(*inh.entry->value) << "\"";
-                if (inh.entry->name != std::get<std::string>(*inh.entry->value)) {
+                auto token = std::get<SymbolTable::TokenIndex>(*inh.entry->value);
+                auto text = globals->token_text(token);
+                std::cout << std::string(indent_level * 2, ' ') << "path = \"" << text << "\"";
+                if (inh.entry->name != text) {
                     std::cout << comma_sep << std::string(indent_level * 2, ' ') << "alias = \"" << inh.entry->name << "\"";
                 }
             }
@@ -131,11 +141,11 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++;
             if (func.decl) {
                 std::cout << std::string(indent_level * 2, ' ') << "decl = ";
-                ast_dump(func.decl.get(), false);
+                ast_dump(func.decl.get(), false, globals);
             }
             if (func.body) {
                 std::cout << comma_sep << std::string(indent_level * 2, ' ') << "body = ";
-                ast_dump(func.body.get(), false);
+                ast_dump(func.body.get(), false, globals);
             }
             indent_level--;
             std::cout << ")";
@@ -148,7 +158,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             }
             if (func_decl.param_list) {
                 std::cout << comma_sep << std::string(indent_level * 2, ' ') << "param_list = ";
-                ast_dump(func_decl.param_list.get(), false);
+                ast_dump(func_decl.param_list.get(), false, globals);
             }
             indent_level--;
             std::cout << ")";
@@ -158,7 +168,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++; sep = "\n";
             for (auto& param : param_list.parameters) {
                 std::cout << sep;
-                //ast_dump(&param, true);
+                //ast_dump(&param, true, globals);
                 std::cout << std::string(indent_level * 2, ' ') << "data_type = " << static_cast<int>(param.b.data_type);
                 sep = comma_sep;
             }
@@ -175,7 +185,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
                 auto& stmts = std::get<AST::List>(block.stmts->node).elts;
                 for (auto& stmt : stmts) {
                     std::cout << sep;
-                    ast_dump(&stmt, true);
+                    ast_dump(&stmt, true, globals);
                     sep = comma_sep;
                 }
                 indent_level--;
@@ -189,15 +199,15 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++;
             if (pre_tested_loop.condition) {
                 std::cout << std::string(indent_level * 2, ' ') << "condition = ";
-                ast_dump(pre_tested_loop.condition.get(), false);
+                ast_dump(pre_tested_loop.condition.get(), false, globals);
             }
             if (pre_tested_loop.step) {
                 std::cout << comma_sep << std::string(indent_level * 2, ' ') << "step = ";
-                ast_dump(pre_tested_loop.step.get(), false);
+                ast_dump(pre_tested_loop.step.get(), false, globals);
             }
             if (pre_tested_loop.body) {
                 std::cout << comma_sep << std::string(indent_level * 2, ' ') << "body = ";
-                ast_dump(pre_tested_loop.body.get(), false);
+                ast_dump(pre_tested_loop.body.get(), false, globals);
             }
             indent_level--;
             std::cout << ")";
@@ -207,11 +217,11 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++;
             if (post_tested_loop.body) {
                 std::cout << std::string(indent_level * 2, ' ') << "body = ";
-                ast_dump(post_tested_loop.body.get(), false);
+                ast_dump(post_tested_loop.body.get(), false, globals);
             }
             if (post_tested_loop.condition) {
                 std::cout << comma_sep << std::string(indent_level * 2, ' ') << "condition = ";
-                ast_dump(post_tested_loop.condition.get(), false);
+                ast_dump(post_tested_loop.condition.get(), false, globals);
             }
             indent_level--;
             std::cout << ")";
@@ -219,7 +229,7 @@ static void ast_dump(const ASTNode* ast, bool newline) {
         [&](const AST::Return& ret_stmt) {
             std::cout << "AST::Return(";
             if (ret_stmt.expr) {
-                ast_dump(ret_stmt.expr.get(), false);
+                ast_dump(ret_stmt.expr.get(), false, globals);
             }
             std::cout << ")";
         },
@@ -227,9 +237,9 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             std::cout << "AST::Assign(" << std::endl;
             indent_level++;
             std::cout << std::string(indent_level * 2, ' ') << "lhs = ";
-            ast_dump(assign.lhs.get(), false);
+            ast_dump(assign.lhs.get(), false, globals);
             std::cout << comma_sep << std::string(indent_level * 2, ' ') << "rhs = ";
-            ast_dump(assign.rhs.get(), false);
+            ast_dump(assign.rhs.get(), false, globals);
             indent_level--;
             std::cout << ")";
         },
@@ -238,9 +248,9 @@ static void ast_dump(const ASTNode* ast, bool newline) {
             indent_level++;
             std::cout << std::string(indent_level * 2, ' ') << "oparg = " << bin_op.arg << std::endl;
             std::cout << std::string(indent_level * 2, ' ') << "lhs = ";
-            ast_dump(bin_op.lhs.get(), false);
+            ast_dump(bin_op.lhs.get(), false, globals);
             std::cout << comma_sep << std::string(indent_level * 2, ' ') << "rhs = ";
-            ast_dump(bin_op.rhs.get(), false);
+            ast_dump(bin_op.rhs.get(), false, globals);
             indent_level--;
             std::cout << ")";
         },

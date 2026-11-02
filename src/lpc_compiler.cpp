@@ -48,14 +48,26 @@ LpcCompiler::~LpcCompiler() {
     }
 }
 
+void LpcCompiler::use_predefines(std::shared_ptr<SymbolTable> predefines) {
+    predefines_ = std::move(predefines);
+    if (predefines_ && impl_) {
+        impl_->ctx.defines = predefines_;
+        impl_->ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);
+    }
+}
+
 bool LpcCompiler::init() {
     if (!impl_)
         return false;
     messages_.clear();
     consts_ = std::make_shared<ConstTable>();
     impl_->ctx.consts = consts_;
+    if (!impl_->ctx.defines)
+        impl_->ctx.defines = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);
     globals_ = std::make_shared<SymbolTable>(SymbolTable::ScopeType::GLOBAL, 0, nullptr);
     impl_->ctx.location.initialize(&filename_);
+    impl_->ctx.pp_location.initialize(&filename_);
+    impl_->ctx.pp_eof = false;
     impl_->ctx.current_scope = globals_;
     if (!filename_.empty() && filename_ != "<unknown>") {
         impl_->ctx.current_file = consts_->find_or_add(filename_); // make an interned copy of current filename
@@ -77,10 +89,45 @@ std::string LpcCompiler::preprocess() noexcept {
             result.append(buffer, read);
         }
     }
+    catch (const yy::LpcParser::syntax_error& e) {
+        const auto& pos = e.location.begin;
+        auto text = fmt::format("{}:{}:{}: {}", filename_, pos.line, pos.column, e.what());
+        SPDLOG_DEBUG("preprocessing failed: {}", text);
+        messages_.push_back({pos.line, pos.column, std::move(text)});
+        return "";
+    }
     catch (const std::exception& e) {
-        SPDLOG_ERROR("preprocessing failed: {}", e.what());
+        SPDLOG_DEBUG("preprocessing failed: {}", e.what());
+        messages_.push_back({-1, -1, e.what()});
+        return "";
+    }
+    return result;
+}
+
+std::string LpcCompiler::preprocess(const std::string& source) noexcept {
+    std::string result;
+    auto saved_impl = impl_;
+    struct internal_s tmp;
+    try {
+        if (predefines_) {
+            tmp.ctx.defines = predefines_;
+            tmp.ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);
+        }
+        else
+            tmp.ctx.defines = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);
+        pplex_init_extra(&tmp.ctx, &tmp.ppscanner); // create preprocessor scanner
+        tmp.ctx.ppscanner = tmp.ppscanner;
+        pp_scan_bytes(source.data(), source.size(), tmp.ppscanner); // feed the source string to the preprocessor
+        impl_ = &tmp;
+        result = preprocess();
+    }
+    catch (const std::exception& e) {
+        SPDLOG_DEBUG("preprocessing failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
     }
+    if (tmp.ppscanner)
+        pplex_destroy(tmp.ppscanner);
+    impl_ = saved_impl;
     return result;
 }
 
@@ -98,17 +145,17 @@ bool LpcCompiler::parse() noexcept {
     catch (const yy::parse_error& e) {
         // Handle parsing errors
         if (filename_.empty()) {
-            SPDLOG_ERROR("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
+            SPDLOG_DEBUG("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
             messages_.push_back({e.lineno, e.column, e.what()});
         } else {
             auto text = fmt::format("{}:{}:{}: {}", filename_, e.lineno, e.column, e.what());
-            SPDLOG_ERROR("parsing error: {}", text);
+            SPDLOG_DEBUG("parsing error: {}", text);
             messages_.push_back({e.lineno, e.column, std::move(text)});
         }
     }
     catch (const std::exception& e) {
         // Handle other exceptions
-        SPDLOG_ERROR("parse failed: {}", e.what());
+        SPDLOG_DEBUG("parse failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
     }
     return result;
@@ -125,6 +172,12 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
+        if (predefines_) {
+            tmp.ctx.defines = predefines_;
+            tmp.ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);
+        }
+        else
+            tmp.ctx.defines = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);
         pplex_init_extra(&tmp.ctx, &tmp.ppscanner); // create preprocessor scanner
         tmp.ctx.ppscanner = tmp.ppscanner;
         pp_scan_bytes(source.data(), source.size(), tmp.ppscanner); // preprocessor reads the string
