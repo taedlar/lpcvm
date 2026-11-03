@@ -28,31 +28,6 @@
     #include "const_pool.hpp"
     #include "lpc_compiler.hpp"
 
-    namespace yy {
-        enum class LpcAssign: int {
-            ASSIGN = 0,
-            ADD_ASSIGN,
-            SUB_ASSIGN,
-            MUL_ASSIGN,
-            DIV_ASSIGN,
-            MOD_ASSIGN,
-            LSH_ASSIGN,
-            RSH_ASSIGN,
-            AND_ASSIGN,
-            XOR_ASSIGN,
-            OR_ASSIGN,
-        };
-
-        enum class LpcOrder: int {
-            EQUAL = 0,
-            NOT_EQUAL,
-            LESS,
-            LESS_EQUAL,
-            GREATER,
-            GREATER_EQUAL,
-        };
-    } // namespace yy
-
     // typedef yyscan_t for the reentrant lexer handle
     #ifndef YY_TYPEDEF_YY_SCANNER_T
     #define YY_TYPEDEF_YY_SCANNER_T
@@ -566,23 +541,23 @@ comma_expr
 
 expr0
     : lvalue L_ASSIGN expr0
-        { ASSIGN_AST($$, @$, AST::Assign{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::Assign{$2, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '?' expr0 ':' expr0 %prec '?'
         { ASSIGN_AST($$, @$, AST::TernaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3)), std::make_unique<ASTNode>(std::move($5))}); }
     | expr0 L_LOR expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::LOGICAL_OR, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_LAND expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::LOGICAL_AND, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '|' expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::BITWISE_OR, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '^' expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::BITWISE_XOR, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '&' expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::BITWISE_AND, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_LSH expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::LSH, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_RSH expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::RSH, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '+' expr0
         { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::ADD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 '-' expr0
@@ -594,21 +569,21 @@ expr0
     | expr0 '%' expr0
         { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::MOD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_ORDER expr0
-        { ASSIGN_AST($$, @$, AST::BinaryOp{0, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+        { ASSIGN_AST($$, @$, AST::BinaryOp{$2, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | L_INC lvalue %prec L_NOT
-        { ASSIGN_AST($$, @$, AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}); }
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_PREFIX_INC, nullptr, std::make_unique<ASTNode>(std::move($2))}); }
     | L_DEC lvalue %prec L_NOT
-        { ASSIGN_AST($$, @$, AST::Assign{nullptr, std::make_unique<ASTNode>(std::move($2))}); }
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_PREFIX_DEC, nullptr, std::make_unique<ASTNode>(std::move($2))}); }
     | lvalue L_INC
-        { ASSIGN_AST($$, @$, AST::Assign{std::make_unique<ASTNode>(std::move($1)), nullptr}); }
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_SUFFIX_INC, std::make_unique<ASTNode>(std::move($1)), nullptr}); }
     | lvalue L_DEC
-        { ASSIGN_AST($$, @$, AST::Assign{std::make_unique<ASTNode>(std::move($1)), nullptr}); }
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_SUFFIX_DEC, std::make_unique<ASTNode>(std::move($1)), nullptr}); }
     | L_NOT expr0
-        { ASSIGN_AST($$, @$, AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}); }
+        { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::NOT, std::make_unique<ASTNode>(std::move($2))}); }
     | '~' expr0
-        { ASSIGN_AST($$, @$, AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}); }
+        { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::BITWISE_NOT, std::make_unique<ASTNode>(std::move($2))}); }
     | '-' expr0 %prec L_NOT
-        { ASSIGN_AST($$, @$, AST::UnaryOp{std::make_unique<ASTNode>(std::move($2))}); }
+        { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::NEG, std::make_unique<ASTNode>(std::move($2))}); }
     | expr4
     | L_INTEGER
         {

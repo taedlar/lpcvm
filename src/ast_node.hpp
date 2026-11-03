@@ -85,14 +85,16 @@ namespace AST {
     struct Continue {
     };
     struct Assign {
+        int arg; // namespace oparg::AssignOpArg
         std::unique_ptr<ASTNode> lhs;
         std::unique_ptr<ASTNode> rhs;
     };
     struct UnaryOp {
+        int arg; // namespace oparg::UnaryOpArg
         std::unique_ptr<ASTNode> operand;
     };
     struct BinaryOp {
-        int arg; // namespace oparg
+        int arg; // namespace oparg::BinaryOpArg
         std::unique_ptr<ASTNode> lhs;
         std::unique_ptr<ASTNode> rhs;
     };
