@@ -72,6 +72,11 @@ namespace AST {
         std::unique_ptr<ASTNode> body;
         std::unique_ptr<ASTNode> condition;
     };
+    struct IterativeLoop {
+        std::unique_ptr<ASTNode> iter;
+        std::unique_ptr<ASTNode> collection;
+        std::unique_ptr<ASTNode> body;
+    };
     struct Return {
         std::unique_ptr<ASTNode> expr;
     };
@@ -129,6 +134,7 @@ struct ASTNode {
         AST::Cond,
         AST::PreTestedLoop,
         AST::PostTestedLoop,
+        AST::IterativeLoop,
         AST::Return,
         AST::Break,
         AST::Continue,
