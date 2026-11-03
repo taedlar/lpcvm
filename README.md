@@ -1,10 +1,8 @@
 # LPCVM
 A sandboxed virtual machine inspired by LPMud's **blueprints and clones** architecture.
 
-This is NOT a LPMud fork (not using LPMud source codes). LPCVM is intended to be released with a permissive MIT license.
-
-The blueprint-based OOP concepts and many other terms were borrowed from LPMud.
-An LPC-like (ANSI C like) programming language is developed for the sandboxed virtual machine and made minimal deliberately.
+This is NOT a LPMud fork (it does not use LPMud source code). LPCVM is intended to be released with a permissive MIT license.
+Blueprint-based OOP concepts and many other terms are borrowed from LPMud, and a deliberately minimal LPC-like (ANSI C like) language is developed for the VM.
 
 ## How To Build
 From the top source directory:
@@ -13,116 +11,21 @@ cmake -S . -B build
 cmake --build build
 ~~~
 
-### Bytecode Benchmarks
-With `BUILD_TESTING=ON`, build the `bench_bytecode` target. Use an optimized
-`Release` configuration in CMake Tools for performance comparisons, then run:
+With `BUILD_TESTING=ON`, the unit tests and benchmarks are also built (see [Benchmarks](docs/lpcvm.md#benchmarks)).
 
-~~~bash
-./build/benchmarks/bench_bytecode --benchmark_min_time=0.1s --benchmark_repetitions=5
-./build/benchmarks/bench_bytecode --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
-~~~
-
-- `BM_ReturnOnly` measures the execution entry/return baseline.
-- `BM_Dispatch` varies stream size, zero to three extended-argument prefixes,
-  and starting offsets from a known 64-byte-aligned address. Zero-valued prefixes
-  keep the workload identical while isolating decoding overhead; they are
-  intentionally redundant and are not emitted by the compiler.
-- `BM_IntegerAdd` measures constant loads and integer addition.
-- `BM_LocalAccess` measures repeated local loads, stores, and stack pops.
-
-Bytecode construction, constant-pool setup, and a validating stack warm-up are
-outside the timed loop. Arithmetic and local-access timings include popping one
-returned value per execution so stack capacity can be reused. These are repeated
-execution benchmarks, not cold-cache or isolated memory-bandwidth measurements.
-
-`items_per_second` counts decoded two-byte words, including extended-argument
-prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports
-bytecode bytes traversed, not physical memory traffic.
-
-### Macro Expansion Benchmarks
-With `BUILD_TESTING=ON`, build `bench_macro_expansion` in a `Release` configuration:
-
-~~~bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build --target bench_macro_expansion
-./build/benchmarks/bench_macro_expansion --benchmark_min_time=0.1s --benchmark_repetitions=5
-./build/benchmarks/bench_macro_expansion --benchmark_filter=BM_ObjectMacroChain
-~~~
-
-The suite covers plain-text scanning, object-like macros, function arguments,
-nested function invocations, object-macro chains, and recursion guards. Workloads
-vary the number of input lines and, for nested expansion, the depth.
-
-Source construction, macro definition parsing, and an exact-output validation
-are outside the timed loop. Each iteration calls `LpcCompiler::preprocess` on
-the same input with prepared definitions; timings include scanner and compiler
-context setup, input copying, expansion, and output allocation and destruction.
-No LPC parsing or code generation is performed. `items_per_second` counts input
-lines (not recursive macro expansions), and `bytes_per_second` counts input bytes.
-
-## Sandboxed Virtual Machine
-LPCVM intended to develop a compact virtual stack-machine that can be safely sandboxed.
-A LPC mudlib is a sandbox that is restricted to see only a portion of the filesystem.
-
-### Objects
-- Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an **object class** with methods and variables.
-- The LPC compiler can compile the LPC source files to object class binaries (memory image of method bytecodes, constant pool, and virtual table of methods).
-- The object loader can **load** an object by invoking the LPC compiler to compile LPC source files in-memory.
-  - The object class image has reference-counted lifecycle, with first refernce held by the loaded object.
-  - The loaded object is registered with a unique name (e.g. `"/std/player"`) and serve as a **blueprint object**.
-  - More objects can be **cloned** from blueprint objects, adding more references to their object class images.
-- Hot-reloading is achieved by replacing the registered blueprint object with a newer version. Existing cloned objects can continue to use the old versions.
-- Each object has its own **object states** (i.e. variables, I/O buffers, and other attributes).
-  - The LPC `object` data type refers to a handle of individual object and allows access to its states.
-  - The LPC `call_other` efun allows calling methods defined in the object class image referenced by the object.
-  - The virtual machine can also interact with an object by invoking methods on various I/O events, timers, or policy contracts.
-  - LPC object must be **destructed** explicitly once loaded. This is to emulate physical objects (e.g. monsters) in a virtual world.
-
-### Variables
-- A variable can hold a `SValue` (a value fits in one stack element), e.g. the value of a primitive data type, a reference to a compound data type, or a handle of an object.
-  - Primitive data types (`int`, `float`, `string`, ... etc.) are stored in SValue and passed by value.
-  - Compound data types (`function`, `mapping`, array of any types) are stored in heap allocated memory with reference-counted lifecycle and passed by reference.
-  - Objects are stored in heap allocated memory and passed by handle (weak reference). Objects must be **destructed** explicitly.
-  - There is no raw pointer semantics in LPC language.
-- Variables in objects are destroyed when the object is destructed.
-- Variables in the data stack (e.g. function arguments and local variables) are destroyed when poped from the stack.
-- Heap allocated compound data types are destroyed when their reference count reaches zero.
-
-### Stack Machine
-- LPCVM implements a simple stack machine with a small set of bytecode instructions:
-  - Each instruction consists of 8 bits operation code and 8 bits argument.
-  - If an instruction needs an argument wider than one byte (e.g. jump distance), it can be extended to at most 32 bits by prefix extended argument instruction.
-- The bytecode executor context consists of:
-  - Start and end of bytecode (immutable)
-  - Constant pool (immutable)
-  - Global variables
-  - Evaluation stack
-- SValues in global variables and data stack are designed for thread-confinement architecture. No synchronization on access.
-- No global program counter or stack pointers.
+## Overview
+- **Sandboxed stack machine**: a compact bytecode VM whose mudlib sees only a portion of the filesystem. See [vm-architecture.md](docs/vm-architecture.md).
+- **Objects**: each `*.lpc` file defines an object class. Loaded **blueprints** are cloned into objects with separate state, and blueprints can be hot-reloaded. Objects are destructed explicitly.
+- **Values**: 16-byte `SValue` slots; primitives by value, compound types by reference-counted pointer, objects by weak handle. No raw pointers.
+- **Thread-confined**: stacks, object state and reference counts need no synchronization; there is no global program counter or stack pointer.
 
 ## LPC Language
-> [!NOTE]
-> LPC language was designed decades ago and lacks a published standard.
-> The LPMud implementation also suffer from out-dated architecture and non-reentrant program structures.
+LPCVM starts from a minimal set of [LPC grammar](src/lpc_parser.yy) and leaves fancy features to efuns, aiming to stay familiar to LPMud wizards.
 
-LPCVM starts from a minimal viable set of [LPC grammar](src/lpc_parser.yy) and leaves fancy features for efuns.
-The goal is to proivde an east-to-use LPC language that LPMud wizards are already familiar with.
-Some enhancements and simplifications are added to the LPC language with the help of modern Bison/Flex/C++ capabilities.
+- Expressions: arithmetic, bitwise, comparison, unary, assignment (including compound forms), `++`/`--`, `?:`, and short-circuit `&&`/`||`.
+- Statements: blocks, `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue`, and `return`.
+- Tooling: `lpcfront` command-line frontend (dumps the AST), reentrant `flex`/`bison` preprocessor, lexer and parser, and a bytecode generator.
 
-### LPC compiler CLI
-- A command-line LPC compiler `lpcfront`.
-
-### C++ Lexer and Parser
-- Reentrant lexer and parser.
-- Reentrant LPC compiler.
-
-### Modern Memory Management
-- Standard C++ `<memry>` for internal data structures.
-- 16-bytes SValue using `std::variant` that stores LPC int, float, double, references (8 bytes index + 8 bytes value)
-- `lpcvm::SharedPtr` for LPC mapping, array reference semantic:
-  - Strong reference (prefix control blcok)
-  - Faster and smaller than `std::shared_ptr`
-- `lpcvm::Handle` for LPC object reference semantic:
-  - Weak reference (prefix control block)
-  - Faster and smaller than `std::weak_ptr`
-- Robust error handling with `std::runtime_error` and unwinding.
+## Documentation
+- [docs/lpcvm.md](docs/lpcvm.md): objects, variables, language and compiler details, memory management, benchmarks, and class reference.
+- [docs/vm-architecture.md](docs/vm-architecture.md): executor, bytecode instruction set, and sandbox architecture.

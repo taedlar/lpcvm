@@ -46,8 +46,41 @@ synchronization.
 Bytecode is shared through the object class image. Each instruction is an
 8-bit opcode followed by an 8-bit argument; `F_EXTENDED_ARG` prefixes extend
 the following instruction's argument when it needs more than one byte. The
-current instruction set covers stack management, constants, local and object
-variable access, binary operations, method calls, and returns.
+current instruction set is described below.
+
+| Group | Opcodes | Behavior |
+|-------|---------|----------|
+| Stack | `F_PUSH_N`, `F_POP_N` | Allocate or discard stack slots (locals, discarded expression results). |
+| Constants | `F_CONST_I4/I8/U4/U8/F4/F8`, `F_CONST_STR` | Push a constant-pool entry. |
+| Variables | `F_LOAD_LOCAL`, `F_STORE_LOCAL`, `F_LOAD_GLOBAL`, `F_STORE_GLOBAL` | Stores keep the value on the stack, so an assignment is an expression. |
+| Operators | `F_UNARY_OP`, `F_BINARY_OP` | The argument selects the operation (`oparg::UnaryOpArg`, `oparg::BinaryOpArg`). |
+| Calls | `F_PUSH_FUNC`, `F_CALL`, `F_RETURN` | Method-table calls and frame teardown. |
+| Jumps | `F_JUMP`, `F_JUMP_IF_FALSE`, `F_JUMP_IF_FALSE_OR_POP`, `F_JUMP_IF_TRUE_OR_POP` | Offsets are signed and relative to the next instruction. |
+
+### Operators
+
+`F_UNARY_OP` covers `!`, unary `-`, `~`, and increment/decrement (the latter
+preserve the operand type, including floating point). Compound assignment
+`a op= b` compiles to a load, the right-hand side, `F_BINARY_OP`, and a store.
+Postfix `a++` leaves the original value as the result, while prefix `++a` leaves
+the updated one.
+
+`F_BINARY_OP` promotes mixed numeric operands to a common type: floating point
+wins, same-signedness integers take the wider type, and mixed-sign integers
+become `int64` (or `uint64` when the unsigned operand is 64-bit). Bitwise and
+modulo operations require integer operands; shifts keep the left operand's
+type. Division by zero raises a VM exception.
+
+### Control flow
+
+Jump instructions are emitted with a fixed-width placeholder argument and
+patched once the target is known, so forward jumps never change instruction
+sizes. `if`, loops, and the ternary `?:` use `F_JUMP_IF_FALSE`, which pops the
+condition. Short-circuit `a && b` compiles to `a; F_JUMP_IF_FALSE_OR_POP end; b`
+(`||` uses `F_JUMP_IF_TRUE_OR_POP`): if the jump is taken, `a` stays on the stack
+as the result; otherwise it is popped and `b` is evaluated. The result is
+therefore the last operand evaluated rather than a normalized 0 or 1. A value is
+false if it is zero or void; every other value is true.
 
 The executor consumes a method's bytecode range with its object state, data
 stack, and return stack. It has no process-wide program counter or stack pointer;

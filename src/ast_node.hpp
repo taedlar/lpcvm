@@ -27,11 +27,16 @@ struct ASTNode;
  * Abstract Syntax Tree (AST) node definitions for the LPC virtual machine.
  * Each struct represents a different kind of AST node.
  *
- * To keep the std::variant ASTNode within 32 bytes, each node may consists
- * of an variant index and:
+ * The variant part of ASTNode stores the actual node data (with 8 bytes index)
+ * and:
  * - three std::unique_ptr (8 bytes each)
  * - a std::shared_ptr (16 bytes) and a std::unique_ptr (8 bytes)
  * - a std::vector (24 bytes)
+ *
+ * The size of ASTNode is determined by the largest variant alternative.
+ * In current implementation, we keep the variant part within 32 bytes so the
+ * total size of ASTNode is 48 bytes (32 bytes variant data plus 16 bytes
+ * lexial scanner location record).
  *
  * Use std::move when passing ASTNode. Assignment from a mutable ASTNode
  * also transfers ownership to support Bison's default action ($$ = $1).
