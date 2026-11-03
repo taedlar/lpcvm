@@ -307,6 +307,178 @@ TEST(LpcCompilerTest, LoopStatements) {
     }
 }
 
+TEST(LpcCompilerTest, ShortCircuitLogicalOperators) {
+    struct TestCase {
+        const char* source;
+        int32_t arg;
+        int64_t expected;
+    };
+    // the division by zero must never be evaluated when the operator short-circuits
+    for (const auto& test : {
+        TestCase{"int f(int p) { return p && 5; }", 1, 5},
+        TestCase{"int f(int p) { return p && 5; }", 0, 0},
+        TestCase{"int f(int p) { return p || 5; }", 0, 5},
+        TestCase{"int f(int p) { return p || 5; }", 3, 3},
+        TestCase{"int f(int p) { return p && 1 / 0; }", 0, 0},
+        TestCase{"int f(int p) { return p || 1 / 0; }", 2, 2},
+        TestCase{"int f(int p) { return p || p && 1 / 0; }", 0, 0},
+        TestCase{"int f(int p) { return (p || 0) && 7; }", 4, 7},
+        TestCase{"int f(int p) { if (p && 1) return 8; return 9; }", 1, 8},
+        TestCase{"int f(int p) { if (p || 0) return 8; return 9; }", 0, 9},
+    }) {
+        SCOPED_TRACE(test.source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(test.source));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        BytecodeView entry;
+        ASSERT_TRUE(prog->lookup_method("f", &entry));
+        ReturnStack control;
+        DataStack stack;
+        stack.push(SValue(test.arg));
+        EXPECT_EQ(entry.execute(control, stack, 1), 1);
+        ASSERT_EQ(stack.size(), 1);
+        std::visit([&](const auto& v) {
+            if constexpr (std::is_arithmetic_v<std::decay_t<decltype(v)>>)
+                EXPECT_EQ(static_cast<int64_t>(v), test.expected);
+            else
+                ADD_FAILURE() << "non-numeric result";
+        }, stack.top());
+    }
+}
+
+TEST(LpcCompilerTest, UnaryOperators) {
+    struct TestCase {
+        const char* source;
+        int32_t arg;
+        int64_t expected;
+    };
+    for (const auto& test : {
+        TestCase{"int f(int p) { return -p; }", 5, -5},
+        TestCase{"int f(int p) { return ~p; }", 5, -6},
+        TestCase{"int f(int p) { return !p; }", 0, 1},
+        TestCase{"int f(int p) { return !p; }", 7, 0},
+        TestCase{"int f(int p) { return - -p; }", 3, 3},
+        TestCase{"int f(int p) { return !!p; }", 9, 1},
+        TestCase{"int f(int p) { return -p * p; }", 4, -16},
+        TestCase{"int f(int p) { return -p + 10; }", 4, 6},
+        TestCase{"int f(int p) { return p - 10; }", 4, -6},
+        TestCase{"int f(int p) { return 10 - p; }", 4, 6},
+        TestCase{"int f(int p) { return p < 10; }", 4, 1},
+        TestCase{"int f(int p) { return p == 4; }", 4, 1},
+        TestCase{"int f(int p) { return (p & 6) | 1; }", 4, 5},
+        TestCase{"int f(int p) { if (!p) return 1; return 2; }", 0, 1},
+        TestCase{"int f(int p) { return !p && 5; }", 0, 5},
+    }) {
+        SCOPED_TRACE(test.source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(test.source));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        BytecodeView entry;
+        ASSERT_TRUE(prog->lookup_method("f", &entry));
+        ReturnStack control;
+        DataStack stack;
+        stack.push(SValue(test.arg));
+        EXPECT_EQ(entry.execute(control, stack, 1), 1);
+        ASSERT_EQ(stack.size(), 1);
+        std::visit([&](const auto& v) {
+            if constexpr (std::is_arithmetic_v<std::decay_t<decltype(v)>>)
+                EXPECT_EQ(static_cast<int64_t>(v), test.expected);
+            else
+                ADD_FAILURE() << "non-numeric result";
+        }, stack.top());
+    }
+}
+
+TEST(LpcCompilerTest, TernaryOperator) {
+    struct TestCase {
+        const char* source;
+        int32_t arg;
+        int64_t expected;
+    };
+    // the untaken branch contains a division by zero that must not be evaluated
+    for (const auto& test : {
+        TestCase{"int f(int p) { return p ? 1 : 2; }", 1, 1},
+        TestCase{"int f(int p) { return p ? 1 : 2; }", 0, 2},
+        TestCase{"int f(int p) { return p ? 1 : 1 / 0; }", 3, 1},
+        TestCase{"int f(int p) { return p ? 1 / 0 : 2; }", 0, 2},
+        TestCase{"int f(int p) { return p ? 1 : p ? 2 : 3; }", 0, 3},
+        TestCase{"int f(int p) { return p == 1 ? 10 : p == 2 ? 20 : 30; }", 2, 20},
+        TestCase{"int f(int p) { return (p ? 1 : 2) + 10; }", 0, 12},
+        TestCase{"int f(int p) { int a = p ? 5 : 6; return a; }", 1, 5},
+        TestCase{"int f(int p) { int a = 0; a = p ? 5 : 6; return a; }", 0, 6},
+        TestCase{"int f(int p) { return p && 1 ? 7 : 8; }", 1, 7},
+    }) {
+        SCOPED_TRACE(test.source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(test.source));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        BytecodeView entry;
+        ASSERT_TRUE(prog->lookup_method("f", &entry));
+        ReturnStack control;
+        DataStack stack;
+        stack.push(SValue(test.arg));
+        EXPECT_EQ(entry.execute(control, stack, 1), 1);
+        ASSERT_EQ(stack.size(), 1);
+        std::visit([&](const auto& v) {
+            if constexpr (std::is_arithmetic_v<std::decay_t<decltype(v)>>)
+                EXPECT_EQ(static_cast<int64_t>(v), test.expected);
+            else
+                ADD_FAILURE() << "non-numeric result";
+        }, stack.top());
+    }
+}
+
+TEST(LpcCompilerTest, CompoundAssignments) {
+    struct TestCase {
+        const char* source;
+        int32_t expected;
+    };
+    for (const auto& test : {
+        TestCase{"int f(int p) { int a = 5; a += 3; return a; }", 8},
+        TestCase{"int f(int p) { int a = 5; a -= 3; return a; }", 2},
+        TestCase{"int f(int p) { int a = 5; a *= 3; return a; }", 15},
+        TestCase{"int f(int p) { int a = 9; a /= 2; return a; }", 4},
+        TestCase{"int f(int p) { int a = 9; a %= 4; return a; }", 1},
+        TestCase{"int f(int p) { int a = 12; a &= 10; return a; }", 8},
+        TestCase{"int f(int p) { int a = 12; a |= 3; return a; }", 15},
+        TestCase{"int f(int p) { int a = 12; a ^= 5; return a; }", 9},
+        TestCase{"int f(int p) { int a = 3; a <<= 2; return a; }", 12},
+        TestCase{"int f(int p) { int a = 12; a >>= 2; return a; }", 3},
+        TestCase{"int f(int p) { int a = 1; int b = (a += 4); return a + b; }", 10},
+        TestCase{"int f(int p) { int a = 5; ++a; return a; }", 6},
+        TestCase{"int f(int p) { int a = 5; a++; return a; }", 6},
+        TestCase{"int f(int p) { int a = 5; --a; return a; }", 4},
+        TestCase{"int f(int p) { int a = 5; a--; return a; }", 4},
+        TestCase{"int f(int p) { int a = 5; int b = a++; return a * 10 + b; }", 65},
+        TestCase{"int f(int p) { int a = 5; int b = ++a; return a * 10 + b; }", 66},
+        TestCase{"int f(int p) { int a = 5; int b = a--; return a * 10 + b; }", 45},
+        TestCase{"int f(int p) { int a = 5; int b = --a; return a * 10 + b; }", 44},
+        TestCase{"int f(int p) { int n = 0; for (int i = 3; i; i--) n++; return n; }", 3},
+    }) {
+        SCOPED_TRACE(test.source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(test.source));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        BytecodeView entry;
+        ASSERT_TRUE(prog->lookup_method("f", &entry));
+        ReturnStack control;
+        DataStack stack;
+        stack.push(SValue(int32_t{0}));
+        EXPECT_EQ(entry.execute(control, stack, 1), 1);
+        ASSERT_EQ(stack.size(), 1);
+        std::visit([&](const auto& v) {
+            if constexpr (std::is_arithmetic_v<std::decay_t<decltype(v)>>)
+                EXPECT_EQ(static_cast<int64_t>(v), test.expected);
+            else
+                ADD_FAILURE() << "non-numeric result";
+        }, stack.top());
+    }
+}
+
 TEST(LpcCompilerTest, LoopsWithAssignment) {
     struct TestCase {
         const char* source;

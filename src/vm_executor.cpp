@@ -7,6 +7,42 @@
 #include "vm_opcodes.hpp"
 #include <stdexcept>
 #include <type_traits>
+#include <variant>
+
+/// @brief The common type of two arithmetic operands (usual arithmetic conversions).
+/// Floating point wins; mixed-sign integers promote to a signed type that can hold both
+/// (int64 for 32-bit unsigned), except 64-bit unsigned which stays unsigned (like C).
+template <typename L, typename R>
+struct PromotedType {
+    static auto select() {
+        if constexpr (std::is_same_v<L, double> || std::is_same_v<R, double>)
+            return double{};
+        else if constexpr (std::is_same_v<L, float> || std::is_same_v<R, float>)
+            return float{};
+        else if constexpr (std::is_same_v<L, R>)
+            return L{};
+        else if constexpr (std::is_signed_v<L> == std::is_signed_v<R>)
+            return std::conditional_t<(sizeof(L) >= sizeof(R)), L, R>{};
+        else if constexpr (std::is_unsigned_v<L> ? sizeof(L) == 8 : sizeof(R) == 8)
+            return uint64_t{};
+        else
+            return int64_t{};
+    }
+    using type = decltype(select());
+};
+
+/// @brief LPC truthiness: non-zero numbers and all non-void non-numeric values are true.
+static bool is_truthy(const SValue& value) {
+    return std::visit([](const auto& v) -> bool {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_arithmetic_v<T>)
+            return v != 0;
+        else if constexpr (std::is_same_v<T, std::monostate>)
+            return false;
+        else
+            return true;
+    }, value);
+}
 
 /**
  * @brief BytecodeView::execute() implementation (a token-threaded virtual machine)
@@ -179,6 +215,13 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
         auto& value = stack.top();
         result = std::visit([&](const auto& val) -> SValue {
             using ValType = std::decay_t<decltype(val)>;
+            if constexpr (std::is_arithmetic_v<ValType>) {
+                // INC/DEC preserve the operand type, so no typed constant is needed
+                if (oparg == oparg::INC)
+                    return SValue(static_cast<ValType>(val + 1));
+                if (oparg == oparg::DEC)
+                    return SValue(static_cast<ValType>(val - 1));
+            }
             if constexpr (std::is_integral_v<ValType>) {
                 switch (oparg) {
                     case oparg::NOT:
@@ -210,44 +253,53 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
                 if (oparg == oparg::DIV && rhs_value == 0)
                     throw lpcvm::Exception(std::runtime_error("Division by zero"), prog_, pc - 1);
             }
-            if constexpr (std::is_same_v<LhsType, RhsType> &&
-                (std::is_same_v<LhsType, int32_t> || std::is_same_v<LhsType, uint32_t> || std::is_same_v<LhsType, int64_t> || std::is_same_v<LhsType, uint64_t>)) {
+            if constexpr (std::is_arithmetic_v<LhsType> && std::is_arithmetic_v<RhsType>) {
+                using T = typename PromotedType<LhsType, RhsType>::type;
+                const T a = static_cast<T>(lhs_value);
+                const T b = static_cast<T>(rhs_value);
                 switch (oparg) {
                     case oparg::ADD:
-                        return SValue(lhs_value + rhs_value);
+                        return SValue(static_cast<T>(a + b));
                     case oparg::SUB:
-                        return SValue(lhs_value - rhs_value);
+                        return SValue(static_cast<T>(a - b));
                     case oparg::MUL:
-                        return SValue(lhs_value * rhs_value);
+                        return SValue(static_cast<T>(a * b));
                     case oparg::DIV:
-                        return SValue(lhs_value / rhs_value);
-                    case oparg::MOD:
-                        return SValue(lhs_value % rhs_value);
-                    case oparg::BITWISE_AND:
-                        return SValue(lhs_value & rhs_value);
-                    case oparg::BITWISE_OR:
-                        return SValue(lhs_value | rhs_value);
-                    case oparg::BITWISE_XOR:
-                        return SValue(lhs_value ^ rhs_value);
-                    case oparg::LSH:
-                        return SValue(lhs_value << rhs_value);
-                    case oparg::RSH:
-                        return SValue(lhs_value >> rhs_value);
+                        return SValue(static_cast<T>(a / b));
                     case oparg::EQUAL:
-                        return SValue(lhs_value == rhs_value);
+                        return SValue(a == b);
                     case oparg::NOT_EQUAL:
-                        return SValue(lhs_value != rhs_value);
+                        return SValue(a != b);
                     case oparg::LESS:
-                        return SValue(lhs_value < rhs_value);
+                        return SValue(a < b);
                     case oparg::LESS_EQUAL:
-                        return SValue(lhs_value <= rhs_value);
+                        return SValue(a <= b);
                     case oparg::GREATER:
-                        return SValue(lhs_value > rhs_value);
+                        return SValue(a > b);
                     case oparg::GREATER_EQUAL:
-                        return SValue(lhs_value >= rhs_value);
+                        return SValue(a >= b);
                     default:
-                        throw std::runtime_error("Invalid binary operation");
+                        break;
                 }
+                if constexpr (std::is_integral_v<T>) {
+                    switch (oparg) {
+                        case oparg::MOD:
+                            return SValue(static_cast<T>(a % b));
+                        case oparg::BITWISE_AND:
+                            return SValue(static_cast<T>(a & b));
+                        case oparg::BITWISE_OR:
+                            return SValue(static_cast<T>(a | b));
+                        case oparg::BITWISE_XOR:
+                            return SValue(static_cast<T>(a ^ b));
+                        case oparg::LSH:
+                            return SValue(static_cast<LhsType>(lhs_value << rhs_value)); // shifts keep the lhs type
+                        case oparg::RSH:
+                            return SValue(static_cast<LhsType>(lhs_value >> rhs_value));
+                        default:
+                            break;
+                    }
+                }
+                throw std::runtime_error("Invalid binary operation");
             }
             else {
                 throw std::runtime_error("Unsupported binary operand types");
@@ -290,20 +342,27 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
     VM_HANDLER(F_JUMP_IF_FALSE) {
         oparg = (extended_arg << 8) | *pc++;
         result = stack.pop();
-        bool truth = std::visit([](const auto& v) -> bool {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_arithmetic_v<T>)
-                return v != 0;
-            else if constexpr (std::is_same_v<T, std::monostate>)
-                return false;
-            else
-                return true;
-        }, result);
+        bool truth = is_truthy(result);
         if (!truth) {
             pc += static_cast<int32_t>(oparg);
             if (pc < start_ || pc > end_)
                 throw std::runtime_error("Jump target out of bounds");
         }
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_JUMP_IF_FALSE_OR_POP)
+    VM_HANDLER(F_JUMP_IF_TRUE_OR_POP) {
+        const bool jump_if_true = (pc[-1] == F_JUMP_IF_TRUE_OR_POP);
+        oparg = (extended_arg << 8) | *pc++;
+        bool truth = is_truthy(stack[stack.size() - 1]);
+        if (truth == jump_if_true) {
+            pc += static_cast<int32_t>(oparg); // keep the value on the stack as the result
+            if (pc < start_ || pc > end_)
+                throw std::runtime_error("Jump target out of bounds");
+        }
+        else
+            stack.pop();
         VM_DISPATCH();
     }
 

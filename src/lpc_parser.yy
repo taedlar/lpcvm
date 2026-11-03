@@ -338,7 +338,7 @@ new_var
             else
                 entry->value = uint32_t{lpcc->next_global++};
             lpcc->current_scope->emplace($2, entry); // add the variable to current scope
-            ASSIGN_AST($$, @2, AST::BinaryOp{
+            ASSIGN_AST($$, @2, AST::Assign{
                 oparg::ASSIGN,
                 std::make_unique<ASTNode>(AST::Variable{ std::move(entry) }, source_location(@2, lpcc)), // lhs
                 std::make_unique<ASTNode>(std::move($4))
