@@ -25,11 +25,91 @@ void Bytecode::grow_bytecode(std::size_t length) {
     bytecode_.reserve(new_capacity);
 }
 
+void Bytecode::emit_variable_load(const AST::Variable& var) {
+    if (!var.entry || !var.entry->value || !std::holds_alternative<uint32_t>(*var.entry->value))
+        throw std::runtime_error("Variable has no storage index");
+    emit(var.entry->signature.b.is_local ? F_LOAD_LOCAL : F_LOAD_GLOBAL, std::get<uint32_t>(*var.entry->value));
+}
+
+void Bytecode::emit_variable_store(const AST::Variable& var) {
+    if (!var.entry || !var.entry->value || !std::holds_alternative<uint32_t>(*var.entry->value))
+        throw std::runtime_error("Variable has no storage index");
+    emit(var.entry->signature.b.is_local ? F_STORE_LOCAL : F_STORE_GLOBAL, std::get<uint32_t>(*var.entry->value));
+}
+
 Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
     context_ = STATEMENT;
     std::visit(overloaded {
         [&](const AST::Block& block) {
             emit_block(block);
+        },
+        [&](const AST::Cond& cond) {
+            emit_expression(*cond.condition);
+            const auto to_else = emit_jump(F_JUMP_IF_FALSE);
+            emit_statement(*cond.body);
+            if (cond.else_body && cond.else_body->node.index() != 0) {
+                const auto to_end = emit_jump(F_JUMP);
+                patch_jump(to_else);
+                emit_statement(*cond.else_body);
+                patch_jump(to_end);
+            }
+            else {
+                patch_jump(to_else);
+            }
+        },
+        [&](const AST::PreTestedLoop& loop) {
+            const auto top = position();
+            std::size_t exit_jump = 0;
+            const bool has_cond = loop.condition && loop.condition->node.index() != 0;
+            if (has_cond) {
+                emit_expression(*loop.condition);
+                exit_jump = emit_jump(F_JUMP_IF_FALSE);
+            }
+            loops_.push_back({local_depth_, {}, {}});
+            emit_statement(*loop.body);
+            auto ctx = std::move(loops_.back());
+            loops_.pop_back();
+            for (auto pos: ctx.continues)
+                patch_jump(pos);
+            if (loop.step && loop.step->node.index() != 0)
+                emit_statement(*loop.step);
+            emit_jump_to(F_JUMP, top);
+            if (has_cond)
+                patch_jump(exit_jump);
+            for (auto pos: ctx.breaks)
+                patch_jump(pos);
+        },
+        [&](const AST::PostTestedLoop& loop) {
+            const auto top = position();
+            loops_.push_back({local_depth_, {}, {}});
+            emit_statement(*loop.body);
+            auto ctx = std::move(loops_.back());
+            loops_.pop_back();
+            for (auto pos: ctx.continues)
+                patch_jump(pos);
+            emit_expression(*loop.condition);
+            const auto exit_jump = emit_jump(F_JUMP_IF_FALSE);
+            emit_jump_to(F_JUMP, top);
+            patch_jump(exit_jump);
+            for (auto pos: ctx.breaks)
+                patch_jump(pos);
+        },
+        [&](const AST::Break&) {
+            if (loops_.empty())
+                throw std::runtime_error("break statement outside of loop");
+            if (local_depth_ > loops_.back().local_depth)
+                emit(F_POP_N, local_depth_ - loops_.back().local_depth);
+            loops_.back().breaks.push_back(emit_jump(F_JUMP));
+        },
+        [&](const AST::Continue&) {
+            if (loops_.empty())
+                throw std::runtime_error("continue statement outside of loop");
+            if (local_depth_ > loops_.back().local_depth)
+                emit(F_POP_N, local_depth_ - loops_.back().local_depth);
+            loops_.back().continues.push_back(emit_jump(F_JUMP));
+        },
+        [&](const std::monostate&) {
+            // empty statement
         },
         [&](const AST::Return& ret_stmt) {
             if (ret_stmt.expr) {
@@ -62,7 +142,30 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
                 [&](const double& double_const)     { emit(F_CONST_F8, constant.index); },
             }, constant.value);
         },
+        [&](const AST::Variable& var) {
+            emit_variable_load(var);
+        },
+        [&](const AST::Assign& assign) {
+            // unary forms (e.g. ++/--) have a null operand and are not supported yet
+            if (!assign.lhs || !assign.rhs)
+                return;
+            const auto* var = std::get_if<AST::Variable>(&assign.lhs->node);
+            if (!var)
+                throw std::runtime_error("Unsupported assignment target");
+            emit_expression(*assign.rhs);
+            set_source_location(expr);
+            emit_variable_store(*var); // the assigned value remains on the stack as the expression result
+        },
         [&](const AST::BinaryOp& bin_op) {
+            if (bin_op.arg == oparg::ASSIGN) { // variable declaration with initializer
+                const auto* var = std::get_if<AST::Variable>(&bin_op.lhs->node);
+                if (!var)
+                    throw std::runtime_error("Unsupported assignment target");
+                emit_expression(*bin_op.rhs);
+                set_source_location(expr);
+                emit_variable_store(*var);
+                return;
+            }
             emit_expression(*bin_op.lhs);
             emit_expression(*bin_op.rhs);
             set_source_location(expr);
@@ -95,6 +198,7 @@ Bytecode& Bytecode::emit_block(const AST::Block& block, std::size_t num_formal_p
     num_locals -= num_formal_params; // arguments are pushed by the caller
     if (num_locals > 0)
         emit(F_PUSH_N, num_locals);
+    local_depth_ += num_locals;
 
     // emit code for each statement in the block
     auto& stmts = std::get<AST::List>(block.stmts->node).elts;
@@ -103,7 +207,9 @@ Bytecode& Bytecode::emit_block(const AST::Block& block, std::size_t num_formal_p
 
     // when exiting the block, deallocate space for local variables (excluding formal parameters)
     // TODO: back patch for jump instructions that may need to skip over the local variable deallocation.
-    if (num_locals > 0)
+    if (num_locals > 0) {
         emit(F_POP_N, num_locals);
+        local_depth_ -= num_locals;
+    }
     return *this;
 }

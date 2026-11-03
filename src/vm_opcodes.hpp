@@ -27,8 +27,12 @@
     X(F_BIN_OP) \
     X(F_PUSH_FUNC) \
     X(F_CALL) \
+    X(F_JUMP) \
+    X(F_JUMP_IF_FALSE) \
     X(F_RETURN) \
 
+/// F_JUMP adds its argument to the program counter (relative to the next instruction).
+/// F_JUMP_IF_FALSE pops the top of the stack and jumps only if the value is false (zero/void).
 /// \brief The enum definition for opcodes using the X-macro technique.
 /// This enum must be 0-based, with the first opcode having the value 0.
 enum Opcode: uint8_t {

@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <stdexcept>
 #include "ast_node.hpp"
 #include "vm_opcodes.hpp"
 
@@ -31,6 +32,15 @@ namespace lpcvm {
             STATEMENT,
             EXPRESSION
         } context_;
+
+        /// Tracks an enclosing loop so break/continue can be patched and locals unwound.
+        struct LoopContext {
+            std::size_t local_depth; // number of block locals allocated when entering the loop
+            std::vector<std::size_t> breaks;
+            std::vector<std::size_t> continues;
+        };
+        std::vector<LoopContext> loops_;
+        std::size_t local_depth_ = 0; // number of block locals currently allocated
 
         void grow_bytecode(std::size_t length);
         void set_source_location(const ASTNode& expr) {
@@ -90,6 +100,41 @@ namespace lpcvm {
             bytecode_.push_back(index & 0xff);
             return *this;
         }
+
+        /**
+         * @brief Emits a forward jump with a fixed-width placeholder argument.
+         * @return The position of the jump instruction, to be passed to patch_jump().
+         */
+        std::size_t emit_jump(uint8_t op) {
+            const std::size_t pos = position();
+            emit(op, 0x01000000); // forces the 8-byte form so the argument can be patched in place
+            return pos;
+        }
+
+        /// @brief Patches a jump emitted by emit_jump() to land at the current position.
+        void patch_jump(std::size_t jump_pos) {
+            const std::size_t offset = position() - (jump_pos + 8);
+            if (offset > 0x7fffffff)
+                throw std::length_error("Jump distance too large");
+            bytecode_[jump_pos + 1] = (offset >> 24) & 0xff;
+            bytecode_[jump_pos + 3] = (offset >> 16) & 0xff;
+            bytecode_[jump_pos + 5] = (offset >> 8) & 0xff;
+            bytecode_[jump_pos + 7] = offset & 0xff;
+        }
+
+        /// @brief Emits a jump (typically backward) to an already known position.
+        Bytecode& emit_jump_to(uint8_t op, std::size_t target) {
+            // a negative offset always encodes as the 8-byte form
+            const auto offset = static_cast<std::int64_t>(target) - static_cast<std::int64_t>(position() + 8);
+            if (offset < INT32_MIN || offset > INT32_MAX)
+                throw std::length_error("Jump distance too large");
+            return emit(op, static_cast<uint32_t>(static_cast<int32_t>(offset)));
+        }
+
+        /// @brief Emits a load of the variable onto the stack.
+        void emit_variable_load(const AST::Variable& var);
+        /// @brief Emits a store of the stack top into the variable, leaving the value on the stack.
+        void emit_variable_store(const AST::Variable& var);
 
         Bytecode& emit_statement(const ASTNode& stmt);
         Bytecode& emit_expression(const ASTNode& expr);

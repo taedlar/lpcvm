@@ -376,3 +376,58 @@ TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
     ASSERT_TRUE(std::holds_alternative<int32_t>(res));
     EXPECT_EQ(std::get<int32_t>(res), 123);
 }
+
+TEST(VMExecutorTest, IfElseJumps) {
+    ConstTable consts;
+    auto c0 = consts.find_or_add(int32_t{0});
+    auto c1 = consts.find_or_add(int32_t{1});
+    auto c2 = consts.find_or_add(int32_t{2});
+    ObjectClass prog(0, &consts);
+
+    for (auto cond : {c0, c1}) {
+        std::vector<uint8_t> bytecode;
+        lpcvm::Bytecode bgen(bytecode);
+        bgen.emit(F_CONST_I4, cond);
+        auto to_else = bgen.emit_jump(F_JUMP_IF_FALSE);
+        bgen.emit(F_CONST_I4, c1);
+        auto to_end = bgen.emit_jump(F_JUMP);
+        bgen.patch_jump(to_else);
+        bgen.emit(F_CONST_I4, c2);
+        bgen.patch_jump(to_end);
+        bgen.emit(F_RETURN, 1);
+
+        BytecodeView code(bytecode.data(), bytecode.size(), &prog);
+        ReturnStack control;
+        DataStack stack;
+        EXPECT_NO_THROW(code.execute(control, stack));
+        ASSERT_EQ(stack.size(), 1);
+        EXPECT_EQ(std::get<int32_t>(stack.pop()), cond == c0 ? 2 : 1);
+    }
+}
+
+TEST(VMExecutorTest, BackwardJump) {
+    ConstTable consts;
+    auto c1 = consts.find_or_add(int32_t{1});
+    auto c3 = consts.find_or_add(int32_t{3});
+    ObjectClass prog(0, &consts);
+
+    // while (counter) counter = counter - 1;
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode bgen(bytecode);
+    bgen.emit(F_PUSH_N, 1).emit(F_CONST_I4, c3).emit(F_STORE_LOCAL, 0).emit(F_POP_N, 1);
+    auto loop = bgen.position();
+    bgen.emit(F_LOAD_LOCAL, 0);
+    auto to_end = bgen.emit_jump(F_JUMP_IF_FALSE);
+    bgen.emit(F_LOAD_LOCAL, 0).emit(F_CONST_I4, c1).emit(F_BIN_OP, oparg::SUB)
+        .emit(F_STORE_LOCAL, 0).emit(F_POP_N, 1);
+    bgen.emit_jump_to(F_JUMP, loop);
+    bgen.patch_jump(to_end);
+    bgen.emit(F_LOAD_LOCAL, 0).emit(F_RETURN, 1);
+
+    BytecodeView code(bytecode.data(), bytecode.size(), &prog);
+    ReturnStack control;
+    DataStack stack;
+    EXPECT_NO_THROW(code.execute(control, stack));
+    ASSERT_EQ(stack.size(), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.pop()), 0);
+}

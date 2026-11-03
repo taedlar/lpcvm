@@ -231,6 +231,34 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
         VM_DISPATCH();
     }
 
+    VM_HANDLER(F_JUMP) {
+        oparg = (extended_arg << 8) | *pc++;
+        pc += static_cast<int32_t>(oparg);
+        if (pc < start_ || pc > end_)
+            throw std::runtime_error("Jump target out of bounds");
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_JUMP_IF_FALSE) {
+        oparg = (extended_arg << 8) | *pc++;
+        result = stack.pop();
+        bool truth = std::visit([](const auto& v) -> bool {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_arithmetic_v<T>)
+                return v != 0;
+            else if constexpr (std::is_same_v<T, std::monostate>)
+                return false;
+            else
+                return true;
+        }, result);
+        if (!truth) {
+            pc += static_cast<int32_t>(oparg);
+            if (pc < start_ || pc > end_)
+                throw std::runtime_error("Jump target out of bounds");
+        }
+        VM_DISPATCH();
+    }
+
     VM_HANDLER(F_RETURN) {
         oparg = pc ? (extended_arg << 8) | *pc++ : 0; // number of return values on the stack
         if (oparg > stack.size() || stack.size() - oparg < fp)
