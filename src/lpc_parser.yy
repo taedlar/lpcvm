@@ -152,7 +152,7 @@
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
-%type <ASTNode> do_stmt for_stmt if_stmt opt_else_stmt return_stmt while_stmt
+%type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt
 %type <ASTNode> comma_expr lvalue expr0 expr4
 %type <ASTNode> function_call arg_list
 
@@ -548,6 +548,7 @@ stmt
     | local_decl_list
     | do_stmt
     | for_stmt
+    | foreach_stmt
     | if_stmt
     | while_stmt
     | block
@@ -728,6 +729,28 @@ for_stmt
             else {
                 $$ = for_loop;
             }
+        }
+    ;
+
+foreach_begin
+    : L_FOREACH '('
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local);
+        }
+    ;
+
+foreach_stmt
+    : foreach_begin comma_expr[iter] L_IN expr4[collection] ')' stmt[body]
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
+            ASSIGN_AST($$, @$, AST::IterativeLoop{
+                std::make_unique<ASTNode>(std::move($iter)),
+                std::make_unique<ASTNode>(std::move($collection)),
+                std::make_unique<ASTNode>(std::move($body))
+            });
         }
     ;
 
