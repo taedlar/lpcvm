@@ -104,7 +104,7 @@ void BM_IntegerAdd(benchmark::State& state) {
     lpcvm::Bytecode generator(bytecode);
     generator.emit(F_CONST_I4, zero);
     for (std::size_t addition = 0; addition < additions; ++addition)
-        generator.emit(F_CONST_I4, one).emit(F_BIN_OP, oparg::ADD);
+        generator.emit(F_CONST_I4, one).emit(F_BINARY_OP, oparg::ADD);
     generator.emit(F_RETURN, 1);
 
     BytecodeView code(bytecode.data(), bytecode.size(), &program);

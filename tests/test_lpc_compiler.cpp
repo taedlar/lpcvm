@@ -166,7 +166,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
 
     bgen.emit_statement(root); // do a statenebt "1 + 1;" should not leave result on the stack
     bgen.emit_expression(root); // do a 1 + 1 expression, should leave result on the stack
-    bgen.emit(F_BIN_OP, oparg::ADD); // push result of arg#1 + (1 + 1)
+    bgen.emit(F_BINARY_OP, oparg::ADD); // push result of arg#1 + (1 + 1)
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
     BytecodeView view(bytecode.data(), bytecode.size(), &prog);
