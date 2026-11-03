@@ -151,7 +151,7 @@
 %type <ASTNode> formal_parameters parameter_list
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
-%type <ASTNode> local_decl_list var_list new_var
+%type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
 %type <ASTNode> do_stmt for_stmt if_stmt opt_else_stmt return_stmt while_stmt
 %type <ASTNode> comma_expr lvalue expr0 expr4
 %type <ASTNode> function_call arg_list
@@ -685,10 +685,33 @@ opt_else_stmt
         { $$ = $2;}
     ;
 
-for_stmt
-    : L_FOR '(' local_decl_list[init] comma_expr[cond] ';' comma_expr[step] ')' stmt[body]
+loop_init
+    : local_decl_list
+    | comma_expr ';'
+    ;
+
+opt_comma_expr
+    : %empty
+        { ASSIGN_AST($$, @$, std::monostate{}); }
+    | comma_expr
+    ;
+
+for_begin
+    : L_FOR '('
         {
             auto lpcc = yyget_extra(yyscanner);
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local);
+        }
+    ;
+
+for_stmt
+    : for_begin loop_init[init] opt_comma_expr[cond] ';' opt_comma_expr[step] ')' stmt[body]
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            // leave the loop scope, releasing the locals declared in the init clause
+            const uint32_t num_locals = lpcc->next_local - lpcc->current_scope->overlay_base();
+            lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             ASTNode for_loop;
             ASSIGN_AST(for_loop, @$, AST::PreTestedLoop{
                 std::make_unique<ASTNode>(std::move($cond)),
@@ -700,7 +723,7 @@ for_stmt
                 auto list_source = $init.src;
                 stmts.push_back(std::move($init));
                 stmts.push_back(std::move(for_loop));
-                ASSIGN_AST($$, @$, AST::Block{ lpcc->next_local, std::make_unique<ASTNode>(AST::List{ std::move(stmts) }, list_source) });
+                ASSIGN_AST($$, @$, AST::Block{ num_locals, std::make_unique<ASTNode>(AST::List{ std::move(stmts) }, list_source) });
             }
             else {
                 $$ = for_loop;
@@ -708,14 +731,49 @@ for_stmt
         }
     ;
 
-while_stmt
-    : L_WHILE '(' comma_expr[cond] ')' stmt[body]
+while_begin
+    : L_WHILE '('
         {
+            auto lpcc = yyget_extra(yyscanner);
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local);
+        }
+    ;
+
+while_stmt
+    : while_begin comma_expr[cond] ')' stmt[body]
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             ASSIGN_AST($$, @$, AST::PreTestedLoop{
                 std::make_unique<ASTNode>(std::move($cond)),
                 nullptr,
                 std::make_unique<ASTNode>(std::move($body))
             });
+        }
+    | while_begin loop_init[init] comma_expr[cond] ')' stmt[body]
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            // leave the loop scope, releasing the locals declared in the init clause
+            const uint32_t num_locals = lpcc->next_local - lpcc->current_scope->overlay_base();
+            lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
+            ASTNode loop;
+            ASSIGN_AST(loop, @$, AST::PreTestedLoop{
+                std::make_unique<ASTNode>(std::move($cond)),
+                nullptr,
+                std::make_unique<ASTNode>(std::move($body))
+            });
+            if ($init.node.index() != 0) {
+                std::vector<ASTNode> stmts;
+                auto list_source = $init.src;
+                stmts.push_back(std::move($init));
+                stmts.push_back(std::move(loop));
+                ASSIGN_AST($$, @$, AST::Block{ num_locals, std::make_unique<ASTNode>(AST::List{ std::move(stmts) }, list_source) });
+            }
+            else {
+                $$ = loop;
+            }
         }
     ;
 

@@ -63,7 +63,8 @@ public:
         GLOBAL,
         FUNCTION,
         LOCAL,
-        BLOCK
+        BLOCK,
+        LOOP // scope of a loop statement, holds variables declared in the init clause
     };
 
     enum class TokenIndex : std::size_t {};
