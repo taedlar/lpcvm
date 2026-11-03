@@ -26,7 +26,7 @@ public:
      * Otherwise, the object is a blueprint object that can be cloned to
      * create new instances.
      *
-     * One an object is loaded or cloned, the sandbox maintains a reference
+     * Once an object is loaded or cloned, the sandbox maintains a reference
      * to it in the object table until it is explicitly destructed with
      * the `destruct_object` method or in the sandbox's destructor.
      *

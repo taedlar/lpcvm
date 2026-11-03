@@ -30,7 +30,7 @@ TEST(CodeGeneratorTest, ArgumentWidthBoundaries) {
         std::vector<uint8_t> bytecode{F_RETURN, 0};
         auto expected = bytecode;
         expected.insert(expected.end(), test.expected.begin(), test.expected.end());
-        lpcvm::code_generator generator(bytecode);
+        lpcvm::Bytecode generator(bytecode);
         EXPECT_EQ(&generator.emit(F_RETURN, test.argument), &generator);
         EXPECT_EQ(bytecode, expected);
         EXPECT_EQ(bytecode.size() % 2, 0);
@@ -40,7 +40,7 @@ TEST(CodeGeneratorTest, ArgumentWidthBoundaries) {
 TEST(CodeGeneratorTest, GeometricCapacityGrowth) {
     std::vector<uint8_t> bytecode;
     bytecode.reserve(3);
-    lpcvm::code_generator generator(bytecode);
+    lpcvm::Bytecode generator(bytecode);
     std::size_t allocations = 0;
     for (std::size_t instruction = 0; instruction < 4096; ++instruction) {
         const auto capacity = bytecode.capacity();
@@ -64,7 +64,7 @@ TEST(CodeGeneratorTest, ReusesReservedCapacity) {
     bytecode.reserve(128);
     const auto storage = bytecode.data();
     const auto capacity = bytecode.capacity();
-    lpcvm::code_generator generator(bytecode);
+    lpcvm::Bytecode generator(bytecode);
     for (std::size_t instruction = 0; instruction < 16; ++instruction)
         generator.emit(F_RETURN, 0xffffffff);
     EXPECT_EQ(bytecode.data(), storage);
@@ -162,7 +162,7 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
 
     bgen.emit_statement(root); // do a statenebt "1 + 1;" should not leave result on the stack
     bgen.emit_expression(root); // do a 1 + 1 expression, should leave result on the stack
@@ -206,12 +206,10 @@ TEST(LpcCompilerTest, BlockLocalAllocation) {
         const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
         const auto& function = std::get<AST::FunctionDef>(defs.front().node);
 
-        // code generation for the function
+        // Generate the function body, excluding parameters from local allocation.
         std::vector<uint8_t> bytecode;
-        VirtualTable vtbl{std::make_shared<ConstPool>()};
-        lpcvm::code_generator codegen(bytecode);
-        lpcvm::function_builder func{codegen, ConstPool::INVALID_INDEX, vtbl};
-        func.build(function);
+        lpcvm::Bytecode generator(bytecode);
+        generator.emit_block(std::get<AST::Block>(function.body->node), test.num_params);
         EXPECT_EQ(bytecode, test.expected);
 
         // execute bytecode

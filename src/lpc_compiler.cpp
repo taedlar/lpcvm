@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 #include "config.hpp"
-#include "code_generator.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
@@ -223,7 +222,7 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
         prog->virtual_table_->static_bindings_.resize(num_functions);
 
         // generate code for each top-level definition in the program
-        lpcvm::code_generator codegen(prog->bytecode_, prog.get());
+        lpcvm::Bytecode codegen(prog->bytecode_, prog.get());
         for(auto& elt: prog_node.defs) {
             std::visit (overloaded {
                 [&](AST::Inheritance& inh) {
@@ -233,14 +232,7 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
                 [&](AST::FunctionDef& func_def) {
                     if (!func_def.body)
                         return; // forward declaration
-                    AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
-                    auto name_idx = consts_->find(func_decl.entry->name);
-                    if (name_idx == ConstPool::INVALID_INDEX)
-                        throw std::runtime_error("Failed to find function name in constant pool");
-                    auto func_idx = std::get<uint32_t>(*func_decl.entry->value);
-                    if (func_idx >= prog->virtual_table_->static_bindings_.size())
-                        throw std::runtime_error("Function index out of bounds");
-                    lpcvm::function_builder func{codegen, name_idx, *prog->virtual_table_};
+                    LpcCompiler::FunctionBuilder func(*this, codegen, *prog->virtual_table_);
                     func.build(func_def);
                 },
                 [&](auto&) { /* ignore other node types */ }
@@ -252,4 +244,37 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
         messages_.push_back({-1, -1, e.what()});
     }
     return prog;
+}
+
+void LpcCompiler::FunctionBuilder::build(const AST::FunctionDef& func_def) {
+    // AST::FunctionDef contains the function declaration and body.
+    // - The function index (assigned when parsing) is retrieved from the function name's
+    //   symbol table entry associated with the function declaration.
+    // - The number of formal parameters is determined from the function declaration's
+    //   parameter list.
+    const AST::FunctionDecl& func_decl = std::get<AST::FunctionDecl>(func_def.decl->node);
+    auto name_idx = compiler_.get_consts()->find(func_decl.entry->name);
+    if (name_idx == ConstPool::INVALID_INDEX)
+        throw std::runtime_error("Failed to find function name in constant pool");
+    auto func_idx = std::get<uint32_t>(*func_decl.entry->value);
+    if (func_idx >= vtable_.static_bindings_.size())
+        throw std::runtime_error("Function index out of bounds");
+    std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
+
+    VirtualTable::Binding func_binding;
+    func_binding.signature = func_decl.entry->signature;
+    func_binding.inheriting = -1; // or some appropriate default value indicating no inheritance
+    func_binding.bytecode_offset = codegen_.position(); // entry point of the function's bytecode
+
+    // generate bytecode for the function body
+    const AST::Block& body = std::get<AST::Block>(func_def.body->node);
+    codegen_.emit_block(body, num_formal_params);
+    func_binding.bytecode_length = codegen_.position() - func_binding.bytecode_offset;
+
+    // register function bindings
+    vtable_.bind(func_idx, func_binding);
+    if (name_idx != ConstPool::INVALID_INDEX) {
+        // TODO: Handle the case where the function has a name and should be added to the virtual table by name
+        vtable_.emplace(name_idx, func_binding);
+    }
 }

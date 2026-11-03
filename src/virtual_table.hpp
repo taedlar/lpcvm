@@ -8,8 +8,6 @@
 #include "symbol_table.hpp"
 #include "const_pool.hpp"
 
-namespace lpcvm { struct function_builder; }
-
 /**
  * \brief Represents the virtual table for a runtime class, managing method
  * bindings and enabling dynamic dispatch.
