@@ -7,7 +7,7 @@
 #include "vm_sandbox.hpp"
 
 LpcObject::HandleType LpcObject::create(VMType *sb, std::string_view name, std::shared_ptr<ObjectClass> program) {
-    auto obj_ref = lpcvm::make_shared<LpcObject>(program);
+    auto obj_ref = lpcvm::create_shared<LpcObject>(program);
     obj_ref->name_ = std::string(name);
     if (auto it = sb->objects().find(name); it != sb->objects().end()) {
         sb->objects().erase(it); // also erase the string_view key for the old object

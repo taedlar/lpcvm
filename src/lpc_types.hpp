@@ -14,8 +14,29 @@
 #include <utility>
 #include <vector>
 
+class LpcArray;
+class LpcMapping;
+class LpcObject;
+
 /**
- * @brief A shared pointer implementation for LPC compound data types's
+ * @brief The lpcvm namespace contains all core components of the LPC virtual machine.
+ */
+namespace lpcvm {
+
+class Sandbox;
+
+/**
+ * @brief A weak reference to an LPC compound data type managed by SharedPtr.
+ *
+ * Handle does not own the object; it only observes it. The object may be
+ * destroyed if all SharedPtr instances are released, at which point the
+ * Handle becomes expired.
+ */
+template <typename T, typename RefType>
+struct Handle;
+
+/**
+ * @brief A shared pointer implementation for LPC compound data types'
  * reference semantics (strong reference only).
  *
  * This is a smart pointer that manages the lifetime of LPC compound data
@@ -24,41 +45,31 @@
  * The std::shared_ptr is too expensive for a virtual machine's data
  * stack due to its size overhead and separate allocation of the control
  * block, so we use a cheaper alternative with a co-allocated prefix control
- * block. Weak references (LpcHandle) share the control block's weak_count.
- * Thread-confined: counts are plain integers, so every LpcSharedPtr and
- * LpcHandle to the same object must be used on a single VM worker thread.
+ * block. Weak references (Handle) share the control block's weak_count.
+ * Thread-confined: counts are plain integers, so every SharedPtr and
+ * Handle to the same object must be used on a single VM worker thread.
  * Cross-thread hand-off must go through plain data, never these pointers.
  */
-template <typename T, typename RefType>
-struct LpcHandle;
-
 template <typename T>
-struct LpcSharedPtr;
-
-namespace lpcvm {
-    template<typename T, typename... Args> LpcSharedPtr<T> make_shared(Args&&... args);
-}
-
-template <typename T>
-struct LpcSharedPtr {
+struct SharedPtr {
 
     struct ControlBlock { // the size of control block must be aligned to avoid undefined behavior
         uint32_t ref_count;
         uint32_t weak_count;
     };
 
-    LpcSharedPtr() noexcept : ptr(nullptr) {}
+    SharedPtr() noexcept : ptr(nullptr) {}
 
-    LpcSharedPtr(const LpcSharedPtr& other) {
+    SharedPtr(const SharedPtr& other) {
         ptr = other.ptr;
         if (ptr) {
             ++control_block(ptr)->ref_count;
         }
     }
 
-    LpcSharedPtr(LpcSharedPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
+    SharedPtr(SharedPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
 
-    LpcSharedPtr& operator=(const LpcSharedPtr& other) {
+    SharedPtr& operator=(const SharedPtr& other) {
         if (this != &other) {
             if (ptr) {
                 release_strong(ptr);
@@ -70,7 +81,7 @@ struct LpcSharedPtr {
         }
         return *this;
     }
-    ~LpcSharedPtr() {
+    ~SharedPtr() {
         if (ptr) {
             release_strong(ptr);
         }
@@ -80,7 +91,7 @@ struct LpcSharedPtr {
         return ptr ? control_block(ptr)->ref_count : 0;
     }
 
-    bool operator==(const LpcSharedPtr& other) const noexcept {
+    bool operator==(const SharedPtr& other) const noexcept {
         return ptr == other.ptr;
     }
 
@@ -90,13 +101,13 @@ struct LpcSharedPtr {
 
     T* operator->() const {
         if (!ptr) {
-            throw std::runtime_error("Dereferencing null LpcSharedPtr");
+            throw std::runtime_error("Dereferencing null SharedPtr");
         }
         return ptr;
     }
     T& operator*() const {
         if (!ptr) {
-            throw std::runtime_error("Dereferencing null LpcSharedPtr");
+            throw std::runtime_error("Dereferencing null SharedPtr");
         }
         return *ptr;
     }
@@ -105,24 +116,24 @@ private:
     T* ptr;
 
     template <typename U, typename R>
-    friend struct LpcHandle;
+    friend struct Handle;
 
     template <typename U, typename... Args>
-    friend LpcSharedPtr<U> lpcvm::make_shared(Args&&... args);
+    friend SharedPtr<U> create_shared(Args&&... args);
 
     struct AdoptRetainedReference {};
 
-    LpcSharedPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {} // private constructor, use lpcvm::make_shared instead
+    SharedPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {} // private constructor, use lpcvm::create_shared instead
 
     static ControlBlock* control_block(T* obj) noexcept {
         return reinterpret_cast<ControlBlock*>(obj) - 1;
     }
 
-    static LpcSharedPtr retain(T* existing) {
+    static SharedPtr retain(T* existing) {
         if (existing) {
             ++control_block(existing)->ref_count;
         }
-        return LpcSharedPtr(existing, AdoptRetainedReference{});
+        return SharedPtr(existing, AdoptRetainedReference{});
     }
 
     static void release_weak(ControlBlock* cb) noexcept {
@@ -141,79 +152,63 @@ private:
     }
 };
 
-namespace lpcvm {
-    /**
-     * @brief Co-allocates a control block and an object, returning an LpcSharedPtr managing it.
-     * @tparam T The type of the object to create.
-     * @tparam Args The types of the arguments to forward to T's constructor.
-     * @param args The arguments to forward to T's constructor.
-     * @return An LpcSharedPtr managing the newly created object.
-     * @throws std::bad_alloc if memory allocation fails.
-     * @throws Any exception thrown by T's constructor.
-     */
-    template <typename T, typename... Args>
-    LpcSharedPtr<T> make_shared(Args&&... args) {
-        using ControlBlock = typename LpcSharedPtr<T>::ControlBlock;
-        static_assert(alignof(T) <= sizeof(ControlBlock), "object would be misaligned after the prefix control block");
-        void* mem = ::operator new(sizeof(ControlBlock) + sizeof(T)); // co-allocated control block and object
-        ControlBlock* cb = new (mem) ControlBlock{1, 0};
-        T* obj;
-        try {
-            obj = new (static_cast<void*>(cb + 1)) T(std::forward<Args>(args)...);
-        } catch (...) {
-            ::operator delete(mem);
-            throw;
-        }
-        return LpcSharedPtr<T>(obj, typename LpcSharedPtr<T>::AdoptRetainedReference{});
+/**
+ * @brief Co-allocates a control block and an object, returning an SharedPtr managing it.
+ * @tparam T The type of the object to create.
+ * @tparam Args The types of the arguments to forward to T's constructor.
+ * @param args The arguments to forward to T's constructor.
+ * @return An SharedPtr managing the newly created object.
+ * @throws std::bad_alloc if memory allocation fails.
+ * @throws Any exception thrown by T's constructor.
+ */
+template <typename T, typename... Args>
+SharedPtr<T> create_shared(Args&&... args) {
+    using ControlBlock = typename SharedPtr<T>::ControlBlock;
+    static_assert(alignof(T) <= sizeof(ControlBlock), "object would be misaligned after the prefix control block");
+    void* mem = ::operator new(sizeof(ControlBlock) + sizeof(T)); // co-allocated control block and object
+    ControlBlock* cb = new (mem) ControlBlock{1, 0};
+    T* obj;
+    try {
+        obj = new (static_cast<void*>(cb + 1)) T(std::forward<Args>(args)...);
+    } catch (...) {
+        ::operator delete(mem);
+        throw;
     }
-} // namespace lpcvm
-
-class LpcArray {
-    // TODO: Implement the internal storage and methods for LpcArray
-};
-
-class LpcMapping {
-    // TODO: Implement the internal storage and methods for LpcMapping
-};
-
-using LpcMappingRef = LpcSharedPtr<LpcMapping>;
-using LpcArrayRef = LpcSharedPtr<LpcArray>;
-
-class LpcObject;
-using LpcObjectRef = LpcSharedPtr<LpcObject>; // strong reference to LpcObject instances
+    return SharedPtr<T>(obj, typename SharedPtr<T>::AdoptRetainedReference{});
+}
 
 /**
- * @brief Weak reference to an LpcSharedPtr-managed object, sharing the
+ * @brief Weak reference to an SharedPtr-managed object, sharing the
  * object's prefix control block (weak_count).
  */
 template <typename T, typename RefType>
-struct LpcHandle {
+struct Handle {
     using ControlBlock = typename RefType::ControlBlock;
 
-    LpcHandle() noexcept : ptr(nullptr) {}
-    LpcHandle(RefType& ref) noexcept : ptr(ref.ptr) {
+    Handle() noexcept : ptr(nullptr) {}
+    Handle(RefType& ref) noexcept : ptr(ref.ptr) {
         if (ptr) {
             ++RefType::control_block(ptr)->weak_count;
         }
     }
 
-    LpcHandle(const LpcHandle& other) noexcept : ptr(other.ptr) {
+    Handle(const Handle& other) noexcept : ptr(other.ptr) {
         if (ptr) {
             ++RefType::control_block(ptr)->weak_count;
         }
     }
-    LpcHandle(LpcHandle&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
-    LpcHandle& operator=(const LpcHandle& other) noexcept {
-        LpcHandle tmp(other);
+    Handle(Handle&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
+    Handle& operator=(const Handle& other) noexcept {
+        Handle tmp(other);
         std::swap(ptr, tmp.ptr);
         return *this;
     }
-    LpcHandle& operator=(LpcHandle&& other) noexcept {
-        LpcHandle tmp(std::move(other));
+    Handle& operator=(Handle&& other) noexcept {
+        Handle tmp(std::move(other));
         std::swap(ptr, tmp.ptr);
         return *this;
     }
-    ~LpcHandle() {
+    ~Handle() {
         if (ptr) {
             RefType::release_weak(RefType::control_block(ptr));
         }
@@ -231,7 +226,7 @@ struct LpcHandle {
         return !ptr || RefType::control_block(ptr)->ref_count == 0;
     }
 
-    bool operator==(const LpcHandle& other) const noexcept {
+    bool operator==(const Handle& other) const noexcept {
         return ptr == other.ptr;
     }
 
@@ -259,21 +254,36 @@ private:
      * @param obj The raw pointer to the object.
      * @note This constructor is private and should only be used internally.
      */
-    explicit LpcHandle(T* obj) noexcept : ptr(obj) {
+    explicit Handle(T* obj) noexcept : ptr(obj) {
         if (ptr) {
             ++RefType::control_block(ptr)->weak_count;
         }
     }
 };
 
+} // namespace lpcvm
+
+using LpcArrayRef = lpcvm::SharedPtr<LpcArray>;
+
+class LpcArray {
+    // TODO: Implement the internal storage and methods for LpcArray
+};
+
+using LpcMappingRef = lpcvm::SharedPtr<LpcMapping>;
+
+class LpcMapping {
+    // TODO: Implement the internal storage and methods for LpcMapping
+};
+
+using LpcObjectRef = lpcvm::SharedPtr<LpcObject>; // strong reference to LpcObject instances
+
 class ObjectClass;
 class ObjectState;
-namespace lpcvm { class Sandbox; }
 
 class LpcObject {
 public:
     using VMType = lpcvm::Sandbox;
-    using HandleType = LpcHandle<LpcObject, LpcObjectRef>;
+    using HandleType = lpcvm::Handle<LpcObject, LpcObjectRef>;
 
     static HandleType create(VMType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);
     static LpcObjectRef find(VMType *sb, std::string_view name);
@@ -289,7 +299,7 @@ public:
 
 private:
     template <typename U, typename... Args>
-    friend LpcSharedPtr<U> lpcvm::make_shared(Args&&... args);
+    friend lpcvm::SharedPtr<U> lpcvm::create_shared(Args&&... args);
 
     LpcObject(std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
 

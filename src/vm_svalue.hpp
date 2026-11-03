@@ -36,7 +36,7 @@ constexpr std::size_t variant_index() {
  * ArenaStringView, which stores the offset and length of the string in
  * the arena.
  *
- * LPC reference semantics are implemented using a LpcSharedPtr variant
+ * LPC reference semantics are implemented using a lpcvm::SharedPtr variant
  * for mappings and arrays, and a generational handle variant for objects.
  *
  * Current implementation keeps the size of SValue at 16 bytes on 64-bit

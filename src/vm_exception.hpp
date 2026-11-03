@@ -1,22 +1,24 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #pragma once
 
-#include "object_class.hpp"
 #include <cstddef>
 #include <exception>
 #include <string>
 #include <type_traits>
 #include <spdlog/fmt/fmt.h>
+#include "object_class.hpp"
 
 namespace lpcvm {
 
-template <typename Exception>
-class SourceException : public Exception {
-    static_assert(std::is_base_of_v<std::exception, Exception>,
-        "SourceException requires a standard exception type");
+template <typename E>
+class Exception : public E {
+    static_assert(std::is_base_of_v<std::exception, E>,
+        "lpcvm::Exception requires a standard exception type");
 
 public:
-    SourceException(const Exception& exception, const ObjectClass* prog, const uint8_t* pc)
-        : SourceException(exception, prog ? prog->lookup_source_location(pc) : std::nullopt) {}
+    Exception(const E& exception, const ObjectClass* prog, const uint8_t* pc)
+        : Exception(exception, prog ? prog->lookup_source_location(pc) : std::nullopt) {}
 
     const std::string& source_file() const noexcept { return source_file_; }
     const std::string& func_name() const noexcept { return func_name_; }
@@ -26,8 +28,8 @@ public:
     const char* what() const noexcept override { return message_.c_str(); }
 
 private:
-    SourceException(const Exception& exception, const std::optional<ObjectClass::SourceLocation>& location)
-        : Exception(exception) {
+    Exception(const E& exception, const std::optional<ObjectClass::SourceLocation>& location)
+        : E(exception) {
         if (!location) {
             source_file_ = "<unknown-file>";
             func_name_ = "";
@@ -52,4 +54,4 @@ private:
     std::string message_;
 };
 
-}
+} // namespace lpcvm

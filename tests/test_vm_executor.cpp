@@ -6,7 +6,7 @@
 #include "code_generator.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
-#include "source_exception.hpp"
+#include "vm_exception.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 
@@ -68,7 +68,7 @@ TEST_F(SourceExceptionTest, SourceLocationsRequireValidPoolEntries) {
 }
 
 TEST_F(SourceExceptionTest, IncludesSourceLocation) {
-    lpcvm::SourceException error(std::runtime_error("Stack underflow"), object.get(), object->bytecode());
+    lpcvm::Exception error(std::runtime_error("Stack underflow"), object.get(), object->bytecode());
 
     EXPECT_EQ(error.source_file(), "example.lpc");
     EXPECT_EQ(error.lineno(), 42);
@@ -78,7 +78,7 @@ TEST_F(SourceExceptionTest, IncludesSourceLocation) {
 
 TEST_F(SourceExceptionTest, PreservesExceptionType) {
     try {
-        throw lpcvm::SourceException(std::out_of_range("Invalid index"), object.get(), object->bytecode() + 2);
+        throw lpcvm::Exception(std::out_of_range("Invalid index"), object.get(), object->bytecode() + 2);
     }
     catch (const std::out_of_range& error) {
         EXPECT_STREQ(error.what(), "included.lpc:7:1: In function `filenames()': Invalid index");
@@ -88,7 +88,7 @@ TEST_F(SourceExceptionTest, PreservesExceptionType) {
 }
 
 TEST_F(SourceExceptionTest, OwnsSourceFileAndMessage) {
-    lpcvm::SourceException error(std::runtime_error("Original message"), object.get(), object->bytecode());
+    lpcvm::Exception error(std::runtime_error("Original message"), object.get(), object->bytecode());
     set_location(0, "changed.lpc", "f", 99);
     object.reset();
 
@@ -98,7 +98,7 @@ TEST_F(SourceExceptionTest, OwnsSourceFileAndMessage) {
 
 TEST_F(SourceExceptionTest, CopyOutlivesOriginal) {
     const auto copy = [this] {
-        lpcvm::SourceException original(std::runtime_error("Failure"), object.get(), object->bytecode());
+        lpcvm::Exception original(std::runtime_error("Failure"), object.get(), object->bytecode());
         auto copied = original;
         return copied;
     }();
@@ -109,8 +109,8 @@ TEST_F(SourceExceptionTest, CopyOutlivesOriginal) {
 }
 
 TEST_F(SourceExceptionTest, LooksUpPrecedingEntry) {
-    lpcvm::SourceException first(std::runtime_error("Failure"), object.get(), object->bytecode() + 1);
-    lpcvm::SourceException second(std::runtime_error("Failure"), object.get(), object->bytecode() + 3);
+    lpcvm::Exception first(std::runtime_error("Failure"), object.get(), object->bytecode() + 1);
+    lpcvm::Exception second(std::runtime_error("Failure"), object.get(), object->bytecode() + 3);
 
     EXPECT_STREQ(first.what(), "example.lpc:42:1: In function `f()': Failure");
     EXPECT_STREQ(second.what(), "included.lpc:7:1: In function `filenames()': Failure");
@@ -123,7 +123,7 @@ TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
     ASSERT_NE(unmapped, nullptr);
     const auto& function = unmapped->get_method(0);
     const auto* end = unmapped->bytecode() + function.bytecode_offset + function.bytecode_length;
-    lpcvm::SourceException error(std::runtime_error("Failure"), unmapped.get(), end);
+    lpcvm::Exception error(std::runtime_error("Failure"), unmapped.get(), end);
 
     EXPECT_EQ(error.source_file(), "<unknown-file>");
     EXPECT_TRUE(error.func_name().empty());
@@ -133,11 +133,11 @@ TEST_F(SourceExceptionTest, MissingLocationPreservesMessage) {
 
 TEST_F(SourceExceptionTest, InvalidContextPreservesMessage) {
     const uint8_t unrelated[] = {F_RETURN, 0};
-    lpcvm::SourceException no_object(std::runtime_error("Failure"), nullptr, object->bytecode());
-    lpcvm::SourceException no_pc(std::runtime_error("Failure"), object.get(), nullptr);
-    lpcvm::SourceException outside(std::runtime_error("Failure"), object.get(), unrelated);
+    lpcvm::Exception no_object(std::runtime_error("Failure"), nullptr, object->bytecode());
+    lpcvm::Exception no_pc(std::runtime_error("Failure"), object.get(), nullptr);
+    lpcvm::Exception outside(std::runtime_error("Failure"), object.get(), unrelated);
     const auto& last_function = object->get_method(1);
-    lpcvm::SourceException end(std::runtime_error("Failure"), object.get(),
+    lpcvm::Exception end(std::runtime_error("Failure"), object.get(),
         object->bytecode() + last_function.bytecode_offset + last_function.bytecode_length);
 
     EXPECT_STREQ(no_object.what(), "Failure");
@@ -165,7 +165,7 @@ TEST(VMExecutorTest, BasicExecution) {
     ObjectClass prog(0, &consts); 
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_CONST_I4, c2)
         .emit(F_BIN_OP, oparg::ADD)
@@ -207,7 +207,7 @@ TEST(VMExecutorTest, ReturnUnderflow) {
     ConstTable consts;
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
@@ -222,7 +222,7 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
@@ -243,7 +243,7 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_I4, c1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);
 
@@ -262,7 +262,7 @@ TEST(VMExecutorTest, StoreGlobal) {
     ObjectState this_obj(1);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_STORE_GLOBAL, 0)
         .emit(F_POP_N, 1)
@@ -285,7 +285,7 @@ TEST(VMExecutorTest, LoadGlobal) {
     this_obj[0] = SValue(int32_t{123});
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_LOAD_GLOBAL, 0)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog, &this_obj);
@@ -307,7 +307,7 @@ TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
 
     for (auto opcode : {F_LOAD_GLOBAL, F_STORE_GLOBAL}) {
         std::vector<uint8_t> bytecode;
-        lpcvm::code_generator bgen(bytecode);
+        lpcvm::Bytecode bgen(bytecode);
         if (opcode == F_STORE_GLOBAL)
             bgen.emit(F_CONST_I4, value);
         bgen.emit(opcode, 0);
@@ -324,7 +324,7 @@ TEST(VMExecutorTest, LoadAndStoreLocal) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_PUSH_N, 1)
         .emit(F_CONST_I4, local_value)
         .emit(F_STORE_LOCAL, 1)
@@ -359,7 +359,7 @@ TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
-    lpcvm::code_generator bgen(bytecode);
+    lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_LOAD_LOCAL, 0)
         .emit(F_RETURN, 1);
     BytecodeView code(bytecode.data(), bytecode.size(), &prog);

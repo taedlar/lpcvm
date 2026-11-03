@@ -10,6 +10,7 @@
 #include "const_pool.hpp"
 #include "location.hh"
 #include "lpc_types.hpp"
+#include "code_generator.hpp"
 #include "vm_sandbox.hpp"
 
 struct ASTNode;
@@ -87,7 +88,24 @@ private:
     std::shared_ptr<ASTNode> ast_;
 
     bool init();
+
+public:
+    // ===================================================================
+    // code generation helpers
+
+    struct FunctionBuilder {
+        LpcCompiler& compiler_;
+        lpcvm::Bytecode& codegen_;
+        VirtualTable& vtable_;
+
+        FunctionBuilder(LpcCompiler& compiler, lpcvm::Bytecode& codegen, VirtualTable& vtable)
+            : compiler_(compiler), codegen_(codegen), vtable_(vtable) {}
+
+        void build(const AST::FunctionDef& func_def);
+    };
 };
 
 #undef YY_EXTRA_TYPE
 #define YY_EXTRA_TYPE LpcCompiler::Context*
+
+

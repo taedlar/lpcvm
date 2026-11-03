@@ -93,7 +93,7 @@
         ((target) = ASTNode((__VA_ARGS__), source_location(location, yyget_extra(yyscanner))))
 
     namespace yy {
-        // Exception type for parse errors.
+        // exception type for parse errors.
         struct parse_error: std::runtime_error {
             parse_error(const std::string& message, int lineno, int column, YY_EXTRA_TYPE lpcc = nullptr)
                 : std::runtime_error(message), lineno(lineno), column(column), lpcc(lpcc) {}

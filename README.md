@@ -119,10 +119,10 @@ Some enhancements and simplifications are added to the LPC language with the hel
 ### Modern Memory Management
 - Standard C++ `<memry>` for internal data structures.
 - 16-bytes SValue using `std::variant` that stores LPC int, float, double, references (8 bytes index + 8 bytes value)
-- `LpcSharedPtr` for LPC mapping, array reference semantic:
+- `lpcvm::SharedPtr` for LPC mapping, array reference semantic:
   - Strong reference (prefix control blcok)
   - Faster and smaller than `std::shared_ptr`
-- `LpcHandle` for LPC object reference semantic:
+- `lpcvm::Handle` for LPC object reference semantic:
   - Weak reference (prefix control block)
   - Faster and smaller than `std::weak_ptr`
 - Robust error handling with `std::runtime_error` and unwinding.
