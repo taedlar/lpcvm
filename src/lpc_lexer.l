@@ -128,6 +128,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 
 "true"          { return yy::LpcParser::make_L_INTEGER(1, yyextra->location); }
 "false"         { return yy::LpcParser::make_L_INTEGER(0, yyextra->location); }
+"not"           { return yy::LpcParser::make_L_NOT(yyextra->location); }
 
 [a-zA-Z_][a-zA-Z0-9_]* {
     /* Identifier */
@@ -245,8 +246,8 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
     return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }
 
-"=="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::EQUAL), yyextra->location); }
-"!="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::NOT_EQUAL), yyextra->location); }
+"=="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::EQUAL), yyextra->location); }
+"!="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::NOT_EQUAL), yyextra->location); }
 "++"    { return yy::LpcParser::make_L_INC(yyextra->location); }
 "--"    { return yy::LpcParser::make_L_DEC(yyextra->location); }
 "&&"    { return yy::LpcParser::make_L_LAND(yyextra->location); }
@@ -254,19 +255,19 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "!"     { return yy::LpcParser::make_L_NOT(yyextra->location); }
 "<<"    { return yy::LpcParser::make_L_LSH(yyextra->location); }
 ">>"    { return yy::LpcParser::make_L_RSH(yyextra->location); }
-">="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER_EQUAL), yyextra->location); }
-">"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::GREATER), yyextra->location); }
-"<="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS_EQUAL), yyextra->location); }
-"<"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(yy::LpcOrder::LESS), yyextra->location); }
-"="     { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ASSIGN), yyextra->location); }
-"+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::ADD_ASSIGN), yyextra->location); }
-"-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::SUB_ASSIGN), yyextra->location); }
-"*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MUL_ASSIGN), yyextra->location); }
-" /="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::DIV_ASSIGN), yyextra->location); }
-"%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::MOD_ASSIGN), yyextra->location); }
-"&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::AND_ASSIGN), yyextra->location); }
-"|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::OR_ASSIGN), yyextra->location); }
-"^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(yy::LpcAssign::XOR_ASSIGN), yyextra->location); }
+">="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::GREATER_EQUAL), yyextra->location); }
+">"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::GREATER), yyextra->location); }
+"<="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::LESS_EQUAL), yyextra->location); }
+"<"     { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::LESS), yyextra->location); }
+"="     { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN), yyextra->location); }
+"+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_ADD), yyextra->location); }
+"-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_SUB), yyextra->location); }
+"*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_MUL), yyextra->location); }
+" /="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_DIV), yyextra->location); }
+"%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_MOD), yyextra->location); }
+"&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_AND), yyextra->location); }
+"|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_OR), yyextra->location); }
+"^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_XOR), yyextra->location); }
 
 "..."   { return yy::LpcParser::make_L_ELLIPSIS(yyextra->location); }
 

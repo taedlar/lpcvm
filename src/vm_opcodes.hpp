@@ -44,6 +44,13 @@ enum Opcode: uint8_t {
 
 namespace oparg {
 
+enum UnaryOpArg {
+    NOT,
+    NEG,
+    BITWISE_NOT,
+    INVALID_UNARY_OPARG
+};
+
 /// @brief The enum definition for binary operation arguments used by the
 /// F_BIN_OP opcode. The consolidated binary operation argument follows
 /// the design style of Python's bytecode.
@@ -54,8 +61,37 @@ enum BinaryOpArg {
     MUL,
     DIV,
     MOD,
-    ASSIGN,
+    BITWISE_AND,
+    BITWISE_OR,
+    BITWISE_XOR,
+    LSH,
+    RSH,
+    LOGICAL_AND,
+    LOGICAL_OR,
+    EQUAL,
+    NOT_EQUAL,
+    LESS,
+    LESS_EQUAL,
+    GREATER,
+    GREATER_EQUAL,
     INVALID_BINARY_OPARG
+};
+
+enum AssignOpArg {
+    ASSIGN,
+    ASSIGN_ADD,
+    ASSIGN_SUB,
+    ASSIGN_MUL,
+    ASSIGN_DIV,
+    ASSIGN_MOD,
+    ASSIGN_AND,
+    ASSIGN_OR,
+    ASSIGN_XOR,
+    ASSIGN_PREFIX_INC,
+    ASSIGN_PREFIX_DEC,
+    ASSIGN_SUFFIX_INC,
+    ASSIGN_SUFFIX_DEC,
+    INVALID_ASSIGN_OPARG
 };
 
 } // namespace oparg
