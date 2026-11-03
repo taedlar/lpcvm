@@ -25,6 +25,8 @@ public:
 
     // context data used by the preprocessor, lexer and parser
     struct Context {
+        std::shared_ptr<ManagedRuntime> runtime; // runtime environment for file access and other operations
+
         void* ppscanner{nullptr}; // pointer to the preprocessor scanner (reentrant lexer handle)
         std::vector<char> ppbuffer;
         bool pp_eof{false}; // EOF reached by macro argument lookahead
@@ -57,6 +59,7 @@ public:
         std::string text;
     };
 
+    void use_runtime(std::shared_ptr<ManagedRuntime> runtime);
     void use_predefines(std::shared_ptr<SymbolTable> predefines);
     void set_filename(const std::string_view fn) { filename_ = fn; }
 
@@ -81,6 +84,7 @@ private:
     std::string filename_;  // for yylloc
     std::vector<Message> messages_;
 
+    std::shared_ptr<ManagedRuntime> runtime_;
     std::shared_ptr<SymbolTable> predefines_;
 
     std::shared_ptr<ConstTable> consts_;
