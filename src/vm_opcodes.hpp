@@ -24,7 +24,8 @@
     X(F_STORE_GLOBAL) \
     X(F_LOAD_LOCAL) \
     X(F_STORE_LOCAL) \
-    X(F_BIN_OP) \
+    X(F_UNARY_OP) \
+    X(F_BINARY_OP) \
     X(F_PUSH_FUNC) \
     X(F_CALL) \
     X(F_JUMP) \
@@ -44,6 +45,10 @@ enum Opcode: uint8_t {
 
 namespace oparg {
 
+/**
+ *  @brief The enum definition for unary operation arguments used by the
+ *  F_UNARY_OP opcode.
+ */
 enum UnaryOpArg {
     NOT,
     NEG,
@@ -51,9 +56,11 @@ enum UnaryOpArg {
     INVALID_UNARY_OPARG
 };
 
-/// @brief The enum definition for binary operation arguments used by the
-/// F_BIN_OP opcode. The consolidated binary operation argument follows
-/// the design style of Python's bytecode.
+/**
+ *  @brief The enum definition for binary operation arguments used by the
+ *  F_BINARY_OP opcode. The consolidated binary operation argument follows
+ *  the design style of Python's bytecode.
+ */
 enum BinaryOpArg {
     COMMA,
     ADD,
@@ -77,6 +84,10 @@ enum BinaryOpArg {
     INVALID_BINARY_OPARG
 };
 
+/**
+ *  @brief The enum definition for assignment operation arguments used by the
+ *  F_STORE_GLOBAL or F_STORE_LOCAL opcode.
+ */
 enum AssignOpArg {
     ASSIGN,
     ASSIGN_ADD,

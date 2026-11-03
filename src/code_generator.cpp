@@ -169,7 +169,7 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             emit_expression(*bin_op.lhs);
             emit_expression(*bin_op.rhs);
             set_source_location(expr);
-            emit(F_BIN_OP, bin_op.arg);
+            emit(F_BINARY_OP, bin_op.arg);
         },
         [&](const AST::FunctionCall& func_call) {
             auto func_idx = std::get<uint32_t>(*func_call.entry->value);

@@ -174,7 +174,31 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
         VM_DISPATCH();
     }
 
-    VM_HANDLER(F_BIN_OP) {
+    VM_HANDLER(F_UNARY_OP) {
+        oparg = (extended_arg << 8) | *pc++;
+        auto& value = stack.top();
+        result = std::visit([&](const auto& val) -> SValue {
+            using ValType = std::decay_t<decltype(val)>;
+            if constexpr (std::is_integral_v<ValType>) {
+                switch (oparg) {
+                    case oparg::NOT:
+                        return SValue(!val);
+                    case oparg::NEG:
+                        return SValue(-val);
+                    case oparg::BITWISE_NOT:
+                        return SValue(~val);
+                    default:
+                        throw std::runtime_error("Invalid unary operation");
+                }
+            } else {
+                throw std::runtime_error("Unsupported unary operand type");
+            }
+        }, value);
+        stack.top() = result;
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_BINARY_OP) {
         oparg = (extended_arg << 8) | *pc++; // fetch the binary operation code
         auto sp = stack.size();
         auto& rhs = stack[sp - 1];
@@ -187,7 +211,7 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
                     throw lpcvm::Exception(std::runtime_error("Division by zero"), prog_, pc - 1);
             }
             if constexpr (std::is_same_v<LhsType, RhsType> &&
-                (std::is_same_v<LhsType, int32_t> || std::is_same_v<LhsType, uint32_t>)) {
+                (std::is_same_v<LhsType, int32_t> || std::is_same_v<LhsType, uint32_t> || std::is_same_v<LhsType, int64_t> || std::is_same_v<LhsType, uint64_t>)) {
                 switch (oparg) {
                     case oparg::ADD:
                         return SValue(lhs_value + rhs_value);
@@ -197,6 +221,30 @@ int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t n
                         return SValue(lhs_value * rhs_value);
                     case oparg::DIV:
                         return SValue(lhs_value / rhs_value);
+                    case oparg::MOD:
+                        return SValue(lhs_value % rhs_value);
+                    case oparg::BITWISE_AND:
+                        return SValue(lhs_value & rhs_value);
+                    case oparg::BITWISE_OR:
+                        return SValue(lhs_value | rhs_value);
+                    case oparg::BITWISE_XOR:
+                        return SValue(lhs_value ^ rhs_value);
+                    case oparg::LSH:
+                        return SValue(lhs_value << rhs_value);
+                    case oparg::RSH:
+                        return SValue(lhs_value >> rhs_value);
+                    case oparg::EQUAL:
+                        return SValue(lhs_value == rhs_value);
+                    case oparg::NOT_EQUAL:
+                        return SValue(lhs_value != rhs_value);
+                    case oparg::LESS:
+                        return SValue(lhs_value < rhs_value);
+                    case oparg::LESS_EQUAL:
+                        return SValue(lhs_value <= rhs_value);
+                    case oparg::GREATER:
+                        return SValue(lhs_value > rhs_value);
+                    case oparg::GREATER_EQUAL:
+                        return SValue(lhs_value >= rhs_value);
                     default:
                         throw std::runtime_error("Invalid binary operation");
                 }

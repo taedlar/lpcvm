@@ -168,7 +168,7 @@ TEST(VMExecutorTest, BasicExecution) {
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_I4, c1)
         .emit(F_CONST_I4, c2)
-        .emit(F_BIN_OP, oparg::ADD)
+        .emit(F_BINARY_OP, oparg::ADD)
         .emit(F_RETURN, 1);
 
     // Example test for basic execution
@@ -418,7 +418,7 @@ TEST(VMExecutorTest, BackwardJump) {
     auto loop = bgen.position();
     bgen.emit(F_LOAD_LOCAL, 0);
     auto to_end = bgen.emit_jump(F_JUMP_IF_FALSE);
-    bgen.emit(F_LOAD_LOCAL, 0).emit(F_CONST_I4, c1).emit(F_BIN_OP, oparg::SUB)
+    bgen.emit(F_LOAD_LOCAL, 0).emit(F_CONST_I4, c1).emit(F_BINARY_OP, oparg::SUB)
         .emit(F_STORE_LOCAL, 0).emit(F_POP_N, 1);
     bgen.emit_jump_to(F_JUMP, loop);
     bgen.patch_jump(to_end);
