@@ -91,7 +91,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 }
 
 "inherit"       { return yy::LpcParser::make_L_INHERIT(yyextra->location); }
-"as"            { return yy::LpcParser::make_LAS(yyextra->location); }
+"as"            { return yy::LpcParser::make_L_AS(yyextra->location); }
 "if"            { return yy::LpcParser::make_L_IF(yyextra->location); }
 "else"          { return yy::LpcParser::make_L_ELSE(yyextra->location); }
 "while"         { return yy::LpcParser::make_L_WHILE(yyextra->location); }
@@ -124,7 +124,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "private"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_public = 0}}, yyextra->location); }
 "public"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_public = 1}}, yyextra->location); }
 "virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 0}}, yyextra->location); }
-"nomask"        { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 1}}, yyextra->location); }
+"nomask"|"final" { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 1}}, yyextra->location); }
 
 "true"          { return yy::LpcParser::make_L_INTEGER(1, yyextra->location); }
 "false"         { return yy::LpcParser::make_L_INTEGER(0, yyextra->location); }

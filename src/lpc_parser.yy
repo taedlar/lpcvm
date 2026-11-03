@@ -107,7 +107,7 @@
     } // namespace yy
 }
 
-%token L_INHERIT LAS
+%token L_INHERIT L_AS
 %token L_IF L_ELSE
 %token L_WHILE L_DO L_FOR L_FOREACH L_IN
 %token L_BREAK L_CONTINUE
@@ -376,7 +376,7 @@ new_var
 opt_as
     : %empty
         { $$ = ""; }
-    | LAS L_IDENTIFIER
+    | L_AS L_IDENTIFIER
         { $$ = $2; }
     ;
 
