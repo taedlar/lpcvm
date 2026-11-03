@@ -1,5 +1,115 @@
 # LPCVM Design
 
+See also [vm-architecture.md](vm-architecture.md) for the stack machine, bytecode
+and sandbox architecture.
+
+## Objects
+
+- Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an **object class** with methods and variables.
+- The LPC compiler compiles source files to object class images (method bytecodes, constant pool, and virtual table of methods).
+- The object loader **loads** an object by invoking the LPC compiler to compile LPC source files in-memory.
+  - The object class image is reference-counted, with the first reference held by the loaded object.
+  - The loaded object is registered with a unique name (e.g. `"/std/player"`) and serves as a **blueprint object**.
+  - More objects can be **cloned** from blueprint objects, adding more references to their object class image.
+- Hot-reloading replaces the registered blueprint with a newer version. Existing clones continue to use the old version.
+- Each object has its own **object state** (variables, I/O buffers, and other attributes).
+  - The LPC `object` data type is a handle to an individual object and allows access to its state.
+  - The LPC `call_other` efun calls methods defined in the object class image referenced by the object.
+  - The virtual machine can also invoke methods on I/O events, timers, or policy contracts.
+  - An LPC object must be **destructed** explicitly once loaded, to emulate physical objects (e.g. monsters) in a virtual world.
+
+## Variables
+
+A variable holds an `SValue`: a value that fits in one stack element, such as a primitive value, a reference to a compound value, or an object handle.
+
+- Primitive types (`int`, `float`, `string`, ...) are stored in the `SValue` and passed by value.
+- Compound types (`function`, `mapping`, arrays) live in heap memory with reference-counted lifecycle and are passed by reference.
+- Objects live in heap memory and are passed by handle (weak reference).
+- There is no raw pointer semantics in LPC.
+- Object variables are destroyed with the object, stack variables (arguments and locals) when popped, and compound values when their reference count reaches zero.
+
+## LPC Language and Compiler
+
+> [!NOTE]
+> LPC was designed decades ago and lacks a published standard. LPMud implementations also
+> suffer from out-dated architecture and non-reentrant program structures.
+
+LPCVM starts from a minimal set of [LPC grammar](../src/lpc_parser.yy) and leaves fancy features to efuns.
+The goal is an easy-to-use LPC that LPMud wizards are already familiar with, with some
+enhancements and simplifications.
+
+The compiler consists of:
+
+- `lpcfront`, a command-line frontend that dumps the AST.
+- A reentrant preprocessor, lexer and parser (`flex` and `bison`) that output AST variants.
+- A visitor-pattern bytecode generator that emits bytecode from AST nodes.
+
+Supported language features:
+
+- Expressions: arithmetic, bitwise, comparison, unary (`-`, `~`, `!`), assignment (`=` and compound forms such as `+=` and `<<=`), `++`/`--` (prefix and suffix), ternary `?:`, and short-circuit `&&`/`||`. The result of `&&`/`||` is the last operand evaluated, not normalized to 0/1.
+- Statements: blocks with local variables, `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue`, and `return`.
+- Binary operations on mixed numeric types are promoted to a common type: floating point wins, and mixed-sign integers become `int64` (or `uint64` when the unsigned operand is 64-bit).
+
+## Memory Management
+
+- Standard C++ containers and smart pointers for internal data structures.
+- A 16-byte `SValue` (`std::variant`) that stores LPC int, float, double, and references.
+- `lpcvm::SharedPtr` for LPC mapping and array reference semantics: strong reference with a prefix control block, faster and smaller than `std::shared_ptr`.
+- `lpcvm::Handle` for LPC object reference semantics: weak reference with a prefix control block, faster and smaller than `std::weak_ptr`.
+- Errors are reported with `std::runtime_error` and stack unwinding.
+
+## Benchmarks
+
+Benchmarks need `BUILD_TESTING=ON`. Use an optimized `Release` configuration for comparisons.
+
+### Bytecode
+
+~~~bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --target bench_bytecode
+./build/benchmarks/bench_bytecode --benchmark_min_time=0.1s --benchmark_repetitions=5
+./build/benchmarks/bench_bytecode --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
+~~~
+
+- `BM_ReturnOnly` measures the execution entry/return baseline.
+- `BM_Dispatch` varies stream size, zero to three extended-argument prefixes,
+  and starting offsets from a known 64-byte-aligned address. Zero-valued prefixes
+  keep the workload identical while isolating decoding overhead; they are
+  intentionally redundant and are not emitted by the compiler.
+- `BM_IntegerAdd` measures constant loads and integer addition.
+- `BM_LocalAccess` measures repeated local loads, stores, and stack pops.
+
+Bytecode construction, constant-pool setup, and a validating stack warm-up are
+outside the timed loop. Arithmetic and local-access timings include popping one
+returned value per execution so stack capacity can be reused. These are repeated
+execution benchmarks, not cold-cache or isolated memory-bandwidth measurements.
+
+`items_per_second` counts decoded two-byte words, including extended-argument
+prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports
+bytecode bytes traversed, not physical memory traffic.
+
+### Macro expansion
+
+~~~bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --target bench_macro_expansion
+./build/benchmarks/bench_macro_expansion --benchmark_min_time=0.1s --benchmark_repetitions=5
+./build/benchmarks/bench_macro_expansion --benchmark_filter=BM_ObjectMacroChain
+~~~
+
+The suite covers plain-text scanning, object-like macros, function arguments,
+nested function invocations, object-macro chains, and recursion guards. Workloads
+vary the number of input lines and, for nested expansion, the depth.
+
+Source construction, macro definition parsing, and an exact-output validation
+are outside the timed loop. Each iteration calls `LpcCompiler::preprocess` on
+the same input with prepared definitions; timings include scanner and compiler
+context setup, input copying, expansion, and output allocation and destruction.
+No LPC parsing or code generation is performed. `items_per_second` counts input
+lines (not recursive macro expansions), and `bytes_per_second` counts input bytes.
+
+## Classes
+
 The `lpcvm` namespace provides bytecode generation, runtime diagnostics, object
 management, and reference-counted ownership through the following types:
 
