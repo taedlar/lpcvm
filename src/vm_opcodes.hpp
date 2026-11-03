@@ -30,10 +30,14 @@
     X(F_CALL) \
     X(F_JUMP) \
     X(F_JUMP_IF_FALSE) \
+    X(F_JUMP_IF_FALSE_OR_POP) \
+    X(F_JUMP_IF_TRUE_OR_POP) \
     X(F_RETURN) \
 
 /// F_JUMP adds its argument to the program counter (relative to the next instruction).
 /// F_JUMP_IF_FALSE pops the top of the stack and jumps only if the value is false (zero/void).
+/// F_JUMP_IF_FALSE_OR_POP / F_JUMP_IF_TRUE_OR_POP peek the top of the stack: if it is false / true, jump and
+/// keep the value as the result; otherwise pop it and continue (used for short-circuit && and ||).
 /// \brief The enum definition for opcodes using the X-macro technique.
 /// This enum must be 0-based, with the first opcode having the value 0.
 enum Opcode: uint8_t {
@@ -53,6 +57,8 @@ enum UnaryOpArg {
     NOT,
     NEG,
     BITWISE_NOT,
+    INC,
+    DEC,
     INVALID_UNARY_OPARG
 };
 
@@ -98,6 +104,8 @@ enum AssignOpArg {
     ASSIGN_AND,
     ASSIGN_OR,
     ASSIGN_XOR,
+    ASSIGN_LSH,
+    ASSIGN_RSH,
     ASSIGN_PREFIX_INC,
     ASSIGN_PREFIX_DEC,
     ASSIGN_SUFFIX_INC,

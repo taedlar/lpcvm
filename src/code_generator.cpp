@@ -146,24 +146,74 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             emit_variable_load(var);
         },
         [&](const AST::Assign& assign) {
-            // unary forms (e.g. ++/--) have a null operand and are not supported yet
-            if (!assign.lhs || !assign.rhs)
+            if (!assign.lhs != !assign.rhs) { // ++/-- forms have exactly one operand
+                const bool prefix = (assign.arg == oparg::ASSIGN_PREFIX_INC || assign.arg == oparg::ASSIGN_PREFIX_DEC);
+                const bool increment = (assign.arg == oparg::ASSIGN_PREFIX_INC || assign.arg == oparg::ASSIGN_SUFFIX_INC);
+                const auto& operand = prefix ? *assign.rhs : *assign.lhs;
+                const auto* var = std::get_if<AST::Variable>(&operand.node);
+                if (!var)
+                    throw std::runtime_error("Unsupported assignment target");
+                if (!prefix)
+                    emit_variable_load(*var); // the original value is the expression result
+                emit_variable_load(*var);
+                set_source_location(expr);
+                emit(F_UNARY_OP, increment ? oparg::INC : oparg::DEC);
+                emit_variable_store(*var);
+                if (!prefix)
+                    emit(F_POP_N, 1); // discard the updated value, keeping the original
+                return;
+            }
+            if (!assign.lhs)
                 return;
             const auto* var = std::get_if<AST::Variable>(&assign.lhs->node);
             if (!var)
                 throw std::runtime_error("Unsupported assignment target");
+            int binary_arg;
+            switch (assign.arg) {
+                case oparg::ASSIGN:     binary_arg = -1; break;
+                case oparg::ASSIGN_ADD: binary_arg = oparg::ADD; break;
+                case oparg::ASSIGN_SUB: binary_arg = oparg::SUB; break;
+                case oparg::ASSIGN_MUL: binary_arg = oparg::MUL; break;
+                case oparg::ASSIGN_DIV: binary_arg = oparg::DIV; break;
+                case oparg::ASSIGN_MOD: binary_arg = oparg::MOD; break;
+                case oparg::ASSIGN_AND: binary_arg = oparg::BITWISE_AND; break;
+                case oparg::ASSIGN_OR:  binary_arg = oparg::BITWISE_OR; break;
+                case oparg::ASSIGN_XOR: binary_arg = oparg::BITWISE_XOR; break;
+                case oparg::ASSIGN_LSH: binary_arg = oparg::LSH; break;
+                case oparg::ASSIGN_RSH: binary_arg = oparg::RSH; break;
+                default: throw std::runtime_error("Unsupported assignment operator");
+            }
+            if (binary_arg >= 0) // compound assignment: var = var <op> rhs
+                emit_variable_load(*var);
             emit_expression(*assign.rhs);
             set_source_location(expr);
+            if (binary_arg >= 0)
+                emit(F_BINARY_OP, binary_arg);
             emit_variable_store(*var); // the assigned value remains on the stack as the expression result
         },
+        [&](const AST::TernaryOp& ternary) {
+            emit_expression(*ternary.condition);
+            set_source_location(expr);
+            const auto to_false = emit_jump(F_JUMP_IF_FALSE);
+            emit_expression(*ternary.true_expr);
+            const auto to_end = emit_jump(F_JUMP);
+            patch_jump(to_false);
+            emit_expression(*ternary.false_expr);
+            patch_jump(to_end);
+        },
+        [&](const AST::UnaryOp& unary_op) {
+            emit_expression(*unary_op.operand);
+            set_source_location(expr);
+            emit(F_UNARY_OP, unary_op.arg);
+        },
         [&](const AST::BinaryOp& bin_op) {
-            if (bin_op.arg == oparg::ASSIGN) { // variable declaration with initializer
-                const auto* var = std::get_if<AST::Variable>(&bin_op.lhs->node);
-                if (!var)
-                    throw std::runtime_error("Unsupported assignment target");
-                emit_expression(*bin_op.rhs);
+            if (bin_op.arg == oparg::LOGICAL_AND || bin_op.arg == oparg::LOGICAL_OR) {
+                // short-circuit: the lhs value is the result unless it must be replaced by the rhs
+                emit_expression(*bin_op.lhs);
                 set_source_location(expr);
-                emit_variable_store(*var);
+                const auto to_end = emit_jump(bin_op.arg == oparg::LOGICAL_AND ? F_JUMP_IF_FALSE_OR_POP : F_JUMP_IF_TRUE_OR_POP);
+                emit_expression(*bin_op.rhs);
+                patch_jump(to_end);
                 return;
             }
             emit_expression(*bin_op.lhs);

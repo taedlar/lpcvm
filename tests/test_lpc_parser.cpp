@@ -119,7 +119,7 @@ TEST(LpcParserTest, SynthesizedNodesHaveSourceLocations) {
     const auto& loop_statements = std::get<AST::List>(loop_block.stmts->node).elts;
     ASSERT_EQ(loop_statements.size(), 2);
     expect_location(loop_statements[0], 5, 12);
-    expect_location(*std::get<AST::BinaryOp>(loop_statements[0].node).lhs, 5, 12);
+    expect_location(*std::get<AST::Assign>(loop_statements[0].node).lhs, 5, 12);
     expect_location(loop_statements[1], 5, 3);
     const auto& loop = std::get<AST::PreTestedLoop>(loop_statements[1].node);
     expect_location(*loop.condition, 5, 23);

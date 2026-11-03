@@ -241,7 +241,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 
 [0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stol(yytext), yyextra->location); }
 
-"+"|"-"|"*"|"/"|"%"|"&"|"|"|"^" {
+"+"|"-"|"*"|"/"|"%"|"&"|"|"|"^"|"~" {
     /* binary operators */
     return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }
@@ -263,15 +263,17 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "+="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_ADD), yyextra->location); }
 "-="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_SUB), yyextra->location); }
 "*="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_MUL), yyextra->location); }
-" /="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_DIV), yyextra->location); }
+"/="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_DIV), yyextra->location); }
 "%="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_MOD), yyextra->location); }
 "&="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_AND), yyextra->location); }
 "|="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_OR), yyextra->location); }
 "^="    { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_XOR), yyextra->location); }
+"<<="   { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_LSH), yyextra->location); }
+">>="   { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_RSH), yyextra->location); }
 
 "..."   { return yy::LpcParser::make_L_ELLIPSIS(yyextra->location); }
 
-","|";"|"."|"{"|"}"|"("|")" {
+","|";"|"."|"{"|"}"|"("|")"|"?"|":" {
     /* punctuation symbols */
     return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }
