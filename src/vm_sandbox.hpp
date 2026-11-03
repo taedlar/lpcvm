@@ -1,21 +1,38 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #pragma once
+#include <cstdio>
 #include <filesystem>
 #include <unordered_map>
 #include "lpc_types.hpp"
-
-namespace lpcvm {
 
 using ObjectTable = std::unordered_map<std::string_view, LpcObjectRef>;
 using ObjectHandle = LpcObject::HandleType;
 using PathType = std::filesystem::path;
 
-class Sandbox {
+class ManagedRuntime {
+public:
+    ManagedRuntime() = default;
+    virtual ~ManagedRuntime() = default;
+
+    virtual FILE* file_open(const char* path, const char* mode) {
+        return std::fopen(path, mode);
+    }
+};
+
+namespace lpcvm {
+
+class Sandbox: public ManagedRuntime {
 public:
 
     Sandbox(const PathType &mudlib_root)
         : mudlib_root_(mudlib_root) {}
+
+    // Paths (including /absolute paths) are relative to the mudlib root.
+    // Returns nullptr and sets errno on failure. Symlinks must resolve inside
+    // the root. The host must prevent concurrent filesystem changes between
+    // path validation and opening; this is not an OS-level filesystem jail.
+    FILE* file_open(const char* path, const char* mode) override;
 
     /**
      * @brief Get the collection of all objects in the sandbox.

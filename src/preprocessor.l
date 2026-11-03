@@ -28,7 +28,7 @@
 // append the matched text to the preprocessed output
 #define EMIT() yyextra->ppbuffer.insert(yyextra->ppbuffer.end(), yytext, yytext + yyleng)
 
-int preprocessor_feed (char* buf, int max_len, LpcCompiler::Context* ctx);
+int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE ctx);
 
 static bool is_ident_start (char c) { return std::isalpha(static_cast<unsigned char>(c)) || c == '_'; }
 static bool is_ident_char (char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
@@ -42,7 +42,7 @@ static std::string_view directive_operand (const char* text, int len, std::strin
     return line;
 }
 
-static void define_macro (LpcCompiler::Context* ctx, std::string_view operand, yy::location location) {
+static void define_macro (YY_EXTRA_TYPE ctx, std::string_view operand, yy::location location) {
     // Splice physical lines before parsing, retaining positions for diagnostics.
     std::string logical_operand;
     std::vector<yy::position> positions;
@@ -139,7 +139,7 @@ static void define_macro (LpcCompiler::Context* ctx, std::string_view operand, y
     ctx->defines->emplace(name, entry); // entry -> {arg#1}{arg#2}...{body}
 }
 
-static void undef_macro (LpcCompiler::Context* ctx, std::string_view operand) {
+static void undef_macro (YY_EXTRA_TYPE ctx, std::string_view operand) {
     size_t n = 0;
     while (n < operand.size() && is_ident_char(operand[n])) n++;
     if (n > 0)
@@ -154,10 +154,10 @@ struct ExpansionInput {
 
 static int scanner_peek (yyscan_t scanner);
 static int scanner_take (yyscan_t scanner);
-static void expand_text (LpcCompiler::Context* ctx, std::string_view text,
+static void expand_text (YY_EXTRA_TYPE ctx, std::string_view text,
                          std::vector<char>& out, std::vector<std::string>& active);
 
-static void expand_identifier (LpcCompiler::Context* ctx, std::string_view id,
+static void expand_identifier (YY_EXTRA_TYPE ctx, std::string_view id,
                                ExpansionInput& input, std::vector<char>& out,
                                std::vector<std::string>& active) {
     const SymbolTable* owner = nullptr; // could be predefined macros or user-defined macros
@@ -269,7 +269,7 @@ static void expand_identifier (LpcCompiler::Context* ctx, std::string_view id,
     active.pop_back();
 }
 
-static void expand_text (LpcCompiler::Context* ctx, std::string_view text,
+static void expand_text (YY_EXTRA_TYPE ctx, std::string_view text,
                          std::vector<char>& out, std::vector<std::string>& active) {
     size_t i = 0;
     ExpansionInput input{
@@ -380,7 +380,7 @@ static int scanner_take (yyscan_t yyscanner) {
  * @brief Preprocessor stage feeding the LPC lexer (called from its YY_INPUT).
  * Fills buf with up to max_len bytes of preprocessed text; returns 0 at end of input.
  */
-int preprocessor_feed (char* buf, int max_len, LpcCompiler::Context* ctx) {
+int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE ctx) {
     auto scanner = static_cast<yyscan_t>(ctx->ppscanner);
     while (ctx->ppbuffer.empty() && !ctx->pp_eof) {
         if (pplex(scanner) == 0)

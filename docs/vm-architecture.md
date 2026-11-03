@@ -5,7 +5,7 @@ also holds the constants and method table used to locate each method's bytecode
 range. Blueprint and cloned objects can share this image while keeping separate
 mutable object state.
 
-## Runtime
+## Executor
 
 The host runs methods through a bounded bytecode view. An execution uses its
 object class and, when needed, the target object's state, along with a data stack

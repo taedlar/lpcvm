@@ -22,7 +22,7 @@ LpcCompiler::LpcCompiler(FILE* source_file)
     : source_file_(source_file), filename_("<unknown>"), impl_(nullptr)
 {
     if (source_file_) {
-        impl_ = new internal_s();
+        impl_ = new internal_s;
         pplex_init_extra(&impl_->ctx, &impl_->ppscanner); // create preprocessor scanner
         impl_->ctx.ppscanner = impl_->ppscanner;
         pprestart(source_file_, impl_->ppscanner); // the preprocessor reads the source file
@@ -45,6 +45,12 @@ LpcCompiler::~LpcCompiler() {
             delete impl_->parser; // destroy the parser instance
         delete impl_;
     }
+}
+
+void LpcCompiler::use_runtime(std::shared_ptr<ManagedRuntime> runtime) {
+    runtime_ = std::move(runtime);
+    if (impl_)
+        impl_->ctx.runtime = runtime_;
 }
 
 void LpcCompiler::use_predefines(std::shared_ptr<SymbolTable> predefines) {
@@ -108,6 +114,7 @@ std::string LpcCompiler::preprocess(const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
+        tmp.ctx.runtime = runtime_;
         if (predefines_) {
             tmp.ctx.defines = predefines_;
             tmp.ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);
@@ -171,6 +178,7 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
+        tmp.ctx.runtime = runtime_;
         if (predefines_) {
             tmp.ctx.defines = predefines_;
             tmp.ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);
