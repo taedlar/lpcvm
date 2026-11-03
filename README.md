@@ -39,6 +39,27 @@ execution benchmarks, not cold-cache or isolated memory-bandwidth measurements.
 prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports
 bytecode bytes traversed, not physical memory traffic.
 
+### Macro Expansion Benchmarks
+With `BUILD_TESTING=ON`, build `bench_macro_expansion` in a `Release` configuration:
+
+~~~bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build --target bench_macro_expansion
+./build/benchmarks/bench_macro_expansion --benchmark_min_time=0.1s --benchmark_repetitions=5
+./build/benchmarks/bench_macro_expansion --benchmark_filter=BM_ObjectMacroChain
+~~~
+
+The suite covers plain-text scanning, object-like macros, function arguments,
+nested function invocations, object-macro chains, and recursion guards. Workloads
+vary the number of input lines and, for nested expansion, the depth.
+
+Source construction, macro definition parsing, and an exact-output validation
+are outside the timed loop. Each iteration calls `LpcCompiler::preprocess` on
+the same input with prepared definitions; timings include scanner and compiler
+context setup, input copying, expansion, and output allocation and destruction.
+No LPC parsing or code generation is performed. `items_per_second` counts input
+lines (not recursive macro expansions), and `bytes_per_second` counts input bytes.
+
 ## Sandboxed Virtual Machine
 LPCVM intended to develop a compact virtual stack-machine that can be safely sandboxed.
 A LPC mudlib is a sandbox that is restricted to see only a portion of the filesystem.

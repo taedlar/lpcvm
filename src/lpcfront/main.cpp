@@ -91,6 +91,7 @@ static void log_vm_info() {
     SPDLOG_INFO("sizeof ConstTable::ValueType {}", sizeof(ConstTable::ValueType));
     SPDLOG_INFO("sizeof SymbolTable {}", sizeof(SymbolTable));
     SPDLOG_INFO("sizeof SymbolTable::Entry {}", sizeof(SymbolTable::Entry));
+    SPDLOG_INFO("sizeof SymbolTable::Token {}", sizeof(SymbolTable::Token));
     SPDLOG_INFO("sizeof SymbolTable::Definition {}", sizeof(SymbolTable::Definition));
     SPDLOG_INFO("=======================================================");
     SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));

@@ -50,6 +50,53 @@ TEST(PreprocessorTest, MacroDefinitionsSurviveStorageGrowth) {
     }
 }
 
+TEST(PreprocessorTest, ContinuedDefinitions) {
+    for (const std::string newline : {"\n", "\r\n"}) {
+        SCOPED_TRACE(newline.size());
+        const auto continued = "\\" + newline;
+        LpcCompiler compiler;
+        const auto result = compiler.preprocess(
+            "#define VALUE 1 + " + continued +
+            " 2 + " + continued + " 3" + newline +
+            "#define ADD(a," + continued + " b) ((a) + " + continued + "(b))" + newline +
+            "#define NAME VA" + continued + "LUE" + newline +
+            "#define TEXT \"hel" + continued + "lo\"" + newline +
+            "VALUE; ADD(NAME, 4); TEXT" + newline);
+        EXPECT_TRUE(compiler.messages().empty());
+        // Each consumed physical line still contributes a newline.
+        EXPECT_EQ(result, std::string(10, '\n') +
+                  "1 +  2 +  3; ((1 +  2 +  3) + (4)); \"hello\"" + newline);
+    }
+}
+
+TEST(PreprocessorTest, ContinuedDefinitionAtEndOfInput) {
+    auto definitions = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);
+    LpcCompiler compiler;
+    compiler.use_predefines(definitions);
+    EXPECT_EQ(compiler.preprocess("#define VALUE 4\\\n2"), "\n");
+    EXPECT_TRUE(compiler.messages().empty());
+    LpcCompiler consumer;
+    consumer.use_predefines(definitions);
+    EXPECT_EQ(consumer.preprocess("VALUE"), "42");
+}
+
+TEST(PreprocessorTest, ContinuedDefinitionsHaveSourceLocations) {
+    for (bool parse : {false, true}) {
+        for (const std::string source : {
+                "#define F(a,\\\n 1) a",
+                "#define F(a,\\\r\n 1) a",
+                "#define VALUE 4\\\n2\n#define F(a,\\\n 1) a"}) {
+            LpcCompiler compiler;
+            if (parse) EXPECT_FALSE(compiler.parse(source));
+            else compiler.preprocess(source);
+            ASSERT_EQ(compiler.messages().size(), 1u);
+            EXPECT_EQ(compiler.messages()[0].lineno, source.find("#define VALUE") == 0 ? 4 : 2);
+            EXPECT_EQ(compiler.messages()[0].column, 2);
+            EXPECT_NE(compiler.messages()[0].text.find("Invalid macro parameter"), std::string::npos);
+        }
+    }
+}
+
 TEST(PreprocessorTest, InvalidDefinitionsHaveSourceLocations) {
     struct Case { const char* directive; int column; const char* error; };
     const Case cases[] = {
