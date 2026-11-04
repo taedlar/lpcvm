@@ -111,6 +111,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         throw std::runtime_error("Not enough arguments on the stack");
     std::size_t fp = stack.size() - num_args; // frame pointer, points to the base of the current function's stack frame (first argument)
     const uint8_t *pc = start_; // program counter, points to the current instruction in the bytecode
+    std::size_t global_offset = 0; // offset into the global variables segment
     uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
     uint32_t oparg; // holds the extendable argument for the current opcode
     SValue result;
@@ -185,7 +186,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         oparg = (extended_arg << 8) | *pc++;
         if (!this_obj_)
             throw std::runtime_error("Global variable access requires an object state");
-        stack.push((*this_obj_)[oparg]);
+        stack.push((*this_obj_)[global_offset + oparg]);
         VM_DISPATCH();
     }
 
@@ -193,7 +194,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         oparg = (extended_arg << 8) | *pc++;
         if (!this_obj_)
             throw std::runtime_error("Global variable access requires an object state");
-        (*this_obj_)[oparg] = stack.top();
+        (*this_obj_)[global_offset + oparg] = stack.top();
         VM_DISPATCH();
     }
 
@@ -324,7 +325,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             throw std::runtime_error("Invalid call with no function index on the stack");
         auto func_index = std::get<uint32_t>(stack[stack.size() - oparg]);
         auto binding = prog_->get_method(func_index);
-        control.push(pc, fp, start_, end_); // save the current execution context on the return stack
+        control.push(pc, fp, global_offset, start_, end_); // save the current execution context on the return stack
         fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
         pc = start_ = prog_->bytecode() + binding.bytecode_offset;
         end_ = start_ + binding.bytecode_length;
@@ -379,6 +380,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         }
         pc = control.top().pc;
         fp = control.top().fp;
+        global_offset = control.top().global_offset;
         start_ = control.top().start;
         end_ = control.top().end;
         control.pop();

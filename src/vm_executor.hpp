@@ -84,12 +84,13 @@ public:
     struct Frame {
         const uint8_t* pc;
         std::size_t fp;
+        std::size_t global_offset; // offset into the global variables segment
         const uint8_t* start; // for branch target calculations
         const uint8_t* end;   // end of the bytecode segment for the current function frame
     };
 
-    void push(const uint8_t* pc, std::size_t fp, const uint8_t* start, const uint8_t* end) {
-        stack_.push_back({pc, fp, start, end});
+    void push(const uint8_t* pc, std::size_t fp, std::size_t global_offset, const uint8_t* start, const uint8_t* end) {
+        stack_.push_back({pc, fp, global_offset, start, end});
     }
 
     void pop() {
