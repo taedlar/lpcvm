@@ -83,13 +83,13 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     // generate the bytecode of object methods (runtime class)
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
-    BytecodeView entry;
+    lpcvm::Execution entry;
     ASSERT_TRUE(prog->lookup_method("f", &entry));
     SPDLOG_INFO("Method 'f' found in runtime class: length={}", entry.length());
 
     // Execute the bytecode for the method 'f' and check the data stack
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     EXPECT_EQ(entry.execute(control, stack), 1);
     ASSERT_FALSE(stack.empty());
     SPDLOG_INFO("Top of stack: variant index {}", stack.top().index());
@@ -107,16 +107,16 @@ TEST(LpcCompilerTest, MultipleFunctionBytecodeRanges) {
 
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
-    BytecodeView first;
-    BytecodeView second;
+    lpcvm::Execution first;
+    lpcvm::Execution second;
     ASSERT_TRUE(prog->lookup_method("first", &first));
     ASSERT_TRUE(prog->lookup_method("second", &second));
     EXPECT_EQ(first.length(), 4);
     EXPECT_EQ(second.length(), 4);
     EXPECT_FALSE(prog->lookup_method("missing", nullptr));
 
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     EXPECT_EQ(second.execute(control, stack), 1);
     ASSERT_EQ(stack.size(), 1);
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 22);
@@ -136,11 +136,11 @@ TEST(LpcCompilerTest, NestedFunctionCallsPassArgumentsAndReturnValues) {
 
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
-    BytecodeView caller;
+    lpcvm::Execution caller;
     ASSERT_TRUE(prog->lookup_method("caller", &caller));
 
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     stack.push(SValue(int32_t{99}));
     EXPECT_EQ(caller.execute(control, stack), 1);
     ASSERT_EQ(stack.size(), 2);
@@ -169,9 +169,9 @@ TEST(LpcCompilerTest, BytecodeGenerationContext) {
     bgen.emit(F_BINARY_OP, oparg::ADD); // push result of arg#1 + (1 + 1)
     bgen.emit(F_RETURN, 1); // return the top of the stack
 
-    BytecodeView view(bytecode.data(), bytecode.size(), &prog);
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::Execution view(bytecode.data(), bytecode.size(), &prog);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     stack.push(SValue(int32_t{1})); // argument 1
     EXPECT_EQ(view.execute(control, stack, 1), 1);
     ASSERT_EQ(stack.size(), 1);
@@ -213,11 +213,11 @@ TEST(LpcCompilerTest, BlockLocalAllocation) {
         EXPECT_EQ(bytecode, test.expected);
 
         // execute bytecode
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(int32_t{99}));
         stack.push_n(test.num_params);
-        BytecodeView view(bytecode.data(), bytecode.size(), nullptr);
+        lpcvm::Execution view(bytecode.data(), bytecode.size(), nullptr);
         EXPECT_EQ(view.execute(control, stack, test.num_params), 0);
         ASSERT_EQ(stack.size(), 1);
         EXPECT_EQ(std::get<int32_t>(stack.top()), 99);
@@ -234,10 +234,10 @@ TEST(LpcCompilerTest, ReturnFromNestedBlockCleansUpLocals) {
     )"));
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
-    BytecodeView entry;
+    lpcvm::Execution entry;
     ASSERT_TRUE(prog->lookup_method("f", &entry));
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     stack.push(SValue(int32_t{99}));
     stack.push(SValue(int32_t{7})); // argument for the function
     EXPECT_EQ(entry.execute(control, stack, 1), 1); // call f(7) -> should return 42
@@ -260,10 +260,10 @@ TEST(LpcCompilerTest, IfElseStatement) {
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
 
-    BytecodeView entry;
+    lpcvm::Execution entry;
     ASSERT_TRUE(prog->lookup_method("f", &entry));
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     stack.push(SValue(int32_t{99}));
     stack.push(SValue(int32_t{0})); // argument for the function
     EXPECT_EQ(entry.execute(control, stack, 1), 1); // call f(0) -> should return 2
@@ -294,10 +294,10 @@ TEST(LpcCompilerTest, LoopStatements) {
         ASSERT_TRUE(compiler.parse(test.source));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        BytecodeView entry;
+        lpcvm::Execution entry;
         ASSERT_TRUE(prog->lookup_method("f", &entry));
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(int32_t{99}));
         stack.push(SValue(test.arg));
         EXPECT_EQ(entry.execute(control, stack, 1), 1);
@@ -331,10 +331,10 @@ TEST(LpcCompilerTest, ShortCircuitLogicalOperators) {
         ASSERT_TRUE(compiler.parse(test.source));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        BytecodeView entry;
+        lpcvm::Execution entry;
         ASSERT_TRUE(prog->lookup_method("f", &entry));
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(test.arg));
         EXPECT_EQ(entry.execute(control, stack, 1), 1);
         ASSERT_EQ(stack.size(), 1);
@@ -375,10 +375,10 @@ TEST(LpcCompilerTest, UnaryOperators) {
         ASSERT_TRUE(compiler.parse(test.source));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        BytecodeView entry;
+        lpcvm::Execution entry;
         ASSERT_TRUE(prog->lookup_method("f", &entry));
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(test.arg));
         EXPECT_EQ(entry.execute(control, stack, 1), 1);
         ASSERT_EQ(stack.size(), 1);
@@ -415,10 +415,10 @@ TEST(LpcCompilerTest, TernaryOperator) {
         ASSERT_TRUE(compiler.parse(test.source));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        BytecodeView entry;
+        lpcvm::Execution entry;
         ASSERT_TRUE(prog->lookup_method("f", &entry));
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(test.arg));
         EXPECT_EQ(entry.execute(control, stack, 1), 1);
         ASSERT_EQ(stack.size(), 1);
@@ -463,10 +463,10 @@ TEST(LpcCompilerTest, CompoundAssignments) {
         ASSERT_TRUE(compiler.parse(test.source));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        BytecodeView entry;
+        lpcvm::Execution entry;
         ASSERT_TRUE(prog->lookup_method("f", &entry));
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(int32_t{0}));
         EXPECT_EQ(entry.execute(control, stack, 1), 1);
         ASSERT_EQ(stack.size(), 1);
@@ -509,10 +509,10 @@ TEST(LpcCompilerTest, LoopsWithAssignment) {
         ASSERT_TRUE(compiler.parse(test.source));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        BytecodeView entry;
+        lpcvm::Execution entry;
         ASSERT_TRUE(prog->lookup_method("f", &entry));
-        ReturnStack control;
-        DataStack stack;
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
         stack.push(SValue(int32_t{99}));
         stack.push(SValue(int32_t{0}));
         EXPECT_EQ(entry.execute(control, stack, 1), 1);

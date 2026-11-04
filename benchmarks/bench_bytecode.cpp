@@ -14,10 +14,10 @@
 
 namespace {
 
-void run_bytecode(benchmark::State& state, BytecodeView& code,
+void run_bytecode(benchmark::State& state, lpcvm::Execution& code,
     std::size_t logical_instructions, std::optional<int32_t> expected = std::nullopt) {
-    ReturnStack control;
-    DataStack stack;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
     const auto returned = code.execute(control, stack);
     if (returned != (expected ? 1 : 0) || stack.size() != (expected ? 1u : 0u) ||
         !control.empty()) {
@@ -54,7 +54,7 @@ void run_bytecode(benchmark::State& state, BytecodeView& code,
 
 void BM_ReturnOnly(benchmark::State& state) {
     const std::vector<uint8_t> bytecode{F_RETURN, 0};
-    BytecodeView code(bytecode.data(), bytecode.size());
+    lpcvm::Execution code(bytecode.data(), bytecode.size());
     run_bytecode(state, code, 1);
 }
 BENCHMARK(BM_ReturnOnly);
@@ -87,7 +87,7 @@ void BM_Dispatch(benchmark::State& state) {
     }
     auto start = static_cast<uint8_t*>(aligned) + offset;
     std::copy(bytecode.begin(), bytecode.end(), start);
-    BytecodeView code(start, bytecode.size());
+    lpcvm::Execution code(start, bytecode.size());
     run_bytecode(state, code, pairs * 2 + 1);
 }
 BENCHMARK(BM_Dispatch)
@@ -107,7 +107,7 @@ void BM_IntegerAdd(benchmark::State& state) {
         generator.emit(F_CONST_I4, one).emit(F_BINARY_OP, oparg::ADD);
     generator.emit(F_RETURN, 1);
 
-    BytecodeView code(bytecode.data(), bytecode.size(), &program);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &program);
     run_bytecode(state, code, additions * 2 + 2, static_cast<int32_t>(additions));
 }
 BENCHMARK(BM_IntegerAdd)->Arg(64)->Arg(4096)->Arg(65536)->ArgName("additions");
@@ -124,7 +124,7 @@ void BM_LocalAccess(benchmark::State& state) {
         generator.emit(F_LOAD_LOCAL, 0).emit(F_STORE_LOCAL, 0).emit(F_POP_N, 1);
     generator.emit(F_RETURN, 1);
 
-    BytecodeView code(bytecode.data(), bytecode.size(), &program);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &program);
     run_bytecode(state, code, accesses * 3 + 2, int32_t{42});
 }
 BENCHMARK(BM_LocalAccess)->Arg(64)->Arg(4096)->Arg(65536)->ArgName("accesses");
