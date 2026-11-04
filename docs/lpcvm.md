@@ -23,7 +23,8 @@ and sandbox architecture.
 Methods share their bytecode and constants through an `ObjectClass`; object
 variables belong to the target object's `ObjectState`. Each method binding records
 its signature and bytecode range. `ObjectClass::lookup_method()` resolves a name
-to an `Execution` with the class context; it does not attach an object state.
+to an `Execution` with the class context. Its optional third and fourth arguments
+attach an `ObjectState*` and `ManagedRuntime*`, respectively.
 
 Calls within a class use method-table indices. The caller pushes the method index
 and arguments, and the executor saves the caller's frame on the return stack.
@@ -34,7 +35,8 @@ the callee's frame while leaving its return values for the caller.
 
 A variable holds an `SValue`: a value that fits in one stack element, such as a primitive value, a reference to a compound value, or an object handle.
 
-- Primitive types (`int`, `float`, `string`, ...) are stored in the `SValue` and passed by value.
+- Numeric types (`int`, `float`, ...) are stored in the `SValue` and passed by value.
+- Strings use owning `LpcStringRef` values pointing to immutable shared bytes.
 - Compound types (`function`, `mapping`, arrays) live in heap memory with reference-counted lifecycle and are passed by reference.
 - Objects live in heap memory and are passed by handle (weak reference).
 - There is no raw pointer semantics in LPC.
@@ -166,11 +168,25 @@ When source information is unavailable, it preserves the original error message.
 
 Declared in [vm_executor.hpp](../src/vm_executor.hpp).
 
-Holds a bytecode range and non-owning pointers to its class and optional object
-state, which must remain alive during execution. `execute()` runs synchronously
+Holds a bytecode range and non-owning pointers to its class, optional object
+state, and optional runtime, which must remain alive during execution.
+`execute()` runs synchronously
 with caller-supplied data and return stacks. Arguments are already on the data
 stack; normal return removes them and the locals, leaves the results, and reports
 the number of return values. Object-variable access requires an object state.
+String literals emit `F_CONST_STR`, which interns the constant-pool bytes through
+`make_shared_string()` in the supplied runtime and pushes an owning reference.
+Executing this opcode without a runtime throws. Returned strings and strings
+stored in object state remain valid after the execution, program, or runtime is
+destroyed, as long as their owning references remain alive.
+
+```cpp
+ManagedRuntime runtime; // A Sandbox can also be supplied.
+lpcvm::Execution entry;
+if (program->lookup_method("set_message", &entry, &state, &runtime))
+    entry.execute(control, stack);
+```
+
 The program counter and frame pointer are local to the call; this type does not
 store a suspended continuation.
 
@@ -194,6 +210,40 @@ context and pops the frame. `execute()` records the initial return-stack depth s
 normal completion preserves any frames supplied by its caller. Return values
 remain on the data stack.
 
+### class `ManagedRuntime`
+
+Declared in [managed_runtime.hpp](../src/managed_runtime.hpp).
+
+Provides default file access and shared-string services without requiring a
+sandbox or object registry. `make_shared_string()`,
+`shared_string_allocation_size()`, and `sweep_shared_strings()` are virtual.
+The free factory `lpcvm::make_shared_string(runtime, value)` forwards to the
+virtual member. Custom storage implementations should override all three
+services consistently. Numeric-only execution can omit the runtime.
+
+The default runtime interns immutable shared strings. Equal byte sequences created
+through `lpcvm::make_shared_string(runtime, value)` share one `LpcString` within
+that runtime. The factory copies the input, including embedded NUL bytes.
+The table holds a strong reference until sweeping or runtime destruction;
+external owning references remain valid after the runtime is destroyed.
+
+```cpp
+ManagedRuntime runtime;
+auto text = lpcvm::make_shared_string(runtime, "hello");
+auto bytes = runtime.shared_string_allocation_size(); // 22 on the 64-bit build
+text = {};
+auto removed_bytes = runtime.sweep_shared_strings(); // 22
+```
+
+`shared_string_allocation_size()` sums the allocation sizes of distinct strings
+currently in the table: reference-count block, string metadata, characters, and
+one trailing NUL byte (17 + length on the 64-bit build). It excludes allocator
+and hash-table overhead. `sweep_shared_strings()` removes entries whose only
+strong reference belongs to the table and returns their total allocation size.
+Both operations take linear time in the table size and run on the owning thread.
+Sweeping retains hash buckets; outstanding weak handles can delay the physical
+release of removed strings' allocations.
+
 ### class `lpcvm::Sandbox`
 
 Declared in [vm_sandbox.hpp](../src/vm_sandbox.hpp).
@@ -203,6 +253,9 @@ objects, finds registered objects, and creates clones that share a compiled
 `ObjectClass` but have separate state. The object table holds strong references;
 callers receive weak handles. Explicit destruction removes the table's reference,
 allowing the object to expire once any remaining strong references are released.
+
+Shared-string allocation, accounting, and sweeping are inherited from
+`ManagedRuntime` and remain available through the sandbox.
 
 The constructor accepts a mudlib root for the intended resource boundary. The
 current loader opens the supplied path directly; it does not yet enforce

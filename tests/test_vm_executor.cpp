@@ -9,6 +9,7 @@
 #include "vm_exception.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
+#include "vm_sandbox.hpp"
 
 class SourceExceptionTest : public ::testing::Test {
 protected:
@@ -255,6 +256,64 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     EXPECT_EQ(stack.size(), 0); // arguments popped, no return value on the stack
 }
 
+TEST(VMExecutorTest, StringConstantRequiresRuntime) {
+    ConstTable consts;
+    auto index = consts.find_or_add(std::string_view("hello"));
+    ObjectClass prog(0, &consts);
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode bgen(bytecode);
+    bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    EXPECT_THROW(code.execute(control, stack), std::runtime_error);
+    EXPECT_TRUE(stack.empty());
+}
+
+TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
+    ConstTable consts;
+    for (int32_t i = 0; i < 260; ++i)
+        consts.find_or_add(i);
+    const auto text = std::string_view("a\0b", 3);
+    auto index = consts.find_or_add(text);
+    ASSERT_GT(index, 255u);
+    ObjectClass prog(0, &consts);
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode bgen(bytecode);
+    bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
+    ManagedRuntime runtime;
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog, nullptr, &runtime);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), lpcvm::make_shared_string(runtime, text));
+}
+
+TEST(VMExecutorTest, StringConstantsUseRuntimeOverride) {
+    class TrackingRuntime : public ManagedRuntime {
+    public:
+        int calls = 0;
+        LpcStringRef make_shared_string(std::string_view value) override {
+            ++calls;
+            return ManagedRuntime::make_shared_string(value);
+        }
+    } runtime;
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("string f() { return \"hello\"; }"));
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    lpcvm::Execution entry;
+    ASSERT_TRUE(prog->lookup_method("f", &entry, nullptr, &runtime));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(entry.execute(control, stack), 1);
+    EXPECT_EQ(runtime.calls, 1);
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), "hello");
+}
+
 TEST(VMExecutorTest, StoreGlobal) {
     ConstTable consts;
     auto c1 = consts.find_or_add(int32_t{123});
@@ -276,6 +335,80 @@ TEST(VMExecutorTest, StoreGlobal) {
     EXPECT_TRUE(this_obj[0].index() != std::variant_npos);
     ASSERT_TRUE(std::holds_alternative<int32_t>(this_obj[0]));
     EXPECT_EQ(std::get<int32_t>(this_obj[0]), 123);
+}
+
+TEST(VMExecutorTest, StoreGlobalStringRetainsOwnershipAfterExecution) {
+    ObjectState this_obj(1);
+    lpcvm::Sandbox sandbox("/mudlib");
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    const auto text = std::string_view("hello\0world", 11);
+    stack.push(lpcvm::make_shared_string(sandbox, text));
+
+    {
+        std::vector<uint8_t> bytecode;
+        lpcvm::Bytecode bgen(bytecode);
+        bgen.emit(F_STORE_GLOBAL, 0).emit(F_RETURN, 1);
+        lpcvm::Execution code(bytecode.data(), bytecode.size(), nullptr, &this_obj);
+        ASSERT_EQ(code.execute(control, stack, 1), 1);
+        ASSERT_EQ(stack.size(), 1u);
+        ASSERT_TRUE(std::holds_alternative<LpcStringRef>(this_obj[0]));
+        ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
+        EXPECT_EQ(std::get<LpcStringRef>(this_obj[0]), std::get<LpcStringRef>(stack.top()));
+        EXPECT_EQ(std::get<LpcStringRef>(this_obj[0]).use_count(), 3u);
+    }
+
+    stack.pop_n(1);
+    EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
+    EXPECT_EQ(std::get<LpcStringRef>(this_obj[0])->view(), text);
+    EXPECT_EQ(std::get<LpcStringRef>(this_obj[0]).use_count(), 2u);
+
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode bgen(bytecode);
+    bgen.emit(F_LOAD_GLOBAL, 0).emit(F_RETURN, 1);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), nullptr, &this_obj);
+    ASSERT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), std::get<LpcStringRef>(this_obj[0]));
+    this_obj[0] = std::monostate{};
+    EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
+    stack.pop_n(1);
+    EXPECT_GT(sandbox.sweep_shared_strings(), 0u);
+    EXPECT_EQ(sandbox.shared_string_allocation_size(), 0u);
+}
+
+TEST(VMExecutorTest, StoreGlobalStringReassignmentReleasesPreviousValue) {
+    ObjectState this_obj(1);
+    lpcvm::Sandbox sandbox("/mudlib");
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode bgen(bytecode);
+    bgen.emit(F_STORE_GLOBAL, 0).emit(F_RETURN, 0);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), nullptr, &this_obj);
+
+    stack.push(lpcvm::make_shared_string(sandbox, "first"));
+    ASSERT_EQ(code.execute(control, stack, 1), 0);
+    ASSERT_TRUE(stack.empty());
+    const auto first_bytes = sandbox.shared_string_allocation_size();
+
+    // Reassign the same shared string without losing or leaking ownership.
+    stack.push(this_obj[0]);
+    ASSERT_EQ(code.execute(control, stack, 1), 0);
+    EXPECT_EQ(std::get<LpcStringRef>(this_obj[0]).use_count(), 2u);
+    EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
+
+    stack.push(lpcvm::make_shared_string(sandbox, "second"));
+    ASSERT_EQ(code.execute(control, stack, 1), 0);
+    EXPECT_EQ(std::get<LpcStringRef>(this_obj[0])->view(), "second");
+    EXPECT_EQ(sandbox.sweep_shared_strings(), first_bytes);
+    const auto second_bytes = sandbox.shared_string_allocation_size();
+
+    stack.push(int32_t{42});
+    ASSERT_EQ(code.execute(control, stack, 1), 0);
+    EXPECT_EQ(std::get<int32_t>(this_obj[0]), 42);
+    EXPECT_EQ(sandbox.sweep_shared_strings(), second_bytes);
+    EXPECT_EQ(sandbox.shared_string_allocation_size(), 0u);
 }
 
 TEST(VMExecutorTest, LoadGlobal) {

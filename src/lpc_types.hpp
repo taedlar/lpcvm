@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+class ManagedRuntime;
+class LpcString;
 class LpcArray;
 class LpcMapping;
 class LpcObject;
@@ -121,9 +123,11 @@ private:
     template <typename U, typename... Args>
     friend SharedPtr<U> create_shared(Args&&... args);
 
+    friend class ::ManagedRuntime;
+
     struct AdoptRetainedReference {};
 
-    SharedPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {} // private constructor, use lpcvm::create_shared instead
+    SharedPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {} // private constructor for allocating factories
 
     static ControlBlock* control_block(T* obj) noexcept {
         return reinterpret_cast<ControlBlock*>(obj) - 1;
@@ -262,6 +266,43 @@ private:
 };
 
 } // namespace lpcvm
+
+using LpcStringRef = lpcvm::SharedPtr<LpcString>;
+
+namespace lpcvm {
+
+/** Find or create an immutable owning string, interned within the runtime.
+ * Like SharedPtr, the runtime and returned references are thread-confined.
+ * The input is copied on creation and may contain embedded NUL bytes.
+ * Unused strings are retained until the runtime sweeps them or is destroyed.
+ */
+LpcStringRef make_shared_string(ManagedRuntime& runtime, std::string_view value);
+
+} // namespace lpcvm
+
+/** Immutable bytes stored immediately after this object, in the same allocation
+ * as the SharedPtr control block. Only ManagedRuntime can construct one.
+ */
+class LpcString {
+public:
+    LpcString(const LpcString&) = delete;
+    LpcString& operator=(const LpcString&) = delete;
+    ~LpcString() = default;
+
+    // Borrowed views remain valid while an owning reference is retained.
+    std::string_view view() const noexcept { return {data(), length_}; }
+    const char* data() const noexcept { return reinterpret_cast<const char*>(this + 1); }
+    const char* c_str() const noexcept { return data(); }
+    std::size_t size() const noexcept { return length_; }
+    bool empty() const noexcept { return length_ == 0; }
+
+private:
+    friend class ManagedRuntime;
+
+    explicit LpcString(std::size_t length) noexcept : length_(length) {}
+
+    const std::size_t length_;
+};
 
 using LpcArrayRef = lpcvm::SharedPtr<LpcArray>;
 

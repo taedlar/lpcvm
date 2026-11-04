@@ -142,6 +142,9 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
                 [&](const double& double_const)     { emit(F_CONST_F8, constant.index); },
             }, constant.value);
         },
+        [&](const AST::StringLiteral& literal) {
+            emit(F_CONST_STR, literal.idx);
+        },
         [&](const AST::Variable& var) {
             emit_variable_load(var);
         },

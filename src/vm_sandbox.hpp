@@ -6,20 +6,11 @@
 #include <string_view>
 #include <unordered_map>
 #include "lpc_types.hpp"
+#include "managed_runtime.hpp"
 
 using ObjectTable = std::unordered_map<std::string_view, LpcObjectRef>;
 using ObjectHandle = LpcObject::HandleType;
 using PathType = std::filesystem::path;
-
-class ManagedRuntime {
-public:
-    ManagedRuntime() = default;
-    virtual ~ManagedRuntime() = default;
-
-    virtual FILE* file_open(const char* path, const char* mode) {
-        return std::fopen(path, mode);
-    }
-};
 
 namespace lpcvm {
 

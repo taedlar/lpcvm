@@ -130,9 +130,12 @@ private:
 struct Execution {
 public:
     Execution()
-        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr) {}
-    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr, ObjectState* obj = nullptr)
-        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj) {}
+        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr), runtime_(nullptr) {}
+    // Borrowed context must remain alive during execute(). String constants
+    // require a runtime; returned owning strings can outlive the context.
+    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
+              ObjectState* obj = nullptr, ManagedRuntime* runtime = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj), runtime_(runtime) {}
     Execution(const Execution&) = default;
     Execution& operator=(const Execution&) = default;
 
@@ -145,6 +148,7 @@ private:
     const uint8_t* end_;
     const ObjectClass* prog_;
     ObjectState* this_obj_;
+    ManagedRuntime* runtime_;
 };
 
 } // namespace lpcvm
