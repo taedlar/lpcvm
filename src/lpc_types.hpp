@@ -323,27 +323,30 @@ class ObjectState;
 
 class LpcObject {
 public:
-    using VMType = lpcvm::Sandbox;
+    using FabricType = lpcvm::Sandbox; // a fabric of substantial resources for executing LPC objects
     using HandleType = lpcvm::Handle<LpcObject, LpcObjectRef>;
 
-    static HandleType create(VMType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);
-    static LpcObjectRef find(VMType *sb, std::string_view name);
-    static void destruct(VMType *sb, LpcObjectRef obj);
+    static HandleType create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);
+    static LpcObjectRef find(FabricType *sb, std::string_view name);
+    static void destruct(FabricType *sb, LpcObjectRef obj);
 
     LpcObject() = delete;
     LpcObject(const LpcObject&) = delete;
     LpcObject& operator=(const LpcObject&) = delete;
     ~LpcObject() = default;
 
+    FabricType *fabric() const noexcept { return fabric_; }
     const std::string& name() const noexcept { return name_; }
     std::shared_ptr<ObjectClass> program() const noexcept { return program_; }
+    std::shared_ptr<ObjectState> state() const noexcept { return state_; }
 
 private:
     template <typename U, typename... Args>
     friend lpcvm::SharedPtr<U> lpcvm::create_shared(Args&&... args);
 
-    LpcObject(std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
+    LpcObject(FabricType *sb, std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
 
+    FabricType *fabric_;
     std::string name_;
     std::shared_ptr<ObjectClass> program_;
     std::shared_ptr<ObjectState> state_;

@@ -178,12 +178,12 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
 
     VM_HANDLER(F_CONST_STR) {
         oparg = (extended_arg << 8) | *pc++;
-        if (!runtime_)
-            throw std::runtime_error("String constants require a runtime");
+        if (!fabric_)
+            throw std::runtime_error("Unable to perform string operation without a fabric");
         if (!prog_ || !prog_->const_pool())
-            throw std::runtime_error("String constants require a constant pool");
+            throw std::runtime_error("Unable to fetch string constant without a constant pool");
         auto value = prog_->const_pool()->fetch_string(oparg);
-        stack.push(make_shared_string(*runtime_, value));
+        stack.push(make_shared_string(*fabric_, value));
         VM_DISPATCH();
     }
 

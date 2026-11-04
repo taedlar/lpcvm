@@ -52,12 +52,11 @@ public:
     const ObjectTable& objects() const { return named_collection_; }
 
     ObjectHandle load_object (const PathType &path);
-    // Exact object-name lookup; performs no path normalization or file access.
     ObjectHandle find_object (std::string_view name);
     ObjectHandle clone_object (ObjectHandle obj);
     void destruct_object (ObjectHandle obj);
 
-    friend class ::LpcObject;
+    friend class ::LpcObject; // to allow adding/removing objects from the sandbox's object table
 
 private:
     PathType mudlib_root_;

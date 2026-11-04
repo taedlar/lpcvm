@@ -24,7 +24,7 @@ Methods share their bytecode and constants through an `ObjectClass`; object
 variables belong to the target object's `ObjectState`. Each method binding records
 its signature and bytecode range. `ObjectClass::lookup_method()` resolves a name
 to an `Execution` with the class context. Its optional third and fourth arguments
-attach an `ObjectState*` and `ManagedRuntime*`, respectively.
+attach an `ObjectState*` and a fabric pointer (either a `ManagedRuntime*` or `Sandbox*`), respectively.
 
 Calls within a class use method-table indices. The caller pushes the method index
 and arguments, and the executor saves the caller's frame on the return stack.
@@ -169,21 +169,21 @@ When source information is unavailable, it preserves the original error message.
 Declared in [vm_executor.hpp](../src/vm_executor.hpp).
 
 Holds a bytecode range and non-owning pointers to its class, optional object
-state, and optional runtime, which must remain alive during execution.
+state, and optional fabric, which must remain alive during execution.
 `execute()` runs synchronously
 with caller-supplied data and return stacks. Arguments are already on the data
 stack; normal return removes them and the locals, leaves the results, and reports
 the number of return values. Object-variable access requires an object state.
 String literals emit `F_CONST_STR`, which interns the constant-pool bytes through
-`make_shared_string()` in the supplied runtime and pushes an owning reference.
-Executing this opcode without a runtime throws. Returned strings and strings
-stored in object state remain valid after the execution, program, or runtime is
+`make_shared_string()` in the supplied fabric and pushes an owning reference.
+Executing this opcode without a fabric throws. Returned strings and strings
+stored in object state remain valid after the execution, program, or fabric is
 destroyed, as long as their owning references remain alive.
 
 ```cpp
-ManagedRuntime runtime; // A Sandbox can also be supplied.
+ManagedRuntime fabric; // A Sandbox can also be supplied.
 lpcvm::Execution entry;
-if (program->lookup_method("set_message", &entry, &state, &runtime))
+if (program->lookup_method("set_message", &entry, &state, &fabric))
     entry.execute(control, stack);
 ```
 
@@ -215,24 +215,24 @@ remain on the data stack.
 Declared in [managed_runtime.hpp](../src/managed_runtime.hpp).
 
 Provides default file access and shared-string services without requiring a
-sandbox or object registry. `make_shared_string()`,
-`shared_string_allocation_size()`, and `sweep_shared_strings()` are virtual.
-The free factory `lpcvm::make_shared_string(runtime, value)` forwards to the
+sandbox or object registry. This is the base fabric for numeric-only execution.
+`make_shared_string()`, `shared_string_allocation_size()`, and `sweep_shared_strings()` are virtual.
+The free factory `lpcvm::make_shared_string(fabric, value)` forwards to the
 virtual member. Custom storage implementations should override all three
-services consistently. Numeric-only execution can omit the runtime.
+services consistently. Numeric-only execution can omit the fabric.
 
-The default runtime interns immutable shared strings. Equal byte sequences created
-through `lpcvm::make_shared_string(runtime, value)` share one `LpcString` within
-that runtime. The factory copies the input, including embedded NUL bytes.
-The table holds a strong reference until sweeping or runtime destruction;
-external owning references remain valid after the runtime is destroyed.
+The default fabric interns immutable shared strings. Equal byte sequences created
+through `lpcvm::make_shared_string(fabric, value)` share one `LpcString` within
+that fabric. The factory copies the input, including embedded NUL bytes.
+The table holds a strong reference until sweeping or fabric destruction;
+external owning references remain valid after the fabric is destroyed.
 
 ```cpp
-ManagedRuntime runtime;
-auto text = lpcvm::make_shared_string(runtime, "hello");
-auto bytes = runtime.shared_string_allocation_size(); // 22 on the 64-bit build
+ManagedRuntime fabric;
+auto text = lpcvm::make_shared_string(fabric, "hello");
+auto bytes = fabric.shared_string_allocation_size(); // 22 on the 64-bit build
 text = {};
-auto removed_bytes = runtime.sweep_shared_strings(); // 22
+auto removed_bytes = fabric.sweep_shared_strings(); // 22
 ```
 
 `shared_string_allocation_size()` sums the allocation sizes of distinct strings
@@ -248,9 +248,9 @@ release of removed strings' allocations.
 
 Declared in [vm_sandbox.hpp](../src/vm_sandbox.hpp).
 
-Manages a VM's named LPC objects. It loads and compiles source files into blueprint
-objects, finds registered objects, and creates clones that share a compiled
-`ObjectClass` but have separate state. The object table holds strong references;
+A concrete fabric implementation that manages a VM's named LPC objects. It loads and compiles
+source files into blueprint objects, finds registered objects, and creates clones that share
+a compiled `ObjectClass` but have separate state. The object table holds strong references;
 callers receive weak handles. Explicit destruction removes the table's reference,
 allowing the object to expire once any remaining strong references are released.
 

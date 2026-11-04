@@ -47,10 +47,10 @@ LpcCompiler::~LpcCompiler() {
     }
 }
 
-void LpcCompiler::use_runtime(std::shared_ptr<ManagedRuntime> runtime) {
-    runtime_ = std::move(runtime);
+void LpcCompiler::use_fabric(std::shared_ptr<ManagedRuntime> sb) {
+    fabric_ = std::move(sb);
     if (impl_)
-        impl_->ctx.runtime = runtime_;
+        impl_->ctx.fabric = fabric_;
 }
 
 void LpcCompiler::use_predefines(std::shared_ptr<SymbolTable> predefines) {
@@ -114,7 +114,7 @@ std::string LpcCompiler::preprocess(const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
-        tmp.ctx.runtime = runtime_;
+        tmp.ctx.fabric = fabric_;
         if (predefines_) {
             tmp.ctx.defines = predefines_;
             tmp.ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);
@@ -178,7 +178,7 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
-        tmp.ctx.runtime = runtime_;
+        tmp.ctx.fabric = fabric_;
         if (predefines_) {
             tmp.ctx.defines = predefines_;
             tmp.ctx.defines->new_subscope(SymbolTable::ScopeType::PREPROCESSOR, 0);

@@ -13,7 +13,7 @@ TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;
     std::optional<LpcObjectRef> locked;
     {
-        auto owner = lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>());
+        auto owner = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
         handle = LpcObject::HandleType(owner);
         locked = handle.lock();
         ASSERT_TRUE(locked.has_value());
@@ -27,7 +27,7 @@ TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
 }
 
 TEST(LpcObjectHandleTest, HandleOutlivesObject) {
-    auto owner = std::make_optional<LpcObjectRef>(lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>()));
+    auto owner = std::make_optional<LpcObjectRef>(lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>()));
     auto h1 = LpcObject::HandleType(*owner);
     auto h2 = h1;
     owner.reset();
@@ -63,7 +63,7 @@ static_assert(sizeof(LpcObjectRef) == sizeof(void*));
 static_assert(sizeof(LpcObject::HandleType) == sizeof(void*));
 
 TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
-    auto a = lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>());
+    auto a = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
     EXPECT_EQ(a.use_count(), 1u);
     {
         LpcObjectRef b = a;
@@ -73,7 +73,7 @@ TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
         EXPECT_EQ(a.use_count(), 2u);
         EXPECT_EQ(b.use_count(), 0u);
     }
-    auto other = lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>());
+    auto other = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
     EXPECT_FALSE(a == other);
     EXPECT_TRUE(a == a);
 
@@ -88,7 +88,7 @@ TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
 }
 
 TEST(LpcHandleTest, CopyAndDestroyTrackWeakCount) {
-    auto owner = lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>());
+    auto owner = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
     auto h = LpcObject::HandleType(owner);
     EXPECT_EQ(h.weak_count(), 1u);
     {
@@ -108,7 +108,7 @@ TEST(LpcHandleTest, LockIncrementsStrongCountAndDefaultHandleIsExpired) {
     EXPECT_TRUE(empty.expired());
     EXPECT_FALSE(empty.lock().has_value());
 
-    auto owner = lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>());
+    auto owner = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
     auto h = LpcObject::HandleType(owner);
     {
         auto locked = h.lock();
@@ -119,7 +119,7 @@ TEST(LpcHandleTest, LockIncrementsStrongCountAndDefaultHandleIsExpired) {
 }
 
 TEST(LpcHandleTest, HandleHeldAcrossLastStrongReleaseExpiresSafely) {
-    auto owner = std::make_optional<LpcObjectRef>(lpcvm::create_shared<LpcObject>(std::make_shared<ObjectClass>()));
+    auto owner = std::make_optional<LpcObjectRef>(lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>()));
     auto h = LpcObject::HandleType(*owner);
     owner.reset();
     EXPECT_TRUE(h.expired());
