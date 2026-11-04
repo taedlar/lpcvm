@@ -178,7 +178,12 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
 
     VM_HANDLER(F_CONST_STR) {
         oparg = (extended_arg << 8) | *pc++;
-        auto value = prog_->const_pool()->fetch_string(oparg); // TODO: push a string value onto the VM stack
+        if (!fabric_)
+            throw std::runtime_error("Unable to perform string operation without a fabric");
+        if (!prog_ || !prog_->const_pool())
+            throw std::runtime_error("Unable to fetch string constant without a constant pool");
+        auto value = prog_->const_pool()->fetch_string(oparg);
+        stack.push(make_shared_string(*fabric_, value));
         VM_DISPATCH();
     }
 
@@ -194,6 +199,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         oparg = (extended_arg << 8) | *pc++;
         if (!this_obj_)
             throw std::runtime_error("Global variable access requires an object state");
+        // Copy owning references (including strings) into persistent state.
+        // Keep the stack value as the result of the assignment expression.
         (*this_obj_)[global_offset + oparg] = stack.top();
         VM_DISPATCH();
     }

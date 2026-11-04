@@ -4,8 +4,10 @@
 #pragma once
 #include <cstdint>
 #include "const_pool.hpp"
+#include "lpc_types.hpp"
 #include "object_class.hpp"
 #include "object_state.hpp"
+#include "vm_sandbox.hpp"
 #include "vm_svalue.hpp"
 
 namespace lpcvm {
@@ -126,13 +128,22 @@ private:
  * This structure holds the bytecode segment, the associated object class,
  * and the current object state. It is used to track the execution of a
  * function or method, including its start and end positions in the bytecode.
+ *
+ * When constructed with a LpcObjectRef, the Execution struct holds a strong
+ * reference to the object to ensure it remains alive during execution (RAII).
  */
 struct Execution {
 public:
+    using FabricType = ManagedRuntime;
+
     Execution()
-        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr) {}
-    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr, ObjectState* obj = nullptr)
-        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj) {}
+        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr), fabric_(nullptr) {}
+    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
+              ObjectState* obj = nullptr, FabricType* runtime = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj), fabric_(runtime) {}
+    Execution(const uint8_t* bytecode, std::size_t size, LpcObjectRef obj)
+        : start_(bytecode), end_(bytecode + size), prog_(obj ? obj->program().get() : nullptr),
+          this_obj_(obj ? obj->state().get() : nullptr), fabric_(obj ? obj->fabric() : nullptr), obj_ref_(obj) {}
     Execution(const Execution&) = default;
     Execution& operator=(const Execution&) = default;
 
@@ -145,6 +156,8 @@ private:
     const uint8_t* end_;
     const ObjectClass* prog_;
     ObjectState* this_obj_;
+    FabricType* fabric_;
+    LpcObjectRef obj_ref_;  // holds a strong reference when constructed with LpcObjectRef
 };
 
 } // namespace lpcvm

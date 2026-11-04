@@ -97,6 +97,69 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 579);
 }
 
+TEST(LpcCompilerTest, StringConstantsSurviveProgramAndSandboxDestruction) {
+    lpcvm::DataStack stack;
+    {
+        lpcvm::Sandbox sandbox("/mudlib");
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(R"(
+            string leaf() { return "hello"; }
+            string caller() { string value = leaf(); return value; }
+            string empty() { return ""; }
+        )"));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        lpcvm::Execution entry;
+        ASSERT_TRUE(prog->lookup_method("caller", &entry, nullptr, &sandbox));
+        lpcvm::ReturnStack control;
+        ASSERT_EQ(entry.execute(control, stack), 1);
+        ASSERT_EQ(entry.execute(control, stack), 1);
+        ASSERT_EQ(stack.size(), 2u);
+        ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack[0]));
+        EXPECT_EQ(std::get<LpcStringRef>(stack[0]), std::get<LpcStringRef>(stack[1]));
+        EXPECT_TRUE(control.empty());
+        ASSERT_TRUE(prog->lookup_method("empty", &entry, nullptr, &sandbox));
+        ASSERT_EQ(entry.execute(control, stack), 1);
+        EXPECT_TRUE(std::get<LpcStringRef>(stack.top())->empty());
+        EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
+    }
+    EXPECT_EQ(std::get<LpcStringRef>(stack[0])->view(), "hello");
+    EXPECT_EQ(std::get<LpcStringRef>(stack[1])->view(), "hello");
+    EXPECT_TRUE(std::get<LpcStringRef>(stack[2])->empty());
+}
+
+TEST(LpcCompilerTest, AssignsStringConstantsToGlobalsAndReturnsThem) {
+    lpcvm::Sandbox sandbox("/mudlib");
+    ObjectState state(1);
+    {
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(R"(
+            string message;
+            string set_message() {
+                "discarded";
+                message = "hello";
+                return message;
+            }
+        )"));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        lpcvm::Execution entry;
+        ASSERT_TRUE(prog->lookup_method("set_message", &entry, &state, &sandbox));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        ASSERT_EQ(entry.execute(control, stack), 1);
+        ASSERT_EQ(stack.size(), 1u);
+        ASSERT_TRUE(std::holds_alternative<LpcStringRef>(state[0]));
+        EXPECT_EQ(std::get<LpcStringRef>(state[0]), std::get<LpcStringRef>(stack.top()));
+    }
+    EXPECT_EQ(std::get<LpcStringRef>(state[0])->view(), "hello");
+    EXPECT_GT(sandbox.sweep_shared_strings(), 0u); // Discarded literal only.
+    EXPECT_EQ(std::get<LpcStringRef>(state[0])->view(), "hello");
+    state[0] = std::monostate{};
+    EXPECT_GT(sandbox.sweep_shared_strings(), 0u);
+    EXPECT_EQ(sandbox.shared_string_allocation_size(), 0u);
+}
+
 TEST(LpcCompilerTest, MultipleFunctionBytecodeRanges) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse(R"(

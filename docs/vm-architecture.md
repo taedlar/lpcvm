@@ -19,11 +19,13 @@ loads and stores locals or object variables, applies operations to stack values,
 and calls methods through their method-table index. Returning removes the frame's
 temporary values while preserving its declared return values.
 
-## Sandbox
+## Fabric
 
-The sandbox is the host boundary for filesystem visibility, I/O and network
+The fabric is the host boundary for filesystem visibility, I/O and network
 events, and C++ entry points. Runtime resources are represented as LPC objects;
-the host decides which objects and operations are exposed.
+the host decides which objects and operations are exposed. A fabric is typically
+either a `ManagedRuntime` (minimal, for numeric-only execution) or a `Sandbox`
+(for full LPC object management with filesystem access).
 
 ## Objects and State
 

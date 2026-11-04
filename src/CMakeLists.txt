@@ -41,6 +41,8 @@ add_library(lpcvm_obj OBJECT
     vm_svalue.hpp
     vm_svalue.cpp
     lpc_types.hpp
+    managed_runtime.hpp
+    lpc_string.cpp
     lpc_object.cpp
     code_generator.hpp
     code_generator.cpp

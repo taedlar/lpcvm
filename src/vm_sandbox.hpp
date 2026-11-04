@@ -6,20 +6,11 @@
 #include <string_view>
 #include <unordered_map>
 #include "lpc_types.hpp"
+#include "managed_runtime.hpp"
 
 using ObjectTable = std::unordered_map<std::string_view, LpcObjectRef>;
 using ObjectHandle = LpcObject::HandleType;
 using PathType = std::filesystem::path;
-
-class ManagedRuntime {
-public:
-    ManagedRuntime() = default;
-    virtual ~ManagedRuntime() = default;
-
-    virtual FILE* file_open(const char* path, const char* mode) {
-        return std::fopen(path, mode);
-    }
-};
 
 namespace lpcvm {
 
@@ -61,12 +52,11 @@ public:
     const ObjectTable& objects() const { return named_collection_; }
 
     ObjectHandle load_object (const PathType &path);
-    // Exact object-name lookup; performs no path normalization or file access.
     ObjectHandle find_object (std::string_view name);
     ObjectHandle clone_object (ObjectHandle obj);
     void destruct_object (ObjectHandle obj);
 
-    friend class ::LpcObject;
+    friend class ::LpcObject; // to allow adding/removing objects from the sandbox's object table
 
 private:
     PathType mudlib_root_;
