@@ -3,6 +3,7 @@
 #pragma once
 #include <cstdio>
 #include <filesystem>
+#include <string_view>
 #include <unordered_map>
 #include "lpc_types.hpp"
 
@@ -29,6 +30,7 @@ public:
         : mudlib_root_(mudlib_root) {}
 
     // Paths (including /absolute paths) are relative to the mudlib root.
+    // The path must exist, including for write modes.
     // Returns nullptr and sets errno on failure. Symlinks must resolve inside
     // the root. The host must prevent concurrent filesystem changes between
     // path validation and opening; this is not an OS-level filesystem jail.
@@ -38,6 +40,9 @@ public:
      * @brief Get the collection of all objects in the sandbox.
      *
      * All objects in the sandbox can be found with an unique name.
+     * Objects loaded through the sandbox use normalized mudlib-relative paths
+     * with forward slashes, no leading slash, and no source file extension
+     * (for example, std/player).
      * If the object name contains a `#` character, it is a cloned object.
      * Cloned objects are typically created via the `clone_object` method.
      * Otherwise, the object is a blueprint object that can be cloned to
@@ -56,7 +61,8 @@ public:
     const ObjectTable& objects() const { return named_collection_; }
 
     ObjectHandle load_object (const PathType &path);
-    ObjectHandle find_object (const PathType &path);
+    // Exact object-name lookup; performs no path normalization or file access.
+    ObjectHandle find_object (std::string_view name);
     ObjectHandle clone_object (ObjectHandle obj);
     void destruct_object (ObjectHandle obj);
 
