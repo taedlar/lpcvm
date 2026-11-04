@@ -7,7 +7,7 @@ mutable object state.
 
 ## Executor
 
-The host runs methods through a bounded bytecode view. An execution uses its
+The host runs methods through a bounded executor view. An execution uses its
 object class and, when needed, the target object's state, along with a data stack
 and a return stack supplied by the caller. The program counter and frame pointer
 are local to the active execution; call frames save the caller's position and

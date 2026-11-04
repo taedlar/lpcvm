@@ -8,6 +8,8 @@
 #include "object_state.hpp"
 #include "vm_svalue.hpp"
 
+namespace lpcvm {
+
 class DataStack {
 public:
     SValue& operator[](std::size_t index) {
@@ -116,14 +118,22 @@ private:
     std::vector<Frame> stack_;
 };
 
-struct BytecodeView {
+/**
+ * @brief Represents an execution context for a function or method in the
+ * virtual machine.
+ *
+ * This structure holds the bytecode segment, the associated object class,
+ * and the current object state. It is used to track the execution of a
+ * function or method, including its start and end positions in the bytecode.
+ */
+struct Execution {
 public:
-    BytecodeView()
+    Execution()
         : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr) {}
-    BytecodeView(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr, ObjectState* obj = nullptr)
+    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr, ObjectState* obj = nullptr)
         : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj) {}
-    BytecodeView(const BytecodeView&) = default;
-    BytecodeView& operator=(const BytecodeView&) = default;
+    Execution(const Execution&) = default;
+    Execution& operator=(const Execution&) = default;
 
     std::size_t length() const { return start_ ? (end_ - start_) : 0; }
 
@@ -135,3 +145,5 @@ private:
     const ObjectClass* prog_;
     ObjectState* this_obj_;
 };
+
+} // namespace lpcvm

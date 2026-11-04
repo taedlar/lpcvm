@@ -56,11 +56,11 @@ void ObjectClass::inherit_from(std::shared_ptr<ObjectClass> parent) {
     }
 }
 
-bool ObjectClass::lookup_method(const std::string_view name, BytecodeView* entry) const {
+bool ObjectClass::lookup_method(const std::string_view name, lpcvm::Execution* entry) const {
     VirtualTable::Binding out_binding;
     if (virtual_table_ && virtual_table_->lookup(name, out_binding)) {
         if (entry) {
-            BytecodeView found{
+            lpcvm::Execution found{
                 bytecode_.data() + out_binding.bytecode_offset,
                 out_binding.bytecode_length,
                 this,

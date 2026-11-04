@@ -45,7 +45,7 @@ static bool is_truthy(const SValue& value) {
 }
 
 /**
- * @brief BytecodeView::execute() implementation (a token-threaded virtual machine)
+ * @brief Execution::execute() implementation (a token-threaded virtual machine)
  *
  * VM_LOOP_START and VM_LOOP_END macros are used to define the main execution loop of the VM.
  * VM_HANDLER macro is used to define the handler for each opcode.
@@ -57,7 +57,7 @@ static bool is_truthy(const SValue& value) {
  * @return The number of return values on the stack. Arguments are popped before returning
  * as like __stdcall convention. (The calee may reuse the stack space for locals)
  */
-int BytecodeView::execute (ReturnStack& control, DataStack& stack, std::size_t num_args) {
+int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size_t num_args) {
     if (!start_ || start_ >= end_) {
         stack.pop_n(num_args);
         return 0; // No bytecode to execute
@@ -396,4 +396,4 @@ invalid_opcode:
 #undef VM_HANDLER
 #undef VM_DISPATCH
 #undef VM_HAS_COMPUTED_GOTO
-} // BytecodeView::execute()
+} // Execution::execute()

@@ -5,11 +5,11 @@ and sandbox architecture.
 
 ## Objects
 
-- Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an **object class** with methods and variables.
-- The LPC compiler compiles source files to object class images (method bytecodes, constant pool, and virtual table of methods).
+- Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an **object class** with method functions and variables.
+- The LPC compiler compiles source files to object class images (function bytecodes, constant pool, and virtual table of method functions).
 - The object loader **loads** an object by invoking the LPC compiler to compile LPC source files in-memory.
   - The object class image is reference-counted, with the first reference held by the loaded object.
-  - The loaded object is registered with a unique name (e.g. `"/std/player"`) and serves as a **blueprint object**.
+  - The loaded object is registered with a unique name (e.g. `"std/player"`) and serves as a **blueprint object**.
   - More objects can be **cloned** from blueprint objects, adding more references to their object class image.
 - Hot-reloading replaces the registered blueprint with a newer version. Existing clones continue to use the old version.
 - Each object has its own **object state** (variables, I/O buffers, and other attributes).
@@ -17,6 +17,18 @@ and sandbox architecture.
   - The LPC `call_other` efun calls methods defined in the object class image referenced by the object.
   - The virtual machine can also invoke methods on I/O events, timers, or policy contracts.
   - An LPC object must be **destructed** explicitly once loaded, to emulate physical objects (e.g. monsters) in a virtual world.
+
+## Method Functions
+
+Methods share their bytecode and constants through an `ObjectClass`; object
+variables belong to the target object's `ObjectState`. Each method binding records
+its signature and bytecode range. `ObjectClass::lookup_method()` resolves a name
+to an `Execution` with the class context; it does not attach an object state.
+
+Calls within a class use method-table indices. The caller pushes the method index
+and arguments, and the executor saves the caller's frame on the return stack.
+Arguments, locals, and temporary values occupy the data stack. Returning removes
+the callee's frame while leaving its return values for the caller.
 
 ## Variables
 
@@ -114,12 +126,15 @@ The `lpcvm` namespace provides bytecode generation, runtime diagnostics, object
 management, and reference-counted ownership through the following types:
 
 - [lpcvm::Bytecode](#class-lpcvmbytecode)
+- [lpcvm::DataStack](#class-lpcvmdatastack)
 - [lpcvm::Exception](#class-lpcvmexception)
+- [lpcvm::Execution](#struct-lpcvmexecution)
 - [lpcvm::Handle](#class-lpcvmhandle)
+- [lpcvm::ReturnStack](#class-lpcvmreturnstack)
 - [lpcvm::Sandbox](#class-lpcvmsandbox)
 - [lpcvm::SharedPtr](#class-lpcvmsharedptr)
 
-## class `lpcvm::Bytecode`
+### class `lpcvm::Bytecode`
 
 Declared in [code_generator.hpp](../src/code_generator.hpp).
 
@@ -128,7 +143,17 @@ translate AST expressions, statements, and function bodies into stack-machine
 instructions. It handles extended instruction arguments and can record source
 locations in an `ObjectClass` for runtime diagnostics.
 
-## class `lpcvm::Exception`
+### class `lpcvm::DataStack`
+
+Declared in [vm_executor.hpp](../src/vm_executor.hpp).
+
+Stores arguments, locals, and expression operands as a contiguous vector of
+`SValue`s. The executor addresses frame slots by index so stack growth does not
+invalidate the frame pointer. Push and pop operations manage value lifetimes;
+invalid indices and stack underflow raise exceptions. The caller owns the stack
+and can reuse its capacity across executions.
+
+### class `lpcvm::Exception`
 
 Declared in [vm_exception.hpp](../src/vm_exception.hpp).
 
@@ -137,7 +162,19 @@ catchable as `E`. It uses the program and instruction address to identify the
 source file, function, line, and column, and includes that context in `what()`.
 When source information is unavailable, it preserves the original error message.
 
-## class `lpcvm::Handle`
+### struct `lpcvm::Execution`
+
+Declared in [vm_executor.hpp](../src/vm_executor.hpp).
+
+Holds a bytecode range and non-owning pointers to its class and optional object
+state, which must remain alive during execution. `execute()` runs synchronously
+with caller-supplied data and return stacks. Arguments are already on the data
+stack; normal return removes them and the locals, leaves the results, and reports
+the number of return values. Object-variable access requires an object state.
+The program counter and frame pointer are local to the call; this type does not
+store a suspended continuation.
+
+### class `lpcvm::Handle`
 
 Declared in [lpc_types.hpp](../src/lpc_types.hpp).
 
@@ -147,7 +184,17 @@ its lifetime. `expired()` checks whether the object still exists; `lock()` retur
 an optional strong reference for access. The shared control block remains valid
 until all strong and weak references are released.
 
-## class `lpcvm::Sandbox`
+### class `lpcvm::ReturnStack`
+
+Declared in [vm_executor.hpp](../src/vm_executor.hpp).
+
+Stores caller frames for nested method calls. Each frame saves the return address,
+data-stack frame index, and caller's bytecode bounds. Returning restores this
+context and pops the frame. `execute()` records the initial return-stack depth so
+normal completion preserves any frames supplied by its caller. Return values
+remain on the data stack.
+
+### class `lpcvm::Sandbox`
 
 Declared in [vm_sandbox.hpp](../src/vm_sandbox.hpp).
 
@@ -161,7 +208,7 @@ The constructor accepts a mudlib root for the intended resource boundary. The
 current loader opens the supplied path directly; it does not yet enforce
 filesystem confinement to that root.
 
-## class `lpcvm::SharedPtr`
+### class `lpcvm::SharedPtr`
 
 Declared in [lpc_types.hpp](../src/lpc_types.hpp).
 

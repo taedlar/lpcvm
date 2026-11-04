@@ -11,7 +11,9 @@
 #include "const_pool.hpp"
 #include "virtual_table.hpp"
 
-class BytecodeView;
+namespace lpcvm {
+struct Execution;
+}
 
 class ObjectClass {
 public:
@@ -40,7 +42,7 @@ public:
     void set_source_location(std::size_t bytecode_offset, ConstPool::IndexType source_file, ConstPool::IndexType func_name, int lineno, int column);
     std::optional<SourceLocation> lookup_source_location(const uint8_t* pc) const;
 
-    bool lookup_method (const std::string_view name, BytecodeView* entry) const;
+    bool lookup_method (const std::string_view name, lpcvm::Execution* entry) const;
     const VirtualTable::Binding& get_method(std::size_t index) const;
 
     void inherit_from(std::shared_ptr<ObjectClass> parent);
