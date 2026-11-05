@@ -123,10 +123,18 @@ without encoding source-language statement forms in the instruction set.
 ## Fabric Boundary and Language Policies
 
 The fabric supplies host runtime services beyond stack and bytecode mechanics.
-`Execution` currently accepts a `ManagedRuntime` pointer. `ManagedRuntime` provides
-shared-string allocation and filesystem access; `Sandbox` extends it with a
-filesystem root and named-object management. `F_CONST_STR`, for example, obtains
-an owning string through the fabric before pushing it onto the stack.
+`Execution` accepts a `ManagedRuntime` pointer. `ManagedRuntime` provides
+shared-string allocation, filesystem access, and object table management.
+`F_CONST_STR`, for example, obtains an owning string through the fabric before
+pushing it onto the stack.
+
+The object table is a core fabric service that maintains strong references to all
+registered LPC objects and maps their unique names to references. This enables
+execution without filesystem or compilation services (numeric-only execution with
+objects), and supports fabric implementations that manage object lifetimes
+differently than a traditional LPC mudlib. `Sandbox` extends `ManagedRuntime` with
+a filesystem root and object loading/cloning services specific to file-based object
+management.
 
 This boundary could be extended with host calls, I/O and network events, and
 high-level language policy hooks. An LPC runtime could use such hooks to consult

@@ -82,11 +82,6 @@ ObjectHandle Sandbox::load_object (const PathType &path) {
     return LpcObject::create(this, object_key(canonical_path.local_path), prog);
 }
 
-ObjectHandle Sandbox::find_object (std::string_view name) {
-    auto obj_ref = LpcObject::find(this, name);
-    return obj_ref;
-}
-
 ObjectHandle Sandbox::clone_object (ObjectHandle obj) {
     static uint32_t clone_counter = 0;
     auto obj_ref = obj.lock();
@@ -95,11 +90,4 @@ ObjectHandle Sandbox::clone_object (ObjectHandle obj) {
     }
     std::string clone_name = fmt::format("{}#{}", (*obj_ref)->name(), ++clone_counter);
     return LpcObject::create(this, clone_name, (*obj_ref)->program());
-}
-
-void Sandbox::destruct_object (ObjectHandle obj) {
-    auto obj_ref = obj.lock();
-    if (obj_ref != std::nullopt) {
-        LpcObject::destruct(this, *obj_ref);
-    }
 }

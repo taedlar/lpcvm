@@ -16,24 +16,5 @@ LpcObject::LpcObject(FabricType *sb, std::shared_ptr<ObjectClass> program)
 LpcObject::HandleType LpcObject::create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program) {
     auto obj_ref = lpcvm::create_shared<LpcObject>(sb, program);
     obj_ref->name_ = std::string(name);
-    if (auto it = sb->objects().find(name); it != sb->objects().end()) {
-        sb->objects().erase(it); // also erase the stale string_view key pointing to the old object's name
-    }
-    sb->objects().emplace(std::string_view(obj_ref->name_), obj_ref);
-    return HandleType(obj_ref);
-}
-
-LpcObjectRef LpcObject::find(FabricType *sb, std::string_view name) {
-    auto it = sb->objects().find(name);
-    if (it != sb->objects().end()) {
-        return it->second;
-    }
-    return LpcObjectRef();
-}
-
-void LpcObject::destruct(FabricType *sb, LpcObjectRef obj) {
-    auto it = sb->objects().find(obj->name());
-    if (it != sb->objects().end() && it->second == obj) {
-        sb->objects().erase(it);
-    }
+    return sb->emplace_object(obj_ref->name_, obj_ref);
 }

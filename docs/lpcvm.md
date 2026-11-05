@@ -85,9 +85,10 @@ allocation must remain on one VM worker thread.
 
 LPC object values use **weak reference** semantics, represented by
 `lpcvm::Handle`. Copying an object handle does not extend the object's lifetime.
-The sandbox holds a strong reference to each registered object. Explicit
-destruction removes that reference; the object is destroyed once all remaining
-strong references are released.
+The runtime's object table holds a strong reference to each registered object
+through `emplace_object()`. Explicit destruction via `destruct_object()` removes
+that reference; the object is destroyed once all remaining strong references are
+released.
 
 C++ code accesses an object through `Handle::lock()`, which returns an optional
 `lpcvm::SharedPtr`. Locking an expired handle fails, so callers must check the
@@ -96,7 +97,8 @@ the object's lifetime ends, until the last weak reference is released.
 
 This model allows LPC objects to represent external resources, such as a player
 connection, without making their lifetimes depend on every LPC variable that
-refers to them.
+refers to them. The runtime's object table can be shared across multiple fabric
+implementations or scopes, enabling flexible object lifecycle management.
 
 ### Exceptions
 
@@ -202,12 +204,15 @@ remain on the data stack.
 
 Declared in [managed_runtime.hpp](../src/managed_runtime.hpp).
 
-Provides default file access and shared-string services without requiring a
-sandbox or object registry. This is the base fabric for numeric-only execution.
-`make_shared_string()`, `shared_string_allocation_size()`, and `sweep_shared_strings()` are virtual.
+Provides default file access, shared-string services, and object table management
+without requiring a sandbox. This is the base fabric for execution with or without
+named object management. `make_shared_string()`, `shared_string_allocation_size()`,
+`sweep_shared_strings()`, `emplace_object()`, `find_object()`, and `destruct_object()`
+are virtual.
+
 The free factory `lpcvm::make_shared_string(fabric, value)` forwards to the
-virtual member. Custom storage implementations should override all three
-services consistently. Numeric-only execution can omit the fabric.
+virtual member. Custom storage implementations should override all three string
+services consistently.
 
 The default fabric interns immutable shared strings. Equal byte sequences created
 through `lpcvm::make_shared_string(fabric, value)` share one `LpcString` within
@@ -232,22 +237,48 @@ Both operations take linear time in the table size and run on the owning thread.
 Sweeping retains hash buckets; outstanding weak handles can delay the physical
 release of removed strings' allocations.
 
+The object table holds strong references to all registered LPC objects and maps
+their unique names to references. `emplace_object()` registers or updates an object
+by name, `find_object()` retrieves a registered object by name, and `destruct_object()`
+removes an object from the table. Callers receive weak handles; the object is destroyed
+once all remaining strong references are released.
+
+```cpp
+ManagedRuntime fabric;
+auto obj = create_shared<LpcObject>(...);
+auto handle = fabric.emplace_object("std/player", obj);
+auto found = fabric.find_object("std/player");  // returns the LpcObjectRef
+fabric.destruct_object(handle);  // removes from table
+```
+
+The object table is immutable from a caller's perspective through `objects()` const
+member. Derived classes access the mutable table through `objects()` for custom
+implementations. Object names are stored as references to interned strings, so the
+lifetime of the name reference is tied to the object itself.
+
 ### class `lpcvm::Sandbox`
 
 Declared in [vm_sandbox.hpp](../src/vm_sandbox.hpp).
 
-A concrete fabric implementation that manages a VM's named LPC objects. It loads and compiles
-source files into blueprint objects, finds registered objects, and creates clones that share
-a compiled `ObjectClass` but have separate state. The object table holds strong references;
-callers receive weak handles. Explicit destruction removes the table's reference,
-allowing the object to expire once any remaining strong references are released.
-
-Shared-string allocation, accounting, and sweeping are inherited from
-`ManagedRuntime` and remain available through the sandbox.
+A concrete fabric implementation that extends `ManagedRuntime` with object loading and
+cloning services. It loads and compiles source files into blueprint objects, finds registered
+objects through the inherited object table, and creates clones that share a compiled `ObjectClass`
+but have separate state.
 
 The constructor accepts a mudlib root for the intended resource boundary. The
 current loader opens the supplied path directly; it does not yet enforce
-filesystem confinement to that root.
+filesystem confinement to that root. File operations (`file_open()`) are confined
+to paths within the mudlib root.
+
+`load_object()` compiles an LPC source file and registers it as a blueprint object.
+`clone_object()` creates a new instance from an existing blueprint, sharing its
+`ObjectClass` but with separate state. Both operations register the object in the
+inherited object table from `ManagedRuntime`.
+
+Shared-string allocation, accounting, and sweeping are inherited from
+`ManagedRuntime` and remain available through the sandbox. The object table
+inherited from `ManagedRuntime` holds strong references to all named objects
+in this sandbox's filesystem domain.
 
 ### class `lpcvm::SharedPtr`
 
@@ -267,3 +298,50 @@ same object must stay on a single VM worker thread.
 `create_shared<T>(args...)` allocates an object with its control block, forwards
 arguments to its constructor, and returns its initial `SharedPtr<T>`. Use this
 factory to create values managed by LPCVM's reference-counted pointers.
+
+## Object Fabric Design
+
+The object fabric is a service layer that manages named LPC object lifecycles,
+independent of how objects are created or persisted. This design separates
+concerns and enables flexible object management strategies.
+
+### Architecture
+
+- **ManagedRuntime**: The base fabric providing object table management. The table
+  is a name-to-reference map that holds strong references to all registered objects.
+  Methods `emplace_object()`, `find_object()`, and `destruct_object()` manage
+  registration and destruction. `objects()` provides an immutable view of the table.
+
+- **Sandbox**: A specialized fabric that adds file-based object loading and cloning.
+  It inherits the object table from `ManagedRuntime` and adds `load_object()` and
+  `clone_object()` for filesystem-backed objects. Multiple Sandboxes could exist
+  with different filesystem roots, each maintaining its own object table.
+
+### Separation of Concerns
+
+The object fabric distinguishes between three functions:
+
+1. **Table management** (in `ManagedRuntime`): Registering, finding, and destroying
+   named objects. The table holds strong references; objects are destroyed when
+   explicitly removed from the table and all remaining references expire.
+
+2. **Object loading and compilation** (in `Sandbox`): Compiling LPC source files
+   to object class images and instantiating blueprint objects. These operations
+   integrate with the table inherited from `ManagedRuntime`.
+
+3. **Object naming and location** (external to both): LPC source file paths are
+   normalized to object names (e.g., `"std/player"`), and cloned objects are
+   named with `#` suffixes. This knowledge is provided by the Sandbox's caller,
+   not embedded in the runtime.
+
+### Extensibility
+
+Custom fabrics can inherit from `ManagedRuntime` and override `emplace_object()`,
+`find_object()`, and `destruct_object()` to implement different object lifecycle
+strategies (e.g., database-backed objects, transient object pools, or permission-based
+access control). The base table management remains available for numeric-only
+execution or minimal object scenarios.
+
+Objects loaded or created through custom fabrics use weak reference handles, the
+same as Sandbox objects. The fabric supplies the strong reference lifecycle;
+the executor and LPC code see only the weak-reference interface.
