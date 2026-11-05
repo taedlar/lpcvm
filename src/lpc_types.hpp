@@ -25,8 +25,6 @@ class LpcObject;
  */
 namespace lpcvm {
 
-class Sandbox;
-
 /**
  * @brief A weak reference to an LPC compound data type managed by SharedPtr.
  *
@@ -323,7 +321,7 @@ class ObjectState;
 
 class LpcObject {
 public:
-    using FabricType = lpcvm::Sandbox; // a fabric of substantial resources for executing LPC objects
+    using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC objects
     using HandleType = lpcvm::Handle<LpcObject, LpcObjectRef>;
 
     static HandleType create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);

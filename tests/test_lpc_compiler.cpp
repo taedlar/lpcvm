@@ -5,6 +5,7 @@
 #include "code_generator.hpp"
 #include "lpc_compiler.hpp"
 #include "object_class.hpp"
+#include "object_state.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <gtest/gtest.h>

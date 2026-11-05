@@ -3,11 +3,9 @@
 
 #pragma once
 #include <cstdint>
-#include "const_pool.hpp"
 #include "lpc_types.hpp"
-#include "object_class.hpp"
-#include "object_state.hpp"
-#include "vm_sandbox.hpp"
+#include "managed_runtime.hpp"
+// #include "vm_sandbox.hpp"
 #include "vm_svalue.hpp"
 
 namespace lpcvm {
@@ -84,15 +82,15 @@ private:
 class ReturnStack {
 public:
     struct Frame {
-        const uint8_t* pc;
-        std::size_t fp;
-        std::size_t global_offset; // offset into the global variables segment
-        const uint8_t* start; // for branch target calculations
-        const uint8_t* end;   // end of the bytecode segment for the current function frame
+        const uint8_t* pc;      // program counter (address of next instruction)
+        std::size_t fp;         // frame pointer for the current frame (position of first argument in data stack)
+        std::size_t vbp;        // variable base pointer (position of global variable #0 in this_obj_)
+        const uint8_t* start;   // start of the bytecode segment
+        const uint8_t* end;     // end of the bytecode segment
     };
 
-    void push(const uint8_t* pc, std::size_t fp, std::size_t global_offset, const uint8_t* start, const uint8_t* end) {
-        stack_.push_back({pc, fp, global_offset, start, end});
+    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, const uint8_t* start, const uint8_t* end) {
+        stack_.push_back({pc, fp, vbp, start, end});
     }
 
     void pop() {
@@ -122,7 +120,7 @@ private:
 };
 
 /**
- * @brief Represents an execution context for a function or method in the
+ * @brief Represents a RAII execution context for a function or method in the
  * virtual machine.
  *
  * This structure holds the bytecode segment, the associated object class,
@@ -137,25 +135,31 @@ public:
     using FabricType = ManagedRuntime;
 
     Execution()
-        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr), fabric_(nullptr) {}
-    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
-              ObjectState* obj = nullptr, FabricType* runtime = nullptr)
-        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj), fabric_(runtime) {}
-    Execution(const uint8_t* bytecode, std::size_t size, LpcObjectRef obj)
-        : start_(bytecode), end_(bytecode + size), prog_(obj ? obj->program().get() : nullptr),
-          this_obj_(obj ? obj->state().get() : nullptr), fabric_(obj ? obj->fabric() : nullptr), obj_ref_(obj) {}
-    Execution(const Execution&) = default;
-    Execution& operator=(const Execution&) = default;
+        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr), var0_(0), fabric_(nullptr) {}
 
-    std::size_t length() const { return start_ ? (end_ - start_) : 0; }
+    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
+              ObjectState* obj = nullptr, std::size_t offset = 0, FabricType* sb = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj), var0_(offset), fabric_(sb) {}
+
+    Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, LpcObjectRef obj)
+        : start_(bytecode), end_(bytecode + size), var0_(offset), obj_ref_(obj) {
+        if (obj) {
+            prog_ = obj->program().get();
+            this_obj_ = obj->state().get();
+            fabric_ = obj->fabric();
+        }
+    }
+
+    std::size_t length() const { return (start_ && end_) ? (end_ - start_) : 0; }
 
     int execute(ReturnStack& control, DataStack& stack, std::size_t num_args = 0);
 
 private:
     const uint8_t* start_;
     const uint8_t* end_;
-    const ObjectClass* prog_;
+    const ObjectClass* prog_; // bytecode site to get F_CALL entry
     ObjectState* this_obj_;
+    std::size_t var0_; // position of global variable #0 in this_obj_ (inheritance offset)
     FabricType* fabric_;
     LpcObjectRef obj_ref_;  // holds a strong reference when constructed with LpcObjectRef
 };

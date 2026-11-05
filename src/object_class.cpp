@@ -65,7 +65,7 @@ bool ObjectClass::lookup_method(const std::string_view name, lpcvm::Execution* e
                 bytecode_.data() + out_binding.bytecode_offset,
                 out_binding.bytecode_length,
                 this,
-                obj,
+                obj, 0,
                 runtime,
             };
             *entry = found;
