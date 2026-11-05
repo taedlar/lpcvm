@@ -41,7 +41,7 @@ ObjectClass::ObjectClass(std::size_t num_vars, ConstTable* consts, SymbolTable* 
             // TODO: count variables only
             num_variables_ = globals->size();
         }
-        const_pool_ = consts->make_intern();
+        const_pool_ = consts->freeze();
     }
     virtual_table_ = std::make_shared<VirtualTable>(const_pool_);
 }

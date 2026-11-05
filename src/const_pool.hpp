@@ -103,8 +103,8 @@ public:
         return numeric_to_index_.size() + string_to_index_.size();
     }
 
-    std::shared_ptr<ConstPool> make_intern() const {
-        return std::make_shared<ConstPool>(store_); // immutable copy of the pool, so fetch_string remains valid
+    std::shared_ptr<ConstPool> freeze() const {
+        return std::make_shared<ConstPool>(store_);
     }
 
 private:

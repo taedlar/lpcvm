@@ -4,8 +4,9 @@ This document describes LPCVM entities, their relationships, and their lifetimes
 objects, methods, values, and the runtime types that represent them.
 
 See [vm-architecture.md](vm-architecture.md) for the stack machine, bytecode, and
-sandbox architecture, and [development.md](development.md) for the LPC language,
-compiler and preprocessor, and benchmarks.
+sandbox architecture, [lpc-language.md](lpc-language.md) for the language and
+compiler outline, and [development.md](development.md) for build, unit-test, and
+benchmark workflows.
 
 ## Objects
 
