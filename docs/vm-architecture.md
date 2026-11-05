@@ -1,100 +1,156 @@
-# LPCVM Stack Machine Architecture
+# Stack Virtual Machine Architecture
 
-LPCVM compiles LPC source into bytecode stored in an object class image. The image
-also holds the constants and method table used to locate each method's bytecode
-range. Blueprint and cloned objects can share this image while keeping separate
-mutable object state.
+The stack VM executes bytecode as language-neutral target code. A compiler maps
+its source language into the VM's instructions, value representation, and calling
+convention. The executor operates on stack slots, constant-pool entries, state
+slots, and function bindings; source grammar and high-level language policies
+belong to the compiler and host runtime.
 
-## Executor
+LPC is the current frontend. Language neutrality describes the execution boundary,
+not a claim that other language frontends already exist. A frontend must honor
+the VM's concrete type, operator, and control-flow semantics, or lower its own
+semantics into suitable instruction sequences and runtime services.
 
-The host runs methods through a bounded executor view. An execution uses its
-object class and, when needed, the target object's state, along with a data stack
-and a return stack supplied by the caller. The program counter and frame pointer
-are local to the active execution; call frames save the caller's position and
-restore it when a method returns.
+See [lpc-language.md](lpc-language.md) for the evolving LPC language and compiler,
+[lpcvm.md](lpcvm.md) for runtime classes and object lifetimes, and
+[development.md](development.md) for build, test, and benchmark workflows.
 
-Arguments and temporary values occupy the evaluation stack as `SValue`s. A frame
-starts at its arguments, with locals allocated in the same stack area. Bytecode
-loads and stores locals or object variables, applies operations to stack values,
-and calls methods through their method-table index. Returning removes the frame's
-temporary values while preserving its declared return values.
+## Execution Inputs
 
-## Fabric
+An `Execution` view associates a bytecode range with an optional program image,
+mutable state, and fabric. The host supplies a `DataStack`, a `ReturnStack`, and
+the number of arguments already on the data stack when invoking `execute()`.
 
-The fabric is the host boundary for filesystem visibility, I/O and network
-events, and C++ entry points. Runtime resources are represented as LPC objects;
-the host decides which objects and operations are exposed. A fabric is typically
-either a `ManagedRuntime` (minimal, for numeric-only execution) or a `Sandbox`
-(for full LPC object management with filesystem access).
+The current program-image container is named `ObjectClass`. It holds bytecode,
+constants, and method bindings that locate function bytecode ranges. `ObjectState`
+holds mutable value slots separately, so multiple instances can share program
+code and constants. Blueprint registration, cloning, and hot-reloading are
+higher-level uses of this separation, described in [lpcvm.md](lpcvm.md).
 
-## Objects and State
+Each instruction determines which inputs it needs: constant loads require a
+constant pool, global-slot access requires mutable state, and string creation
+requires a fabric. Numeric-only execution can omit the fabric.
 
-An LPC object combines a reference to an object class with its own object state.
-Registered blueprints provide the class image used to create clones. Replacing
-a blueprint supports hot-reloading: existing objects can continue using their
-previous class image. Object variables live in the per-object state; method
-bytecode and constants are shared by objects using the same image.
+## Data Stack and Values
 
-## SValue
+`DataStack` holds `SValue` slots for arguments, locals, intermediate operands, and
+return values. `SValue` is a compact tagged variant: primitive values are stored
+directly, compound values use reference-counted storage, and object values use
+handles. The same representation is used for mutable state slots.
 
-`SValue` is a compact `std::variant` slot for LPC values. It is used both for
-evaluation-stack operands and object attributes. Primitive values are stored
-directly; compound values use reference-counted storage, and object values are
-handles. Stack and object state are thread-confined, so access requires no
-synchronization.
+The frame pointer identifies the first argument of the active function. Local
+loads and stores address `fp + index`; `F_PUSH_N` allocates additional slots for
+locals or temporary storage. Global loads and stores address the attached state
+using a state offset and instruction argument. These are instance state slots,
+not process-wide global variables.
 
-## Bytecode
+Most operations consume operands from the top of the stack and leave a result.
+For example, two constant loads followed by `F_BINARY_OP ADD` change the stack
+from `[..., left, right]` to `[..., sum]`. Stores copy the top value into the
+selected slot while leaving that value on the stack; `F_POP_N` discards values
+that are no longer needed.
 
-Bytecode is shared through the object class image. Each instruction is an
-8-bit opcode followed by an 8-bit argument; `F_EXTENDED_ARG` prefixes extend
-the following instruction's argument when it needs more than one byte. The
-current instruction set is described below.
+## Call Frames and Returns
 
-| Group | Opcodes | Behavior |
-|-------|---------|----------|
-| Stack | `F_PUSH_N`, `F_POP_N` | Allocate or discard stack slots (locals, discarded expression results). |
-| Constants | `F_CONST_I4/I8/U4/U8/F4/F8`, `F_CONST_STR` | Push a constant-pool entry. |
-| Variables | `F_LOAD_LOCAL`, `F_STORE_LOCAL`, `F_LOAD_GLOBAL`, `F_STORE_GLOBAL` | Stores keep the value on the stack, so an assignment is an expression. |
-| Operators | `F_UNARY_OP`, `F_BINARY_OP` | The argument selects the operation (`oparg::UnaryOpArg`, `oparg::BinaryOpArg`). |
-| Calls | `F_PUSH_FUNC`, `F_CALL`, `F_RETURN` | Method-table calls and frame teardown. |
-| Jumps | `F_JUMP`, `F_JUMP_IF_FALSE`, `F_JUMP_IF_FALSE_OR_POP`, `F_JUMP_IF_TRUE_OR_POP` | Offsets are signed and relative to the next instruction. |
+The executor maintains a program counter, frame pointer, active bytecode bounds,
+and state offset. `ReturnStack` stores the caller's continuation separately from
+operand values: the return program counter, frame pointer, state offset, and
+bytecode bounds.
 
-### Operators
+`F_PUSH_FUNC` places a method-table index on the data stack. The arguments follow
+that index, and `F_CALL` specifies their total slot count, including the index.
+It resolves the callee's binding, saves the caller's execution state, establishes the
+callee's frame, and switches to its bytecode range. Calls are dispatched by the
+VM loop rather than by recursively invoking the C++ executor.
 
-`F_UNARY_OP` covers `!`, unary `-`, `~`, and increment/decrement (the latter
-preserve the operand type, including floating point). Compound assignment
-`a op= b` compiles to a load, the right-hand side, `F_BINARY_OP`, and a store.
-Postfix `a++` leaves the original value as the result, while prefix `++a` leaves
-the updated one.
+`F_RETURN` specifies the number of values to preserve at the top of the stack.
+It removes the completed frame's arguments, locals, and temporaries, then restores
+the caller's continuation. Returning from the entry frame transfers control to
+the host and reports the number of return values remaining on the data stack.
+Execution state belongs to the invocation and its stacks; there is no process-wide
+program counter or stack pointer.
 
-`F_BINARY_OP` promotes mixed numeric operands to a common type: floating point
-wins, same-signedness integers take the wider type, and mixed-sign integers
-become `int64` (or `uint64` when the unsigned operand is 64-bit). Bitwise and
-modulo operations require integer operands; shifts keep the left operand's
-type. Division by zero raises a VM exception.
+## Bytecode Encoding and Dispatch
 
-### Control flow
+Each instruction consists of an 8-bit opcode and an 8-bit argument.
+`F_EXTENDED_ARG` prefixes supply higher argument bytes, allowing the following
+instruction to assemble a wider argument. The executor uses a 32-bit argument
+accumulator and resets it after dispatching an ordinary instruction.
 
-Jump instructions are emitted with a fixed-width placeholder argument and
-patched once the target is known, so forward jumps never change instruction
-sizes. `if`, loops, and the ternary `?:` use `F_JUMP_IF_FALSE`, which pops the
-condition. Short-circuit `a && b` compiles to `a; F_JUMP_IF_FALSE_OR_POP end; b`
-(`||` uses `F_JUMP_IF_TRUE_OR_POP`): if the jump is taken, `a` stays on the stack
-as the result; otherwise it is popped and `b` is evaluated. The result is
-therefore the last operand evaluated rather than a normalized 0 or 1. A value is
-false if it is zero or void; every other value is true.
+The dispatch loop uses computed goto with GCC and Clang, with a switch-based
+fallback for other compilers. Both dispatch paths implement the instruction set
+in [vm_opcodes.hpp](../src/vm_opcodes.hpp); execution handlers live in
+[vm_executor.cpp](../src/vm_executor.cpp).
 
-The executor consumes a method's bytecode range with its object state, data
-stack, and return stack. It has no process-wide program counter or stack pointer;
-execution state belongs to the active invocation and its stacks.
+| Group | Opcodes | Stack or execution effect |
+|-------|---------|---------------------------|
+| Argument extension | `F_EXTENDED_ARG` | Accumulate higher bytes of the next instruction argument. |
+| Stack | `F_PUSH_N`, `F_POP_N` | Allocate or discard value slots. |
+| Constants | `F_CONST_I4/I8/U4/U8/F4/F8`, `F_CONST_STR` | Push a typed constant-pool entry. |
+| Storage | `F_LOAD_LOCAL`, `F_STORE_LOCAL`, `F_LOAD_GLOBAL`, `F_STORE_GLOBAL` | Load a slot or copy the top value into it; stores preserve the top value. |
+| Operators | `F_UNARY_OP`, `F_BINARY_OP` | Replace one or two operands with an operation result. |
+| Calls | `F_PUSH_FUNC`, `F_CALL`, `F_RETURN` | Select a function, enter its frame, or return values to the caller. |
+| Branches | `F_JUMP`, `F_JUMP_IF_FALSE`, `F_JUMP_IF_FALSE_OR_POP`, `F_JUMP_IF_TRUE_OR_POP` | Change the program counter, optionally testing or removing the top value. |
 
-## Virtual Threading
+### Operator Semantics
 
-Virtual threading is an advanced long-term goal for LPCVM; it is not supported
-by the current executor. A virtual thread would need to preserve its execution
-continuation, including the program counter, frame state, data stack, and return
-stack, across suspension and resumption. Scheduling across workers must prevent
-concurrent access to the same mutable object state or execution stacks. Since
-LPC reference counts are thread-confined, virtual threads must also remain on
-their owning worker while holding LPC references, or use an explicit safe
-cross-worker handoff mechanism.
+The argument to `F_UNARY_OP` or `F_BINARY_OP` selects the operation. Unary
+operations include logical negation, numeric negation, bitwise complement, and
+increment/decrement. Increment and decrement preserve the operand's numeric type,
+including floating point; operand support is defined by the individual handler.
+
+Binary numeric operations promote operands to a common type: floating point
+takes precedence, same-signedness integers take the wider type, and mixed-sign
+integers become `int64`, or `uint64` when the unsigned operand is 64-bit. Bitwise
+and modulo operations require integer operands; shifts retain the left operand's
+type. Division by zero raises a VM exception. These are target-code semantics
+that a frontend must account for when compiling expressions.
+
+### Branch Semantics
+
+Branch offsets are signed byte displacements relative to the next instruction.
+Targets are checked against the active function's bytecode range.
+
+- `F_JUMP` branches unconditionally.
+- `F_JUMP_IF_FALSE` consumes its condition and branches when it is false.
+- `F_JUMP_IF_FALSE_OR_POP` and `F_JUMP_IF_TRUE_OR_POP` preserve the top value when
+  taking the branch, and pop it when continuing to the next instruction.
+
+Numeric zero and void are false; other values are true. These primitives support
+conditional execution, loops, and value-preserving short-circuit evaluation
+without encoding source-language statement forms in the instruction set.
+
+## Fabric Boundary and Language Policies
+
+The fabric supplies host runtime services beyond stack and bytecode mechanics.
+`Execution` currently accepts a `ManagedRuntime` pointer. `ManagedRuntime` provides
+shared-string allocation and filesystem access; `Sandbox` extends it with a
+filesystem root and named-object management. `F_CONST_STR`, for example, obtains
+an owning string through the fabric before pushing it onto the stack.
+
+This boundary could be extended with host calls, I/O and network events, and
+high-level language policy hooks. An LPC runtime could use such hooks to consult
+a **master object** for policies governing resource access, object loading, or
+privileged operations. The host service would receive the request and caller
+context, consult the policy, and perform or reject the operation. The executor
+would continue to implement the same low-level stack and call mechanics.
+
+Master-object policy hooks are a possible extension, not an implemented contract.
+Their design would need to define caller identity, policy invocation, and failure
+propagation at the fabric boundary. Other language runtimes could supply their
+own policies through that boundary without making LPC-specific policy rules part
+of the bytecode instruction set.
+
+## Execution Ownership and Future Scheduling
+
+Stacks, mutable state, and reference counts are thread-confined. An invocation
+must retain access to its program image, state, and fabric for the duration of
+execution. Runtime checks detect conditions such as stack underflow, invalid
+opcodes, and out-of-range branch targets; they do not constitute a complete
+verifier for arbitrary bytecode.
+
+Virtual threading remains a long-term goal and is not supported by the current
+executor. Suspension would need to preserve the program counter, frame state,
+data stack, and return stack. Scheduling must prevent concurrent access to the
+same mutable state or stacks. Continuations holding thread-confined references
+would need to stay on their owning worker or use an explicit safe handoff mechanism.
