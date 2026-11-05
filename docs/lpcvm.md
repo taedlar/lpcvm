@@ -1,7 +1,11 @@
-# LPCVM Design
+# LPCVM Ontology
 
-See also [vm-architecture.md](vm-architecture.md) for the stack machine, bytecode
-and sandbox architecture.
+This document describes LPCVM entities, their relationships, and their lifetimes:
+objects, methods, values, and the runtime types that represent them.
+
+See [vm-architecture.md](vm-architecture.md) for the stack machine, bytecode, and
+sandbox architecture, and [development.md](development.md) for the LPC language,
+compiler and preprocessor, and benchmarks.
 
 ## Objects
 
@@ -42,87 +46,70 @@ A variable holds an `SValue`: a value that fits in one stack element, such as a 
 - There is no raw pointer semantics in LPC.
 - Object variables are destroyed with the object, stack variables (arguments and locals) when popped, and compound values when their reference count reaches zero.
 
-## LPC Language and Compiler
+## LPC Memory Model
 
-> [!NOTE]
-> LPC was designed decades ago and lacks a published standard. LPMud implementations also
-> suffer from out-dated architecture and non-reentrant program structures.
+LPCVM uses standard C++ containers and smart pointers for internal data structures.
+LPC values follow the ownership and lifetime rules below.
 
-LPCVM starts from a minimal set of [LPC grammar](../src/lpc_parser.yy) and leaves fancy features to efuns.
-The goal is an easy-to-use LPC that LPMud wizards are already familiar with, with some
-enhancements and simplifications.
+### SValue
 
-The compiler consists of:
+LPCVM represents runtime values using `SValue`, a tagged `std::variant`. Each
+slot can hold any supported runtime value: a numeric value, an owning reference,
+an object handle, or an empty value. This storage representation does not itself
+define the language's rules for declared types.
 
-- `lpcfront`, a command-line frontend that dumps the AST.
-- A reentrant preprocessor, lexer and parser (`flex` and `bison`) that output AST variants.
-- A visitor-pattern bytecode generator that emits bytecode from AST nodes.
+`SValue` occupies 16 bytes in the current 64-bit implementation. Numeric values
+are stored directly; copying a reference or handle preserves its ownership
+semantics rather than copying the referenced object.
 
-Supported language features:
+### Compound Data Types
 
-- Expressions: arithmetic, bitwise, comparison, unary (`-`, `~`, `!`), assignment (`=` and compound forms such as `+=` and `<<=`), `++`/`--` (prefix and suffix), ternary `?:`, and short-circuit `&&`/`||`. The result of `&&`/`||` is the last operand evaluated, not normalized to 0/1.
-- Statements: blocks with local variables, `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue`, and `return`.
-- Binary operations on mixed numeric types are promoted to a common type: floating point wins, and mixed-sign integers become `int64` (or `uint64` when the unsigned operand is 64-bit).
+Arrays, mappings, and closures are intended to use **strong reference** semantics:
+copies share a value, and releasing the last strong reference destroys it.
+Array and mapping reference types currently use `lpcvm::SharedPtr`, but their
+container implementations are placeholders. Closures are not yet represented in
+`SValue`.
 
-## Memory Management
+Strings use `LpcStringRef`, an owning `lpcvm::SharedPtr` to immutable shared bytes.
+The runtime's intern table also retains a strong reference until the entry is
+swept or the runtime is destroyed. Other owning references keep the string alive
+independently of the runtime.
 
-- Standard C++ containers and smart pointers for internal data structures.
-- A 16-byte `SValue` (`std::variant`) that stores LPC int, float, double, and references.
-- `lpcvm::SharedPtr` for LPC mapping and array reference semantics: strong reference with a prefix control block, faster and smaller than `std::shared_ptr`.
-- `lpcvm::Handle` for LPC object reference semantics: weak reference with a prefix control block, faster and smaller than `std::weak_ptr`.
-- Errors are reported with `std::runtime_error` and stack unwinding.
+`SharedPtr` stores its reference counts in a control block co-allocated before
+the value. This keeps each reference small enough to fit in the 16-byte `SValue`.
+Reference counts are non-atomic: all strong and weak references to the same
+allocation must remain on one VM worker thread.
 
-## Benchmarks
+### Objects
 
-Benchmarks need `BUILD_TESTING=ON`. Use an optimized `Release` configuration for comparisons.
+LPC object values use **weak reference** semantics, represented by
+`lpcvm::Handle`. Copying an object handle does not extend the object's lifetime.
+The sandbox holds a strong reference to each registered object. Explicit
+destruction removes that reference; the object is destroyed once all remaining
+strong references are released.
 
-### Bytecode
+C++ code accesses an object through `Handle::lock()`, which returns an optional
+`lpcvm::SharedPtr`. Locking an expired handle fails, so callers must check the
+result before dereferencing it. Weak handles keep the control block valid after
+the object's lifetime ends, until the last weak reference is released.
 
-~~~bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build --target bench_bytecode
-./build/benchmarks/bench_bytecode --benchmark_min_time=0.1s --benchmark_repetitions=5
-./build/benchmarks/bench_bytecode --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
-~~~
+This model allows LPC objects to represent external resources, such as a player
+connection, without making their lifetimes depend on every LPC variable that
+refers to them.
 
-- `BM_ReturnOnly` measures the execution entry/return baseline.
-- `BM_Dispatch` varies stream size, zero to three extended-argument prefixes,
-  and starting offsets from a known 64-byte-aligned address. Zero-valued prefixes
-  keep the workload identical while isolating decoding overhead; they are
-  intentionally redundant and are not emitted by the compiler.
-- `BM_IntegerAdd` measures constant loads and integer addition.
-- `BM_LocalAccess` measures repeated local loads, stores, and stack pops.
+### Exceptions
 
-Bytecode construction, constant-pool setup, and a validating stack warm-up are
-outside the timed loop. Arithmetic and local-access timings include popping one
-returned value per execution so stack capacity can be reused. These are repeated
-execution benchmarks, not cold-cache or isolated memory-bandwidth measurements.
+LPCVM supports RAII and native C++ exceptions. Bytecode execution reports runtime
+errors through standard exceptions such as `std::runtime_error`. C++ stack
+unwinding destroys local RAII objects and releases the resources they own.
 
-`items_per_second` counts decoded two-byte words, including extended-argument
-prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports
-bytecode bytes traversed, not physical memory traffic.
+On an exception, bytecode execution leaves caller-owned object state, data stacks,
+and return stacks available for diagnostic trace dumps to assist LPC debugging.
+It does not roll back state changes or automatically reset the VM stacks; their
+contents reflect execution up to the failure. Values retained in those stacks
+remain alive until the caller removes them or destroys the stacks.
 
-### Macro expansion
-
-~~~bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build --target bench_macro_expansion
-./build/benchmarks/bench_macro_expansion --benchmark_min_time=0.1s --benchmark_repetitions=5
-./build/benchmarks/bench_macro_expansion --benchmark_filter=BM_ObjectMacroChain
-~~~
-
-The suite covers plain-text scanning, object-like macros, function arguments,
-nested function invocations, object-macro chains, and recursion guards. Workloads
-vary the number of input lines and, for nested expansion, the depth.
-
-Source construction, macro definition parsing, and an exact-output validation
-are outside the timed loop. Each iteration calls `LpcCompiler::preprocess` on
-the same input with prepared definitions; timings include scanner and compiler
-context setup, input copying, expansion, and output allocation and destruction.
-No LPC parsing or code generation is performed. `items_per_second` counts input
-lines (not recursive macro expansions), and `bytes_per_second` counts input bytes.
-
-## Classes
+## Virtual Machine
 
 The `lpcvm` namespace provides bytecode generation, runtime diagnostics, object
 management, and reference-counted ownership through the following types:
@@ -164,7 +151,7 @@ catchable as `E`. It uses the program and instruction address to identify the
 source file, function, line, and column, and includes that context in `what()`.
 When source information is unavailable, it preserves the original error message.
 
-### struct `lpcvm::Execution`
+### RAII struct `lpcvm::Execution`
 
 Declared in [vm_executor.hpp](../src/vm_executor.hpp).
 
@@ -274,7 +261,7 @@ allocation.
 `SharedPtr` and `Handle` use non-atomic reference counts. All references to the
 same object must stay on a single VM worker thread.
 
-### function `lpcvm::create_shared`
+### factory function `lpcvm::create_shared`
 
 `create_shared<T>(args...)` allocates an object with its control block, forwards
 arguments to its constructor, and returns its initial `SharedPtr<T>`. Use this

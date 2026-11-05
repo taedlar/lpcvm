@@ -11,7 +11,7 @@ cmake -S . -B build
 cmake --build build
 ~~~
 
-With `BUILD_TESTING=ON`, the unit tests and benchmarks are also built (see [Benchmarks](docs/lpcvm.md#benchmarks)).
+With `BUILD_TESTING=ON`, the unit tests and benchmarks are also built (see [Benchmarks](docs/development.md#benchmarks)).
 
 ## Overview
 - **Sandboxed stack machine**: a compact bytecode VM whose mudlib sees only a portion of the filesystem. See [vm-architecture.md](docs/vm-architecture.md).
@@ -27,5 +27,6 @@ LPCVM starts from a minimal set of [LPC grammar](src/lpc_parser.yy) and leaves f
 - Tooling: `lpcfront` command-line frontend (dumps the AST), reentrant `flex`/`bison` preprocessor, lexer and parser, and a bytecode generator.
 
 ## Documentation
-- [docs/lpcvm.md](docs/lpcvm.md): objects, variables, language and compiler details, memory management, benchmarks, and class reference.
+- [docs/lpcvm.md](docs/lpcvm.md): ontology of objects, methods, values, ownership, and runtime classes.
+- [docs/development.md](docs/development.md): LPC language, compiler and preprocessor, and benchmark workflows.
 - [docs/vm-architecture.md](docs/vm-architecture.md): executor, bytecode instruction set, and sandbox architecture.
