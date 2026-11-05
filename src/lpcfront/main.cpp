@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <iostream>
+#include <spdlog/fmt/fmt.h>
 #include "ast_node.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
@@ -13,17 +14,19 @@
 #include "object_class.hpp"
 #include "vm_svalue.hpp"
 
-static void log_vm_info();
+void write_vm_overheads();
+
 static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* globals);
 
 int main(int argc, char* argv[]) {
     int log_level = spdlog::level::warn;
     argparse::ArgumentParser program("lpcfront");
 
-    program.add_argument("source")
-        .help("The source file to compile");
+    program.add_argument("source").default_value("").help("The source file to compile");
     program.add_argument("-E", "--preprocess").default_value(false).implicit_value(true).nargs(0)
         .help("Preprocess the source file only");
+    program.add_argument("--vm-overheads").default_value(false).implicit_value(true).nargs(0)
+        .help("Show LPCVM runtime overhead size");
     program.add_argument("-V", "--verbose").default_value(false).implicit_value(true).nargs(0)
         .action([&](const auto & /*unused*/) {
             if (log_level > spdlog::level::trace)
@@ -35,22 +38,31 @@ int main(int argc, char* argv[]) {
     try {
         program.parse_args(argc, argv);
         spdlog::set_level(static_cast<spdlog::level::level_enum>(log_level));
-        log_vm_info();
+        if (program.get<bool>("--vm-overheads")) {
+            write_vm_overheads();
+            return EXIT_SUCCESS;
+        }
     } catch (const std::runtime_error& err) {
         std::cerr << err.what() << std::endl;
         std::cerr << program;
-        return 1;
+        return EXIT_FAILURE;
     }
 
+    FILE* source_fp = nullptr;
     const std::string source_file = program.get<std::string>("source");
-    if (!std::filesystem::exists(source_file)) {
-        std::cerr << "Source file does not exist: " << source_file << std::endl;
-        return 1;
+    if (source_file.empty()) {
+        source_fp = stdin;
     }
-    FILE* source_fp = std::fopen(source_file.c_str(), "rb");
-    if (!source_fp) {
-        std::cerr << "Failed to open source file: " << source_file << std::endl;
-        return 1;
+    else {
+        if (!std::filesystem::exists(source_file)) {
+            std::cerr << "Source file does not exist: " << source_file << std::endl;
+            return EXIT_FAILURE;
+        }
+        source_fp = std::fopen(source_file.c_str(), "rb");
+        if (!source_fp) {
+            std::cerr << "Failed to open source file: " << source_file << std::endl;
+            return EXIT_FAILURE;
+        }
     }
 
     int ret = EXIT_SUCCESS;
@@ -78,27 +90,6 @@ int main(int argc, char* argv[]) {
     }
     std::fclose(source_fp);
     return ret;
-}
-
-static void log_vm_info() {
-    SPDLOG_INFO("sizeof SValue {}", sizeof(SValue));
-    SPDLOG_INFO("sizeof ObjectClass {}", sizeof(ObjectClass));
-    SPDLOG_INFO("sizeof ConstPool {}", sizeof(ConstPool));
-    SPDLOG_INFO("sizeof VirtualTable {}", sizeof(VirtualTable));
-    SPDLOG_INFO("=======================================================");
-    SPDLOG_INFO("sizeof ASTNode {}", sizeof(ASTNode));
-    SPDLOG_INFO("sizeof ConstTable {}", sizeof(ConstTable));
-    SPDLOG_INFO("sizeof ConstTable::ValueType {}", sizeof(ConstTable::ValueType));
-    SPDLOG_INFO("sizeof SymbolTable {}", sizeof(SymbolTable));
-    SPDLOG_INFO("sizeof SymbolTable::Entry {}", sizeof(SymbolTable::Entry));
-    SPDLOG_INFO("sizeof SymbolTable::Token {}", sizeof(SymbolTable::Token));
-    SPDLOG_INFO("sizeof SymbolTable::Definition {}", sizeof(SymbolTable::Definition));
-    SPDLOG_INFO("=======================================================");
-    SPDLOG_INFO("sizeof std::vector<...> {}", sizeof(std::vector<uint8_t>));
-    SPDLOG_INFO("sizeof std::unique_ptr<...> {}", sizeof(std::unique_ptr<ObjectClass>));
-    SPDLOG_INFO("sizeof std::shared_ptr<...> {}", sizeof(std::shared_ptr<ObjectClass>));
-    SPDLOG_INFO("sizeof std::weak_ptr<...> {}", sizeof(std::weak_ptr<ObjectClass>));
-    SPDLOG_INFO("sizeof std::string_view {}", sizeof(std::string_view));
 }
 
 const char* no_sep = "";

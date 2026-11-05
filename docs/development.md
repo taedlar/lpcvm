@@ -1,33 +1,51 @@
 # LPCVM Development
 
-This document covers the LPC language, compiler and preprocessor, and benchmark
-workflows. Run the commands below from the repository root.
+This document covers building, unit tests, and benchmark workflows. Run the
+commands below from the repository root.
 
 See [lpcvm.md](lpcvm.md) for the object and value model and runtime class reference,
 and [vm-architecture.md](vm-architecture.md) for the stack machine, bytecode, and
-sandbox architecture.
+sandbox architecture. See [lpc-language.md](lpc-language.md) for the language
+and compiler outline currently under development.
 
-## LPC Language and Compiler
+## Build
 
-> [!NOTE]
-> LPC was designed decades ago and lacks a published standard. LPMud implementations also
-> suffer from out-dated architecture and non-reentrant program structures.
+Install a C++ compiler, CMake 3.28 or newer, Bison 3.2 or newer, Flex 2.5 or
+newer, Git, and a build tool such as Make or Ninja. CMake fetches the third-party
+dependencies from GitHub during configuration, so the first configure requires
+network access.
 
-LPCVM starts from a minimal set of [LPC grammar](../src/lpc_parser.yy) and leaves fancy features to efuns.
-The goal is an easy-to-use LPC that LPMud wizards are already familiar with, with some
-enhancements and simplifications.
+Configure a debug build with tests enabled, then compile:
 
-The compiler consists of:
+~~~bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+cmake --build build --parallel
+~~~
 
-- `lpcfront`, a command-line frontend that dumps the AST.
-- A reentrant preprocessor, lexer and parser (`flex` and `bison`) that output AST variants.
-- A visitor-pattern bytecode generator that emits bytecode from AST nodes.
+This builds the VM library, `lpcfront`, unit tests, and benchmarks. To omit tests
+and benchmarks, configure with `-DBUILD_TESTING=OFF`. After editing source files,
+rerun the build command to compile the changes.
 
-Supported language features:
+## Unit Tests
 
-- Expressions: arithmetic, bitwise, comparison, unary (`-`, `~`, `!`), assignment (`=` and compound forms such as `+=` and `<<=`), `++`/`--` (prefix and suffix), ternary `?:`, and short-circuit `&&`/`||`. The result of `&&`/`||` is the last operand evaluated, not normalized to 0/1.
-- Statements: blocks with local variables, `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue`, and `return`.
-- Binary operations on mixed numeric types are promoted to a common type: floating point wins, and mixed-sign integers become `int64` (or `uint64` when the unsigned operand is 64-bit).
+After building with `BUILD_TESTING=ON`, run the test suite through CTest:
+
+~~~bash
+ctest --test-dir build --output-on-failure
+~~~
+
+CTest runs the GoogleTest unit tests and the `lpcfront` command-line tests.
+`--output-on-failure` displays diagnostics for failed tests. To list available
+tests or run only the constant-pool tests:
+
+~~~bash
+ctest --test-dir build --show-only
+ctest --test-dir build --output-on-failure -R '^ConstTableTest\.'
+~~~
+
+Rebuild before rerunning tests; CTest does not compile source changes. For a
+multi-configuration generator such as Visual Studio, add `--config Debug` to the
+build command and `-C Debug` to the CTest commands.
 
 ## Benchmarks
 
