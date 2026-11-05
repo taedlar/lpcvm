@@ -6,6 +6,8 @@
 #include "code_generator.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
+#include "object_class.hpp"
+#include "object_state.hpp"
 #include "vm_exception.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
@@ -282,7 +284,7 @@ TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
     ManagedRuntime runtime;
-    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog, nullptr, &runtime);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog, nullptr, 0, &runtime);
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     ASSERT_EQ(code.execute(control, stack), 1);
