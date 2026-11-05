@@ -327,8 +327,6 @@ public:
     using HandleType = lpcvm::Handle<LpcObject, LpcObjectRef>;
 
     static HandleType create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);
-    static LpcObjectRef find(FabricType *sb, std::string_view name);
-    static void destruct(FabricType *sb, LpcObjectRef obj);
 
     LpcObject() = delete;
     LpcObject(const LpcObject&) = delete;

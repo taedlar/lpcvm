@@ -8,8 +8,6 @@
 #include "lpc_types.hpp"
 #include "managed_runtime.hpp"
 
-using ObjectTable = std::unordered_map<std::string_view, LpcObjectRef>;
-using ObjectHandle = LpcObject::HandleType;
 using PathType = std::filesystem::path;
 
 namespace lpcvm {
@@ -27,9 +25,7 @@ public:
     // path validation and opening; this is not an OS-level filesystem jail.
     FILE* file_open(const char* path, const char* mode) override;
 
-    /**
-     * @brief Get the collection of all objects in the sandbox.
-     *
+    /*
      * All objects in the sandbox can be found with an unique name.
      * Objects loaded through the sandbox use normalized mudlib-relative paths
      * with forward slashes, no leading slash, and no source file extension
@@ -49,20 +45,13 @@ public:
      * file handles or network connections can be represented as objects
      * without the sandbox being responsible for their lifetime.
      */
-    const ObjectTable& objects() const { return named_collection_; }
-
     ObjectHandle load_object (const PathType &path);
-    ObjectHandle find_object (std::string_view name);
     ObjectHandle clone_object (ObjectHandle obj);
-    void destruct_object (ObjectHandle obj);
 
     friend class ::LpcObject; // to allow adding/removing objects from the sandbox's object table
 
 private:
     PathType mudlib_root_;
-    ObjectTable named_collection_; // named references to LpcObject instances
-
-    ObjectTable& objects() { return named_collection_; }
 };
 
 } // namespace lpcvm

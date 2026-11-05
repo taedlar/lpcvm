@@ -47,12 +47,12 @@ TEST(LpcObjectTest, CreatingDuplicateNameReplacesWithoutInvalidatingOldName) {
     ASSERT_TRUE(new_ref.has_value());
 
     EXPECT_EQ((*old_ref)->name(), "duplicate-name");
-    EXPECT_EQ(LpcObject::find(&sb, "duplicate-name"), *new_ref);
+    EXPECT_EQ(sb.find_object("duplicate-name"), new_ref);
 
-    LpcObject::destruct(&sb, *old_ref);
-    EXPECT_EQ(LpcObject::find(&sb, "duplicate-name"), *new_ref);
-    LpcObject::destruct(&sb, *new_ref);
-    EXPECT_FALSE(LpcObject::find(&sb, "duplicate-name"));
+    sb.destruct_object(old_object);
+    EXPECT_EQ(sb.find_object("duplicate-name"), new_ref);
+    sb.destruct_object(new_object);
+    EXPECT_FALSE(sb.find_object("duplicate-name"));
 }
 
 // Thread-confinement contract: counts are plain integers, not atomics.

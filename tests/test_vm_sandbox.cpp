@@ -137,7 +137,7 @@ TEST_F(SandboxFileTest, FindsObjectsOnlyByExactName) {
     auto object = sandbox.load_object("std/player.lpc");
     ASSERT_TRUE(object);
     std::filesystem::create_directory_symlink(root / "std", root / "inside");
-    EXPECT_EQ(sandbox.find_object("std/player").lock(), object.lock());
+    EXPECT_EQ(sandbox.find_object("std/player"), object);
     for (const char* name : {"/std/player", "std/player.lpc", "./std/player",
                              "std/../std/player", "inside/player", ""}) {
         EXPECT_FALSE(sandbox.find_object(name)) << name;
@@ -146,13 +146,13 @@ TEST_F(SandboxFileTest, FindsObjectsOnlyByExactName) {
     auto clone_ref = clone.lock();
     ASSERT_TRUE(clone_ref);
     const auto clone_name = std::string((*clone_ref)->name());
-    EXPECT_EQ(sandbox.find_object(clone_name).lock(), clone.lock());
+    EXPECT_EQ(sandbox.find_object(clone_name), clone);
     EXPECT_FALSE(sandbox.find_object("/" + clone_name));
 
     // Neither successful lookups nor misses depend on the filesystem.
     std::filesystem::remove_all(root);
-    EXPECT_EQ(sandbox.find_object("std/player").lock(), object.lock());
-    EXPECT_EQ(sandbox.find_object(clone_name).lock(), clone.lock());
+    EXPECT_EQ(sandbox.find_object("std/player"), object);
+    EXPECT_EQ(sandbox.find_object(clone_name), clone);
     EXPECT_FALSE(sandbox.find_object("missing"));
     EXPECT_FALSE(sandbox.find_object("../outside"));
 }
@@ -162,7 +162,7 @@ TEST_F(SandboxFileTest, FindsObjectUsingNonNullTerminatedStringView) {
     auto object = sandbox.load_object("std/player.lpc");
     ASSERT_TRUE(object);
     const std::string name = "std/player.lpc-extra";
-    EXPECT_EQ(sandbox.find_object(std::string_view(name.data(), 10)).lock(), object.lock());
+    EXPECT_EQ(sandbox.find_object(std::string_view(name.data(), 10)), object);
     EXPECT_FALSE(sandbox.find_object(std::string_view(name.data(), 14)));
 }
 
@@ -180,7 +180,7 @@ TEST_F(SandboxFileTest, ObjectKeysAreRelativeToEachMudlibRoot) {
         EXPECT_EQ((*object_ref)->name(), "std/player");
         ASSERT_EQ(static_cast<const Sandbox&>(sandbox).objects().size(), 1u);
         EXPECT_EQ(static_cast<const Sandbox&>(sandbox).objects().begin()->first, "std/player");
-        EXPECT_EQ(sandbox.find_object((*object_ref)->name()).lock(), object.lock());
+        EXPECT_EQ(sandbox.find_object((*object_ref)->name()), object);
         sandbox.destruct_object(object);
         EXPECT_TRUE(static_cast<const Sandbox&>(sandbox).objects().empty());
     }
@@ -198,15 +198,15 @@ TEST_F(SandboxFileTest, StripsSourceExtensionAndPreservesCloneSuffix) {
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
         EXPECT_EQ((*object_ref)->name(), key.generic_string());
-        EXPECT_EQ(sandbox.find_object(key.generic_string()).lock(), object.lock());
+        EXPECT_EQ(sandbox.find_object(key.generic_string()), object);
         auto clone = sandbox.clone_object(object);
         auto clone_ref = clone.lock();
         ASSERT_TRUE(clone_ref);
         const auto clone_name = std::string((*clone_ref)->name());
         ASSERT_EQ(clone_name.find(key.generic_string() + "#"), 0u);
-        EXPECT_EQ(sandbox.find_object(clone_name).lock(), clone.lock());
+        EXPECT_EQ(sandbox.find_object(clone_name), clone);
         std::filesystem::remove(root / source);
-        EXPECT_EQ(sandbox.find_object(key.generic_string()).lock(), object.lock());
+        EXPECT_EQ(sandbox.find_object(key.generic_string()), object);
         sandbox.destruct_object(clone);
         EXPECT_FALSE(sandbox.find_object(clone_name));
     }
