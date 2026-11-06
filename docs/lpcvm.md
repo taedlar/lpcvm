@@ -4,15 +4,21 @@ This document describes LPCVM entities, their relationships, and their lifetimes
 
 ## Fabric
 
-LPCVM is not a hypervisor-level virtual machine. It is a **fabric** of bytecode, data entities, and managed runtime resources.
-Execution of LPC code is contained in a sandboxed universe as defined by the fabric.
+LPCVM is not a hypervisor-level virtual machine. It is a **fabric** of bytecode,
+data entities, and managed runtime resources. The fabric defines the environment
+in which LPC code executes and the boundary between that code and its host.
 
-The fabric defines two boundaries:
-- LPC code requesting system resources or calling native C++ functions (aka. efuns).
-- C++ functions calling LPC code, which implements event handlers or custom contents based on LPCVM.
+The boundary works in two directions:
 
-As like in LPMuds, the LPC compiler is usually associated with the fabric to produce bytecode from LPC source files at runtime.
-The fabric also provides compile-time resources such as predefined preprocessor macros and efun bindings to the LPC language.
+- LPC code requests host resources or calls native C++ functions (efuns).
+- The C++ host invokes LPC code to handle events or provide application behavior.
+
+The fabric supplies filesystem access, shared strings, and an object table. Its
+resource and policy boundaries depend on the fabric implementation. Objects and
+execution contexts are associated with a fabric; owning references to values may
+outlive it according to the lifetime rules below.
+
+See [VM Fabric](vm-fabric.md) for implementations, service contracts, and usage.
 
 ## Objects
 
@@ -20,7 +26,7 @@ The fabric also provides compile-time resources such as predefined preprocessor 
 - The LPC compiler compiles source files to object class images (function bytecodes, constant pool, and virtual table of method functions).
 - LPCVM can **load** an object by invoking the LPC compiler to compile LPC source files in-memory.
   - The compiled object class image has reference-counted lifecycle, with the first reference held by the loaded object.
-  - The loaded object is registered with a unique name (e.g. `"std/player"`) in the **object table** owned by the fabirc.
+  - The loaded object is registered with a unique name (e.g. `"std/player"`) in the **object table** owned by the fabric.
   - The object holding the initial reference to an object class is a **blueprint object**.
 - LPCVM can **find** a loaded object by its registered name.
 - LPCVM can **clone** objects from a blueprint object, sharing the same object class image by reference.
@@ -135,7 +141,6 @@ management, and reference-counted ownership through the following types:
 - [lpcvm::Execution](#struct-lpcvmexecution)
 - [lpcvm::Handle](#class-lpcvmhandle)
 - [lpcvm::ReturnStack](#class-lpcvmreturnstack)
-- [lpcvm::Sandbox](#class-lpcvmsandbox)
 - [lpcvm::SharedPtr](#class-lpcvmsharedptr)
 
 ### class `lpcvm::Bytecode`
@@ -176,18 +181,7 @@ state, and optional fabric, which must remain alive during execution.
 with caller-supplied data and return stacks. Arguments are already on the data
 stack; normal return removes them and the locals, leaves the results, and reports
 the number of return values. Object-variable access requires an object state.
-String literals emit `F_CONST_STR`, which interns the constant-pool bytes through
-`make_shared_string()` in the supplied fabric and pushes an owning reference.
-Executing this opcode without a fabric throws. Returned strings and strings
-stored in object state remain valid after the execution, program, or fabric is
-destroyed, as long as their owning references remain alive.
-
-```cpp
-ManagedRuntime fabric; // A Sandbox can also be supplied.
-lpcvm::Execution entry;
-if (program->lookup_method("set_message", &entry, &state, &fabric))
-    entry.execute(control, stack);
-```
+See [VM Fabric](vm-fabric.md#execution-integration) for fabric services used during execution.
 
 The program counter and frame pointer are local to the call; this type does not
 store a suspended continuation.
@@ -212,94 +206,6 @@ context and pops the frame. `execute()` records the initial return-stack depth s
 normal completion preserves any frames supplied by its caller. Return values
 remain on the data stack.
 
-### class `ManagedRuntime`
-
-Declared in [managed_runtime.hpp](../src/managed_runtime.hpp).
-
-Provides default file access, shared-string services, and object table management
-without requiring a sandbox. This is the base fabric for execution with or without
-named object management. `make_shared_string()`, `shared_string_allocation_size()`,
-`sweep_shared_strings()`, `emplace_object()`, `find_object()`, and `destruct_object()`
-are virtual.
-
-The free factory `lpcvm::make_shared_string(fabric, value)` forwards to the
-virtual member. Custom storage implementations should override all three string
-services consistently.
-
-The default fabric interns immutable shared strings. Equal byte sequences created
-through `lpcvm::make_shared_string(fabric, value)` share one `LpcString` within
-that fabric. The factory copies the input, including embedded NUL bytes.
-The table holds a strong reference until sweeping or fabric destruction;
-external owning references remain valid after the fabric is destroyed.
-
-```cpp
-ManagedRuntime fabric;
-auto text = lpcvm::make_shared_string(fabric, "hello");
-auto bytes = fabric.shared_string_allocation_size(); // 22 on the 64-bit build
-text = {};
-auto removed_bytes = fabric.sweep_shared_strings(); // 22
-```
-
-`shared_string_allocation_size()` sums the allocation sizes of distinct strings
-currently in the table: reference-count block, string metadata, characters, and
-one trailing NUL byte (17 + length on the 64-bit build). It excludes allocator
-and hash-table overhead. `sweep_shared_strings()` removes entries whose only
-strong reference belongs to the table and returns their total allocation size.
-Both operations take linear time in the table size and run on the owning thread.
-Sweeping retains hash buckets; outstanding weak handles can delay the physical
-release of removed strings' allocations.
-
-The object table holds strong references to all registered LPC objects and maps
-their unique names to references. `emplace_object()` registers or updates an object
-using its own name, `find_object()` retrieves a registered object by name, and `destruct_object()`
-removes an object from the table. Callers receive weak handles; the object is destroyed
-once all remaining strong references are released.
-
-```cpp
-ManagedRuntime fabric;
-auto handle = LpcObject::create(&fabric, "std/player", nullptr); // creates and registers
-auto found = fabric.find_object("std/player");  // returns the LpcObjectRef
-fabric.emplace_object(found);  // registers using the object's own name
-fabric.destruct_object(handle);  // removes from table
-```
-
-The object table is immutable from a caller's perspective through `objects()` const
-member. `emplace_object(obj)` rejects null objects, absent or empty names, and objects
-belonging to another fabric with `std::invalid_argument` before changing the table.
-Replacing an existing name replaces both the object reference and the borrowed key.
-The virtual method's overrides should preserve this contract. Derived classes access
-the mutable table through `objects()` for custom implementations.
-`LpcObject::create()` interns the name through the fabric and
-stores an owning `LpcStringRef`; the object table borrows a view of those bytes.
-`LpcObject::name()` returns an owning reference by value, allowing LPC variables
-to share the string and retain it after object or fabric destruction. Unnamed
-objects constructed directly have a null name reference; `create()` rejects empty
-names. Unused interned names remain until sweeping or fabric destruction.
-
-### class `lpcvm::Sandbox`
-
-Declared in [vm_sandbox.hpp](../src/vm_sandbox.hpp).
-
-A concrete fabric implementation that extends `ManagedRuntime` with object loading and
-cloning services. It loads and compiles source files into blueprint objects, finds registered
-objects through the inherited object table, and creates clones that share a compiled `ObjectClass`
-but have separate state.
-
-The constructor accepts a mudlib root for the intended resource boundary. The
-current loader opens the supplied path directly; it does not yet enforce
-filesystem confinement to that root. File operations (`file_open()`) are confined
-to paths within the mudlib root.
-
-`load_object()` compiles an LPC source file and registers it as a blueprint object.
-`clone_object()` creates a new instance from an existing blueprint, sharing its
-`ObjectClass` but with separate state. Both operations register the object in the
-inherited object table from `ManagedRuntime`.
-
-Shared-string allocation, accounting, and sweeping are inherited from
-`ManagedRuntime` and remain available through the sandbox. The object table
-inherited from `ManagedRuntime` holds strong references to all named objects
-in this sandbox's filesystem domain.
-
 ### class `lpcvm::SharedPtr`
 
 Declared in [lpc_types.hpp](../src/lpc_types.hpp).
@@ -318,50 +224,3 @@ same object must stay on a single VM worker thread.
 `create_shared<T>(args...)` allocates an object with its control block, forwards
 arguments to its constructor, and returns its initial `SharedPtr<T>`. Use this
 factory to create values managed by LPCVM's reference-counted pointers.
-
-## Object Fabric Design
-
-The object fabric is a service layer that manages named LPC object lifecycles,
-independent of how objects are created or persisted. This design separates
-concerns and enables flexible object management strategies.
-
-### Architecture
-
-- **ManagedRuntime**: The base fabric providing object table management. The table
-  is a name-to-reference map that holds strong references to all registered objects.
-  Methods `emplace_object()`, `find_object()`, and `destruct_object()` manage
-  registration and destruction. `objects()` provides an immutable view of the table.
-
-- **Sandbox**: A specialized fabric that adds file-based object loading and cloning.
-  It inherits the object table from `ManagedRuntime` and adds `load_object()` and
-  `clone_object()` for filesystem-backed objects. Multiple Sandboxes could exist
-  with different filesystem roots, each maintaining its own object table.
-
-### Separation of Concerns
-
-The object fabric distinguishes between three functions:
-
-1. **Table management** (in `ManagedRuntime`): Registering, finding, and destroying
-   named objects. The table holds strong references; objects are destroyed when
-   explicitly removed from the table and all remaining references expire.
-
-2. **Object loading and compilation** (in `Sandbox`): Compiling LPC source files
-   to object class images and instantiating blueprint objects. These operations
-   integrate with the table inherited from `ManagedRuntime`.
-
-3. **Object naming and location** (external to both): LPC source file paths are
-   normalized to object names (e.g., `"std/player"`), and cloned objects are
-   named with `#` suffixes. This knowledge is provided by the Sandbox's caller,
-   not embedded in the runtime.
-
-### Extensibility
-
-Custom fabrics can inherit from `ManagedRuntime` and override `emplace_object()`,
-`find_object()`, and `destruct_object()` to implement different object lifecycle
-strategies (e.g., database-backed objects, transient object pools, or permission-based
-access control). The base table management remains available for numeric-only
-execution or minimal object scenarios.
-
-Objects loaded or created through custom fabrics use weak reference handles, the
-same as Sandbox objects. The fabric supplies the strong reference lifecycle;
-the executor and LPC code see only the weak-reference interface.

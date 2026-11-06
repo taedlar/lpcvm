@@ -7,11 +7,11 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "code_generator.hpp"
 #include "const_pool.hpp"
 #include "location.hh"
 #include "lpc_types.hpp"
-#include "code_generator.hpp"
-#include "vm_sandbox.hpp"
+#include "managed_runtime.hpp"
 
 struct ASTNode;
 class ConstTable;

@@ -9,12 +9,18 @@
 using ObjectTable = std::unordered_map<std::string_view, LpcObjectRef>;
 using ObjectHandle = LpcObject::HandleType;
 
-/** Default runtime services, usable without a Sandbox. Like SharedPtr, string
- * allocation, references, and sweeping are confined to the owning thread.
+/** Lightweight, scope-owned runtime services, usable without a Sandbox.
+ * Destruction releases the tables' owning references. External owning references
+ * may survive, but must not use an object's fabric pointer after this runtime dies.
+ * The address is stable: objects and execution contexts borrow this runtime.
+ * Like SharedPtr, allocation, references, and sweeping are thread-confined.
  */
-class ManagedRuntime {
-public:
+struct ManagedRuntime {
     ManagedRuntime() = default;
+    ManagedRuntime(const ManagedRuntime&) = delete;
+    ManagedRuntime& operator=(const ManagedRuntime&) = delete;
+    ManagedRuntime(ManagedRuntime&&) = delete;
+    ManagedRuntime& operator=(ManagedRuntime&&) = delete;
     virtual ~ManagedRuntime() = default;
 
     virtual FILE* file_open(const char* path, const char* mode) {
@@ -47,7 +53,7 @@ public:
      * managed by this runtime. The table maps unique object names to their
      * corresponding LpcObject references.
      */
-    const ObjectTable& objects() const { return named_collection_; }
+    const ObjectTable& objects() const noexcept { return named_collection_; }
 
     /**
      * @brief Insert or update an object in the runtime's object table.
@@ -68,8 +74,8 @@ public:
         if (obj->fabric() != this)
             throw std::invalid_argument("Object belongs to another runtime");
 
-        objects().erase(name->view()); // replace the borrowed key, not just its value
-        objects().emplace(name->view(), obj);
+        mutable_objects().erase(name->view()); // replace the borrowed key, not just its value
+        mutable_objects().emplace(name->view(), obj);
         return ObjectHandle(obj);
     }
 
@@ -90,9 +96,9 @@ public:
     virtual void destruct_object (ObjectHandle obj) {
         auto obj_ref = obj.lock();
         if (obj_ref != std::nullopt && (*obj_ref)->name()) {
-            ObjectTable::iterator it = objects().find((*obj_ref)->name()->view());
+            auto it = objects().find((*obj_ref)->name()->view());
             if (it != objects().end() && it->second == *obj_ref) {
-                objects().erase(it); // also erase the string_view pointing to the object's name
+                mutable_objects().erase(it); // also erase the string_view pointing to the object's name
             }
         }
     }
@@ -102,7 +108,7 @@ protected:
      * @brief The mutable object table is used by emplace_object and destruct_object.
      * A derived class may use this to access and modify the object table directly.
      */
-    ObjectTable& objects() { return named_collection_; }
+    ObjectTable& mutable_objects() noexcept { return named_collection_; }
 
     static LpcStringRef allocate_shared_string(std::string_view value);
 
