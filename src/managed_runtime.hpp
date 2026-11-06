@@ -52,15 +52,29 @@ public:
     /**
      * @brief Insert or update an object in the runtime's object table.
      * Returns the handle to the inserted or updated object.
+     *
+     * The key borrows the object's own name. Replacing an object also replaces
+     * the borrowed key so its lifetime follows the new object.
+     * @param obj A named object belonging to this runtime.
+     * @throws std::invalid_argument If obj is null, has no non-empty name,
+     *      or belongs to another runtime. Validation leaves the table unchanged.
      */
-    virtual ObjectHandle emplace_object (std::string_view name, LpcObjectRef obj) {
-        objects().erase(name); // always erase the string_view key if it exists
-        objects().emplace(obj->name(), obj); // use the interned string_view as the key
+    virtual ObjectHandle emplace_object (LpcObjectRef obj) {
+        if (!obj)
+            throw std::invalid_argument("Object cannot be null");
+        const auto name = obj->name();
+        if (!name || name->empty())
+            throw std::invalid_argument("Object name cannot be empty");
+        if (obj->fabric() != this)
+            throw std::invalid_argument("Object belongs to another runtime");
+
+        objects().erase(name->view()); // replace the borrowed key, not just its value
+        objects().emplace(name->view(), obj);
         return ObjectHandle(obj);
     }
 
     /**
-     * @brief Find an object by its unique name. Returns an empty handle if not found.
+     * @brief Find an object by its unique name. Returns an empty reference if not found.
      */
     virtual LpcObjectRef find_object (std::string_view name) {
         auto obj_ref = objects().find(name);
@@ -75,8 +89,8 @@ public:
      */
     virtual void destruct_object (ObjectHandle obj) {
         auto obj_ref = obj.lock();
-        if (obj_ref != std::nullopt) {
-            ObjectTable::iterator it = objects().find((*obj_ref)->name());
+        if (obj_ref != std::nullopt && (*obj_ref)->name()) {
+            ObjectTable::iterator it = objects().find((*obj_ref)->name()->view());
             if (it != objects().end() && it->second == *obj_ref) {
                 objects().erase(it); // also erase the string_view pointing to the object's name
             }

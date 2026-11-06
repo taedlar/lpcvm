@@ -332,7 +332,8 @@ public:
     ~LpcObject() = default;
 
     FabricType *fabric() const noexcept { return fabric_; }
-    const std::string& name() const noexcept { return name_; }
+    // Owning reference; null for objects constructed without a registered name.
+    LpcStringRef name() const { return name_; }
     std::shared_ptr<ObjectClass> program() const noexcept { return program_; }
     std::shared_ptr<ObjectState> state() const noexcept { return state_; }
 
@@ -343,7 +344,7 @@ private:
     LpcObject(FabricType *sb, std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
 
     FabricType *fabric_;
-    std::string name_;
+    LpcStringRef name_;
     std::shared_ptr<ObjectClass> program_;
     std::shared_ptr<ObjectState> state_;
 };

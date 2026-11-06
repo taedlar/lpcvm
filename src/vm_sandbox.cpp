@@ -88,6 +88,7 @@ ObjectHandle Sandbox::clone_object (ObjectHandle obj) {
     if (obj_ref == std::nullopt) {
         return LpcObject::HandleType();
     }
-    std::string clone_name = fmt::format("{}#{}", (*obj_ref)->name(), ++clone_counter);
+    const auto name = (*obj_ref)->name();
+    std::string clone_name = fmt::format("{}#{}", name ? name->view() : std::string_view{}, ++clone_counter);
     return LpcObject::create(this, clone_name, (*obj_ref)->program());
 }

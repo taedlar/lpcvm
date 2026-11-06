@@ -1,22 +1,34 @@
 # LPCVM Ontology
 
-This document describes LPCVM entities, their relationships, and their lifetimes:
-objects, methods, values, and the runtime types that represent them.
+This document describes LPCVM entities, their relationships, and their lifetimes.
 
-See [vm-architecture.md](vm-architecture.md) for the stack machine, bytecode, and
-sandbox architecture, [lpc-language.md](lpc-language.md) for the language and
-compiler outline, and [development.md](development.md) for build, unit-test, and
-benchmark workflows.
+## Fabric
+
+LPCVM is not a hypervisor-level virtual machine. It is a **fabric** of bytecode, data entities, and managed runtime resources.
+Execution of LPC code is contained in a sandboxed universe as defined by the fabric.
+
+The fabric defines two boundaries:
+- LPC code requesting system resources or calling native C++ functions (aka. efuns).
+- C++ functions calling LPC code, which implements event handlers or custom contents based on LPCVM.
+
+As like in LPMuds, the LPC compiler is usually associated with the fabric to produce bytecode from LPC source files at runtime.
+The fabric also provides compile-time resources such as predefined preprocessor macros and efun bindings to the LPC language.
 
 ## Objects
 
 - Objects are defined with LPC language. Each LPC source file (`*.lpc`) defines an **object class** with method functions and variables.
 - The LPC compiler compiles source files to object class images (function bytecodes, constant pool, and virtual table of method functions).
-- The object loader **loads** an object by invoking the LPC compiler to compile LPC source files in-memory.
-  - The object class image is reference-counted, with the first reference held by the loaded object.
-  - The loaded object is registered with a unique name (e.g. `"std/player"`) and serves as a **blueprint object**.
-  - More objects can be **cloned** from blueprint objects, adding more references to their object class image.
-- Hot-reloading replaces the registered blueprint with a newer version. Existing clones continue to use the old version.
+- LPCVM can **load** an object by invoking the LPC compiler to compile LPC source files in-memory.
+  - The compiled object class image has reference-counted lifecycle, with the first reference held by the loaded object.
+  - The loaded object is registered with a unique name (e.g. `"std/player"`) in the **object table** owned by the fabirc.
+  - The object holding the initial reference to an object class is a **blueprint object**.
+- LPCVM can **find** a loaded object by its registered name.
+- LPCVM can **clone** objects from a blueprint object, sharing the same object class image by reference.
+- The object table own the primary reference to objects, while C++ code may own additional temporary reference to objects.
+  The LPC `object` data type does not imply ownership of object, it is a handle (weak reference).
+- LPCVM can **destruct** a loaded object by erasing the primary reference in object table.
+  The destruction take place when all references held by C++ code are released.
+- Hot-reloading replaces the registered blueprint object in object table with a newer version. Existing clones continue to use the old version.
 - Each object has its own **object state** (variables, I/O buffers, and other attributes).
   - The LPC `object` data type is a handle to an individual object and allows access to its state.
   - The LPC `call_other` efun calls methods defined in the object class image referenced by the object.
@@ -239,22 +251,30 @@ release of removed strings' allocations.
 
 The object table holds strong references to all registered LPC objects and maps
 their unique names to references. `emplace_object()` registers or updates an object
-by name, `find_object()` retrieves a registered object by name, and `destruct_object()`
+using its own name, `find_object()` retrieves a registered object by name, and `destruct_object()`
 removes an object from the table. Callers receive weak handles; the object is destroyed
 once all remaining strong references are released.
 
 ```cpp
 ManagedRuntime fabric;
-auto obj = create_shared<LpcObject>(...);
-auto handle = fabric.emplace_object("std/player", obj);
+auto handle = LpcObject::create(&fabric, "std/player", nullptr); // creates and registers
 auto found = fabric.find_object("std/player");  // returns the LpcObjectRef
+fabric.emplace_object(found);  // registers using the object's own name
 fabric.destruct_object(handle);  // removes from table
 ```
 
 The object table is immutable from a caller's perspective through `objects()` const
-member. Derived classes access the mutable table through `objects()` for custom
-implementations. Object names are stored as references to interned strings, so the
-lifetime of the name reference is tied to the object itself.
+member. `emplace_object(obj)` rejects null objects, absent or empty names, and objects
+belonging to another fabric with `std::invalid_argument` before changing the table.
+Replacing an existing name replaces both the object reference and the borrowed key.
+The virtual method's overrides should preserve this contract. Derived classes access
+the mutable table through `objects()` for custom implementations.
+`LpcObject::create()` interns the name through the fabric and
+stores an owning `LpcStringRef`; the object table borrows a view of those bytes.
+`LpcObject::name()` returns an owning reference by value, allowing LPC variables
+to share the string and retain it after object or fabric destruction. Unnamed
+objects constructed directly have a null name reference; `create()` rejects empty
+names. Unused interned names remain until sweeping or fabric destruction.
 
 ### class `lpcvm::Sandbox`
 
