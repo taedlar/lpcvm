@@ -14,7 +14,10 @@ LpcObject::LpcObject(FabricType *sb, std::shared_ptr<ObjectClass> program)
 }
 
 LpcObject::HandleType LpcObject::create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program) {
+    if (name.empty()) {
+        throw std::invalid_argument("Object name cannot be empty");
+    }
     auto obj_ref = lpcvm::create_shared<LpcObject>(sb, program);
-    obj_ref->name_ = std::string(name);
-    return sb->emplace_object(obj_ref->name_, obj_ref);
+    obj_ref->name_ = lpcvm::make_shared_string(*sb, name);
+    return sb->emplace_object(obj_ref);
 }

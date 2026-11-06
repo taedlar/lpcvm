@@ -145,7 +145,7 @@ TEST_F(SandboxFileTest, FindsObjectsOnlyByExactName) {
     auto clone = sandbox.clone_object(object);
     auto clone_ref = clone.lock();
     ASSERT_TRUE(clone_ref);
-    const auto clone_name = std::string((*clone_ref)->name());
+    const auto clone_name = std::string((*clone_ref)->name()->view());
     EXPECT_EQ(sandbox.find_object(clone_name), clone);
     EXPECT_FALSE(sandbox.find_object("/" + clone_name));
 
@@ -177,10 +177,10 @@ TEST_F(SandboxFileTest, ObjectKeysAreRelativeToEachMudlibRoot) {
         auto object = sandbox.load_object("/std/../std/player.lpc");
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
-        EXPECT_EQ((*object_ref)->name(), "std/player");
+        EXPECT_EQ((*object_ref)->name()->view(), "std/player");
         ASSERT_EQ(static_cast<const Sandbox&>(sandbox).objects().size(), 1u);
         EXPECT_EQ(static_cast<const Sandbox&>(sandbox).objects().begin()->first, "std/player");
-        EXPECT_EQ(sandbox.find_object((*object_ref)->name()), object);
+        EXPECT_EQ(sandbox.find_object((*object_ref)->name()->view()), object);
         sandbox.destruct_object(object);
         EXPECT_TRUE(static_cast<const Sandbox&>(sandbox).objects().empty());
     }
@@ -197,12 +197,12 @@ TEST_F(SandboxFileTest, StripsSourceExtensionAndPreservesCloneSuffix) {
         auto object = sandbox.load_object(source);
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
-        EXPECT_EQ((*object_ref)->name(), key.generic_string());
+        EXPECT_EQ((*object_ref)->name()->view(), key.generic_string());
         EXPECT_EQ(sandbox.find_object(key.generic_string()), object);
         auto clone = sandbox.clone_object(object);
         auto clone_ref = clone.lock();
         ASSERT_TRUE(clone_ref);
-        const auto clone_name = std::string((*clone_ref)->name());
+        const auto clone_name = std::string((*clone_ref)->name()->view());
         ASSERT_EQ(clone_name.find(key.generic_string() + "#"), 0u);
         EXPECT_EQ(sandbox.find_object(clone_name), clone);
         std::filesystem::remove(root / source);
