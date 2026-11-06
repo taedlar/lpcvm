@@ -8,8 +8,9 @@
 
 ## Naming and Source Layout
 
-- Use `lpc_` for LPC language components and `vm_` for VM components; filenames alone do not determine API visibility.
-- Use `lpcvm` for new VM runtime components and `Lpc` for LPC abstraction classes. Existing runtime types also live in the global namespace; follow surrounding code without unrelated namespace migrations.
+- For source filenames, use `lpc_` prefix for LPC language components and `vm_` prefix for VM components; no prefix for internal components.
+- For identifiers, use `lpcvm` namespace for VM runtime components and `Lpc` prefix at global namespace for LPC abstraction classes.
+  Existing runtime types also live in the global namespace; follow surrounding code without unrelated namespace migrations.
 - Use PascalCase for class and struct names. Follow local conventions for members and functions.
 - Edit Flex (`*.l`) and Bison (`*.yy`) sources, not their generated C++ files.
 
@@ -17,10 +18,10 @@
 
 - Keep source-language rules in the compiler and lower them to the VM's bytecode semantics.
 - `LpcCompiler` accepts a caller-supplied `FILE*` or source string. `preprocess()` returns text; `parse()` returns success and exposes the AST through `get_ast()`; `generate_code()` returns a `std::shared_ptr<ObjectClass>`.
-- `#include` processing and compiler inheritance integration are currently TODOs. When implementing source loading, route filesystem access through the supplied fabric.
-- Treat source text as untrusted. Route sensitive operations through the fabric; `ManagedRuntime` alone does not enforce sandbox confinement.
+- When implementing source loading, route filesystem access through the supplied fabric.
+- Treat source text as untrusted. Route sensitive operations through the fabric contract in `ManagedRuntime`.
 
-## Bytecode and Runtime
+## Bytecode and Runtime Fabric
 
 - Keep bytecode execution language-neutral. High-level policies, including possible LPC master-object hooks, belong at the fabric boundary.
 - Define opcodes in `vm_opcodes.hpp` and handlers in `vm_executor.cpp`; keep emission, decoding, stack effects, and tests consistent.
