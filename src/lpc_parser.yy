@@ -49,7 +49,9 @@
 
     inline ScannerLocation source_location(const yy::location& location, YY_EXTRA_TYPE lpcc) {
         return {
-            lpcc ? lpcc->current_file : ConstPool::INVALID_INDEX,
+            lpcc && lpcc->consts && location.begin.filename
+                ? lpcc->consts->find_or_add(*location.begin.filename)
+                : (lpcc ? lpcc->current_file : ConstPool::INVALID_INDEX),
             lpcc ? lpcc->current_func : ConstPool::INVALID_INDEX,
             location.begin.line,
             location.begin.column
@@ -71,13 +73,19 @@
         // exception type for parse errors.
         struct parse_error: std::runtime_error {
             parse_error(const std::string& message, int lineno, int column, YY_EXTRA_TYPE lpcc = nullptr)
-                : std::runtime_error(message), lineno(lineno), column(column), lpcc(lpcc) {}
+                : std::runtime_error(message), lineno(lineno), column(column), lpcc(lpcc),
+                  filename(lpcc && lpcc->location.begin.filename ? *lpcc->location.begin.filename : "") {}
+            parse_error(const std::string& message, const yy::location& location, YY_EXTRA_TYPE lpcc)
+                : parse_error(message, location.begin.line, location.begin.column, lpcc) {
+                filename = location.begin.filename ? *location.begin.filename : "";
+            }
             parse_error(const std::string& message, yyscan_t yyscanner)
                 : parse_error(message, yyget_extra(yyscanner)->location.begin.line,
                     yyget_extra(yyscanner)->location.begin.column, yyget_extra(yyscanner)) {}
             int lineno;
             int column;
             YY_EXTRA_TYPE lpcc;
+            std::string filename;
         };
     } // namespace yy
 }
@@ -828,5 +836,5 @@ arg_list
 
 // User subroutines section
 void yy::LpcParser::error(const location_type& location, const std::string &msg) {
-    throw parse_error(msg, location.begin.line, location.begin.column, yyget_extra(yyscanner));
+    throw parse_error(msg, location, yyget_extra(yyscanner));
 }

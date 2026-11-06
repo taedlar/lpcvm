@@ -43,6 +43,46 @@ The reentrant preprocessor handles macro expansion before parsing. Its
 implementation lives in [preprocessor.l](../src/preprocessor.l); macro-expansion
 benchmarks are described in [development.md](development.md#macro-expansion).
 
+`#include "file.h"` and `#include <file.h>` preprocess a header in place, sharing
+macro definitions with the including source. Macro operands such as
+`#define HEADER "file.h"` followed by `#include HEADER` are supported.
+Configure the ordered search directories before `preprocess()` or `parse()`:
+
+```cpp
+LpcCompiler compiler;
+compiler.use_include_directories({"include", "lib/include"});
+compiler.set_filename("src/main.lpc");
+compiler.parse(source);
+```
+
+Each call to `use_include_directories()` replaces the list. Quoted includes first
+search the directory of the including file (using `set_filename()` for the main
+source), then the configured directories. Angle-bracket includes search only the
+configured directories. There are no implicit directories for an unnamed source.
+Absolute include names are checked directly through the fabric.
+
+All include searches and opens use `use_fabric()`'s runtime; without one, the
+compiler creates a `ManagedRuntime`. Relative host directories use the process
+working directory. With a `Sandbox`, absolute paths refer to the mudlib root and
+traversal and symlink checks apply. The sandbox object loader supplies its own
+fabric and the object's filename so local quoted includes work safely.
+
+Missing or malformed includes, active include cycles, and nesting beyond 64
+headers fail preprocessing/parsing and populate `messages()`. Preprocessor
+errors in headers include their filename and original line/column in the message.
+Conditional directives and `#pragma once` are not implemented.
+
+`#line N` sets the logical line number of the following line; an optional quoted
+filename (`#line 42 "generated.lpc"`) also changes its diagnostic filename.
+The line number must be a positive integer representable by `int`. Macro operands
+are expanded. Filenames may escape quotes and backslashes with a backslash.
+Logical filenames do not change the directory used to resolve quoted includes.
+
+Preprocessed output contains `#line` markers on entry to and return from each
+include. The lexer consumes these markers so parser diagnostics and AST source
+locations retain the header's filename and line, then resume the caller's
+location. Preprocessor diagnostics also respect explicit `#line` directives.
+
 ### Lexing and Parsing
 
 The reentrant Flex lexer and Bison parser turn source text into an abstract

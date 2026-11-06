@@ -2,10 +2,14 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #pragma once
 #include <cstdio>
+#include <filesystem>
+#include <optional>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 #include "lpc_types.hpp"
 
+using PathType = std::filesystem::path;
 using ObjectTable = std::unordered_map<std::string_view, LpcObjectRef>;
 using ObjectHandle = LpcObject::HandleType;
 
@@ -26,6 +30,17 @@ struct ManagedRuntime {
     virtual FILE* file_open(const char* path, const char* mode) {
         return std::fopen(path, mode);
     }
+
+    /** Find the first regular file in search_paths, in order. Relative names
+     * require an explicit search directory (use "." for the current directory).
+     * Absolute names are checked directly, ignoring search_paths. Returns a
+     * canonical absolute path, or nullopt if no regular file exists. Missing
+     * candidates are skipped; other filesystem errors propagate. Empty names
+     * and paths containing embedded NULs throw std::invalid_argument.
+     */
+    virtual std::optional<PathType> file_search(
+        const PathType& name,
+        const std::vector<PathType>& search_paths);
 
     /**
      * @brief Find or create an immutable owning string. Copies input bytes, including

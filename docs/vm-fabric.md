@@ -13,7 +13,7 @@ LPMud-style object loading, cloning, and filesystem services.
 
 ## RAII struct `ManagedRuntime`
 
-Declared in [managed_runtime.hpp](../src/managed_runtime.hpp).
+Declared in [fabric.hpp](../src/fabric.hpp).
 
 A lightweight RAII fabric that can be declared directly on the stack or as a unit
 test fixture member. It needs no explicit initialization or shutdown. Scope exit,
@@ -31,6 +31,15 @@ are virtual.
 The free factory `lpcvm::make_shared_string(fabric, value)` forwards to the
 virtual member. Custom storage implementations should override all three string
 services consistently.
+
+`file_search(name, search_paths)` is virtual and searches directories in order
+for the first regular file, returning `std::optional<PathType>`.
+The base runtime returns a canonical absolute host path. Absolute names are
+checked directly; relative names require a search directory (use `"."` to search
+the current directory). Missing files, dangling symlinks, and non-directory
+search paths are skipped; no match returns `std::nullopt`. Other filesystem
+errors are propagated as-is (e.g. `std::filesystem::filesystem_error`).
+Empty names and embedded NUL bytes in names or searched directories throw `std::invalid_argument`.
 
 The default fabric interns immutable shared strings. Equal byte sequences created
 through `lpcvm::make_shared_string(fabric, value)` share one `LpcString` within
@@ -91,10 +100,13 @@ cloning services. It loads and compiles source files into blueprint objects, fin
 objects through the inherited object table, and creates clones that share a compiled `ObjectClass`
 but have separate state.
 
-The constructor accepts a mudlib root for the intended resource boundary. The
-current loader opens the supplied path directly; it does not yet enforce
-filesystem confinement to that root. File operations (`file_open()`) are confined
-to paths within the mudlib root.
+The constructor accepts a mudlib root. File opening, searching, and object
+loading resolve paths within that root, including symlink targets. Absolute
+paths refer to the mudlib root. `file_search()` returns canonical mudlib-relative
+paths suitable for `file_open()`; an existing candidate resolving outside the
+root throws `std::filesystem::filesystem_error` with `permission_denied`.
+The host must prevent concurrent filesystem changes between validation and
+access; this is not an OS-level filesystem jail.
 
 `load_object()` compiles an LPC source file and registers it as a blueprint object.
 `clone_object()` creates a new instance from an existing blueprint, sharing its

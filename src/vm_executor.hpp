@@ -4,7 +4,7 @@
 #pragma once
 #include <cstdint>
 #include "lpc_types.hpp"
-#include "managed_runtime.hpp"
+#include "fabric.hpp"
 // #include "vm_sandbox.hpp"
 #include "vm_svalue.hpp"
 

@@ -4,36 +4,14 @@
 #include "vm_exception.hpp"
 #include "vm_sandbox.hpp"
 #include "lpc_compiler.hpp"
+#include "vm_file_utils.hpp"
+#include <utility>
 #include <cerrno>
 
 using namespace lpcvm;
 
-namespace {
-struct CanonicalObjectPath {
-    PathType filesystem_path;
-    PathType local_path;
-};
-
-// LPC absolute paths refer to the mudlib, never the host filesystem root.
-CanonicalObjectPath canonicalize_object_path(const PathType &path, const PathType &mudlib_root) {
-    const auto root = std::filesystem::canonical(mudlib_root);
-    const auto requested = root / path.relative_path();
-    const auto resolved = std::filesystem::canonical(requested);
-
-    // Compare components so a sibling named "mudlib-other" is excluded.
-    auto candidate = resolved.begin();
-    for (const auto& component : root) {
-        if (candidate == resolved.end() || *candidate != component) {
-            throw std::filesystem::filesystem_error(
-                "Access denied", resolved,
-                std::make_error_code(std::errc::permission_denied));
-        }
-        ++candidate;
-    }
-    return {resolved, resolved.lexically_relative(root)};
-}
 // Clone suffixes belong to the object name, not the source extension.
-std::string object_key(PathType local_path) {
+static std::string object_key(PathType local_path) {
     auto filename = local_path.filename().generic_string();
     const auto clone = filename.find('#');
     const auto suffix = clone == std::string::npos ? std::string() : filename.substr(clone);
@@ -42,9 +20,9 @@ std::string object_key(PathType local_path) {
     local_path.replace_filename(source_name.generic_string() + suffix);
     return local_path.generic_string();
 }
-} // namespace
 
 FILE* Sandbox::file_open(const char* path, const char* mode) {
+    using namespace lpcvm::detail;
     if (!path || !*path || !mode || !*mode) {
         errno = EINVAL;
         return nullptr;
@@ -53,13 +31,23 @@ FILE* Sandbox::file_open(const char* path, const char* mode) {
     try {
         const auto resolved = canonicalize_object_path(path, mudlib_root_);
         return std::fopen(resolved.filesystem_path.string().c_str(), mode);
-    } catch (const std::filesystem::filesystem_error& error) {
+    } catch (const fs::filesystem_error& error) {
         errno = error.code().value();
         return nullptr;
     }
 }
 
+std::optional<PathType> Sandbox::file_search(
+    const PathType& name, const std::vector<PathType>& search_paths) {
+    using namespace lpcvm::detail;
+    return search_file(name, search_paths, [this](const auto& candidate) {
+        const auto resolved = canonicalize_object_path(candidate, mudlib_root_);
+        return std::make_pair(resolved.filesystem_path, resolved.local_path);
+    });
+}
+
 ObjectHandle Sandbox::load_object (const PathType &path) {
+    using namespace lpcvm::detail;
     const auto canonical_path = canonicalize_object_path(path, mudlib_root_);
     FILE* file = std::fopen(canonical_path.filesystem_path.string().c_str(), "r");
     if (!file) {
@@ -68,6 +56,9 @@ ObjectHandle Sandbox::load_object (const PathType &path) {
 
     // Compile the object using the LPC compiler
     LpcCompiler compiler(file);
+    // Compilation is synchronous; the compiler borrows this sandbox's fabric.
+    compiler.use_fabric(std::shared_ptr<ManagedRuntime>(this, [](ManagedRuntime*) {}));
+    compiler.set_filename(canonical_path.local_path.generic_string());
     if (!compiler.parse()) {
         fclose(file);
         return LpcObject::HandleType();

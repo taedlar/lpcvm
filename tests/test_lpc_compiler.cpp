@@ -8,7 +8,7 @@
 #include "object_state.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
-#include "managed_runtime.hpp"
+#include "fabric.hpp"
 #include <gtest/gtest.h>
 
 TEST(CodeGeneratorTest, ArgumentWidthBoundaries) {

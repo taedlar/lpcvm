@@ -5,16 +5,12 @@
 #include <filesystem>
 #include <string_view>
 #include <unordered_map>
-#include "lpc_types.hpp"
-#include "managed_runtime.hpp"
-
-using PathType = std::filesystem::path;
+#include "fabric.hpp"
 
 namespace lpcvm {
 
-class Sandbox: public ManagedRuntime {
+class Sandbox: public ManagedRuntime, public std::enable_shared_from_this<Sandbox> {
 public:
-
     Sandbox(const PathType &mudlib_root)
         : mudlib_root_(mudlib_root) {}
 
@@ -24,6 +20,13 @@ public:
     // the root. The host must prevent concurrent filesystem changes between
     // path validation and opening; this is not an OS-level filesystem jail.
     FILE* file_open(const char* path, const char* mode) override;
+
+    // As in ManagedRuntime, but absolute names/directories refer to the mudlib.
+    // Returns a canonical mudlib-relative path usable with file_open(). Escapes
+    // throw filesystem_error (permission_denied). The same filesystem race
+    // limitation as file_open() applies.
+    std::optional<PathType> file_search(
+        const PathType& name, const std::vector<PathType>& search_paths) override;
 
     /*
      * All objects in the sandbox can be found with an unique name.
