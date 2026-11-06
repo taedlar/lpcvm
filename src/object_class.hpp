@@ -16,7 +16,7 @@ struct Execution;
 }
 
 class ObjectState;
-class ManagedRuntime;
+struct ManagedRuntime;
 
 class ObjectClass {
 public:

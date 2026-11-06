@@ -47,7 +47,7 @@ LpcCompiler::~LpcCompiler() {
     }
 }
 
-void LpcCompiler::use_fabric(std::shared_ptr<ManagedRuntime> sb) {
+void LpcCompiler::use_fabric(std::shared_ptr<FabricType> sb) {
     fabric_ = std::move(sb);
     if (impl_)
         impl_->ctx.fabric = fabric_;

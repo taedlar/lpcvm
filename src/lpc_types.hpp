@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-class ManagedRuntime;
+struct ManagedRuntime;
 class LpcString;
 class LpcArray;
 class LpcMapping;
@@ -121,7 +121,7 @@ private:
     template <typename U, typename... Args>
     friend SharedPtr<U> create_shared(Args&&... args);
 
-    friend class ::ManagedRuntime;
+    friend struct ::ManagedRuntime;
 
     struct AdoptRetainedReference {};
 
@@ -295,7 +295,7 @@ public:
     bool empty() const noexcept { return length_ == 0; }
 
 private:
-    friend class ManagedRuntime;
+    friend struct ManagedRuntime;
 
     explicit LpcString(std::size_t length) noexcept : length_(length) {}
 

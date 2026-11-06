@@ -9,6 +9,44 @@
 #include "object_class.hpp"
 #include "vm_sandbox.hpp"
 
+// Objects and execution contexts borrow the runtime's stable address.
+static_assert(!std::is_copy_constructible_v<ManagedRuntime>);
+static_assert(!std::is_copy_assignable_v<ManagedRuntime>);
+static_assert(!std::is_move_constructible_v<ManagedRuntime>);
+static_assert(!std::is_move_assignable_v<ManagedRuntime>);
+static_assert(std::is_same_v<decltype(std::declval<ManagedRuntime&>().objects()),
+                             const ObjectTable&>);
+
+TEST(ManagedRuntimeTest, ScopeExitReleasesObjectsAndStrings) {
+    ObjectHandle object;
+    lpcvm::Handle<LpcString, LpcStringRef> string;
+    {
+        ManagedRuntime runtime;
+        EXPECT_TRUE(runtime.objects().empty());
+        object = LpcObject::create(&runtime, "test/object", nullptr);
+        auto name = runtime.find_object("test/object")->name();
+        string = decltype(string)(name);
+        EXPECT_FALSE(object.expired());
+        EXPECT_FALSE(string.expired());
+    }
+    EXPECT_TRUE(object.expired());
+    EXPECT_TRUE(string.expired());
+}
+
+TEST(ManagedRuntimeTest, ExceptionUnwindingReleasesOwnedResources) {
+    ObjectHandle object;
+    lpcvm::Handle<LpcString, LpcStringRef> string;
+    EXPECT_THROW({
+        ManagedRuntime runtime;
+        object = LpcObject::create(&runtime, "test/object", nullptr);
+        auto name = runtime.find_object("test/object")->name();
+        string = decltype(string)(name);
+        throw std::runtime_error("test failure");
+    }, std::runtime_error);
+    EXPECT_TRUE(object.expired());
+    EXPECT_TRUE(string.expired());
+}
+
 TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;
     std::optional<LpcObjectRef> locked;
@@ -68,7 +106,7 @@ TEST(LpcObjectTest, RegistrationRejectsInvalidObjectsWithoutChangingTable) {
     EXPECT_THROW(runtime.emplace_object(*foreign.lock()), std::invalid_argument);
     EXPECT_EQ(runtime.find_object("std/player"), *existing.lock());
     EXPECT_EQ(other.find_object("std/player"), *foreign.lock());
-    EXPECT_EQ(static_cast<const ManagedRuntime&>(runtime).objects().size(), 1u);
+    EXPECT_EQ(runtime.objects().size(), 1u);
 }
 
 TEST(LpcObjectTest, RegistrationCanReinsertTheSameObject) {
@@ -94,7 +132,7 @@ TEST(LpcObjectTest, ReplacementKeyUsesNewObjectNameStorage) {
     auto new_name = runtime.find_object("std/player")->name();
     EXPECT_TRUE(old_handle.expired());
     EXPECT_FALSE(old_name == new_name);
-    const auto& table = static_cast<const ManagedRuntime&>(runtime).objects();
+    const auto& table = runtime.objects();
     ASSERT_EQ(table.size(), 1u);
     EXPECT_EQ(table.begin()->first.data(), new_name->data());
     old_name = {};

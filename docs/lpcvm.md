@@ -11,8 +11,11 @@ The fabric defines two boundaries:
 - LPC code requesting system resources or calling native C++ functions (aka. efuns).
 - C++ functions calling LPC code, which implements event handlers or custom contents based on LPCVM.
 
-As like in LPMuds, the LPC compiler is usually associated with the fabric to produce bytecode from LPC source files at runtime.
-The fabric also provides compile-time resources such as predefined preprocessor macros and efun bindings to the LPC language.
+The `ManagedRuntime` struct defines a minimum RAII fabric of LPCVM runtime by exposing a set of virtual functions to access the
+filesystem, shared strings and object management.
+
+The derrived `lpcvm::Sandbox` class defines LPMud-style fabric with sandboxed filesystem access, LPC compiler integration,
+policy enforcement via master object, native function (efun) bindings, and other advanced LPC language features.
 
 ## Objects
 
@@ -212,9 +215,16 @@ context and pops the frame. `execute()` records the initial return-stack depth s
 normal completion preserves any frames supplied by its caller. Return values
 remain on the data stack.
 
-### class `ManagedRuntime`
+### RAII struct `ManagedRuntime`
 
 Declared in [managed_runtime.hpp](../src/managed_runtime.hpp).
+
+A lightweight RAII fabric that can be declared directly on the stack or as a unit
+test fixture member. It needs no explicit initialization or shutdown. Scope exit,
+including exception unwinding, releases its object and string table references.
+It cannot be copied or moved because objects and execution contexts borrow its
+address. External owning references may survive destruction, but a surviving
+object's fabric pointer must no longer be used.
 
 Provides default file access, shared-string services, and object table management
 without requiring a sandbox. This is the base fabric for execution with or without
@@ -268,7 +278,7 @@ member. `emplace_object(obj)` rejects null objects, absent or empty names, and o
 belonging to another fabric with `std::invalid_argument` before changing the table.
 Replacing an existing name replaces both the object reference and the borrowed key.
 The virtual method's overrides should preserve this contract. Derived classes access
-the mutable table through `objects()` for custom implementations.
+the mutable table through `mutable_objects()` for custom implementations.
 `LpcObject::create()` interns the name through the fabric and
 stores an owning `LpcStringRef`; the object table borrows a view of those bytes.
 `LpcObject::name()` returns an owning reference by value, allowing LPC variables
@@ -318,50 +328,3 @@ same object must stay on a single VM worker thread.
 `create_shared<T>(args...)` allocates an object with its control block, forwards
 arguments to its constructor, and returns its initial `SharedPtr<T>`. Use this
 factory to create values managed by LPCVM's reference-counted pointers.
-
-## Object Fabric Design
-
-The object fabric is a service layer that manages named LPC object lifecycles,
-independent of how objects are created or persisted. This design separates
-concerns and enables flexible object management strategies.
-
-### Architecture
-
-- **ManagedRuntime**: The base fabric providing object table management. The table
-  is a name-to-reference map that holds strong references to all registered objects.
-  Methods `emplace_object()`, `find_object()`, and `destruct_object()` manage
-  registration and destruction. `objects()` provides an immutable view of the table.
-
-- **Sandbox**: A specialized fabric that adds file-based object loading and cloning.
-  It inherits the object table from `ManagedRuntime` and adds `load_object()` and
-  `clone_object()` for filesystem-backed objects. Multiple Sandboxes could exist
-  with different filesystem roots, each maintaining its own object table.
-
-### Separation of Concerns
-
-The object fabric distinguishes between three functions:
-
-1. **Table management** (in `ManagedRuntime`): Registering, finding, and destroying
-   named objects. The table holds strong references; objects are destroyed when
-   explicitly removed from the table and all remaining references expire.
-
-2. **Object loading and compilation** (in `Sandbox`): Compiling LPC source files
-   to object class images and instantiating blueprint objects. These operations
-   integrate with the table inherited from `ManagedRuntime`.
-
-3. **Object naming and location** (external to both): LPC source file paths are
-   normalized to object names (e.g., `"std/player"`), and cloned objects are
-   named with `#` suffixes. This knowledge is provided by the Sandbox's caller,
-   not embedded in the runtime.
-
-### Extensibility
-
-Custom fabrics can inherit from `ManagedRuntime` and override `emplace_object()`,
-`find_object()`, and `destruct_object()` to implement different object lifecycle
-strategies (e.g., database-backed objects, transient object pools, or permission-based
-access control). The base table management remains available for numeric-only
-execution or minimal object scenarios.
-
-Objects loaded or created through custom fabrics use weak reference handles, the
-same as Sandbox objects. The fabric supplies the strong reference lifecycle;
-the executor and LPC code see only the weak-reference interface.
