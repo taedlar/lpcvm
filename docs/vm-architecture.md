@@ -12,7 +12,8 @@ the VM's concrete type, operator, and control-flow semantics, or lower its own
 semantics into suitable instruction sequences and runtime services.
 
 See [lpc-language.md](lpc-language.md) for the evolving LPC language and compiler,
-[lpcvm.md](lpcvm.md) for runtime classes and object lifetimes, and
+[lpcvm.md](lpcvm.md) for runtime classes and object lifetimes,
+[vm-fabric.md](vm-fabric.md) for fabric implementations and service contracts, and
 [development.md](development.md) for build, test, and benchmark workflows.
 
 ## Execution Inputs

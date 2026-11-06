@@ -28,6 +28,7 @@ LPCVM starts from a minimal set of [LPC grammar](src/lpc_parser.yy) and leaves f
 
 ## Documentation
 - [docs/lpcvm.md](docs/lpcvm.md): ontology of objects, methods, values, ownership, and runtime classes.
+- [docs/vm-fabric.md](docs/vm-fabric.md): fabric implementations, runtime services, and C++ usage.
 - [docs/development.md](docs/development.md): build, unit-test, and benchmark workflows.
 - [docs/lpc-language.md](docs/lpc-language.md): language grammar and compiler outline (work in progress).
 - [docs/vm-architecture.md](docs/vm-architecture.md): executor, bytecode instruction set, and sandbox architecture.
