@@ -133,10 +133,9 @@ struct Execution {
         fabric_ = sb;
     }
 
-    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
-              ObjectState* self = nullptr, std::size_t offset = 0, FabricType* sb = nullptr)
-        : start_(bytecode), end_(bytecode + size), prog_(prog), self_(self), var0_(offset), fabric_(sb) {
-        // the manual construction is for unit-testing purposes.
+    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), self_(nullptr), var0_(0), fabric_(nullptr) {
+        // construct with binding
     }
 
     Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, LpcObjectRef obj)
@@ -146,9 +145,21 @@ struct Execution {
             self_ = obj_ref_->state().get();
             fabric_ = obj_ref_->fabric();
         }
+        else {
+            prog_ = nullptr;
+            self_ = nullptr;
+            fabric_ = nullptr;
+        }
     }
 
     std::size_t length() const { return (start_ && end_) ? (end_ - start_) : 0; }
+
+    Execution& binding(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr) {
+        start_ = bytecode;
+        end_ = bytecode + size;
+        prog_ = prog;
+        return *this;
+    }
 
     Execution& as_with(ObjectState* self, std::size_t offset = 0) {
         self_ = self;

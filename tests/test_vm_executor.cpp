@@ -284,10 +284,10 @@ TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
     ManagedRuntime runtime;
-    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog, nullptr, 0, &runtime);
+    lpcvm::Execution code(&runtime);
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
-    ASSERT_EQ(code.execute(control, stack), 1);
+    ASSERT_EQ(code.binding(bytecode.data(), bytecode.size(), &prog).execute(control, stack), 1);
     ASSERT_EQ(stack.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
     EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
@@ -328,11 +328,11 @@ TEST(VMExecutorTest, StoreGlobal) {
         .emit(F_STORE_GLOBAL, 0)
         .emit(F_POP_N, 1)
         .emit(F_RETURN, 0);
-    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog, &this_obj);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog);
 
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
-    EXPECT_NO_THROW(code.execute(control, stack));
+    EXPECT_NO_THROW(code.as_with(&this_obj).execute(control, stack));
     EXPECT_EQ(stack.size(), 0);
     EXPECT_TRUE(this_obj[0].index() != std::variant_npos);
     ASSERT_TRUE(std::holds_alternative<int32_t>(this_obj[0]));
@@ -351,8 +351,8 @@ TEST(VMExecutorTest, StoreGlobalStringRetainsOwnershipAfterExecution) {
         std::vector<uint8_t> bytecode;
         lpcvm::Bytecode bgen(bytecode);
         bgen.emit(F_STORE_GLOBAL, 0).emit(F_RETURN, 1);
-        lpcvm::Execution code(bytecode.data(), bytecode.size(), nullptr, &this_obj);
-        ASSERT_EQ(code.execute(control, stack, 1), 1);
+        lpcvm::Execution code(bytecode.data(), bytecode.size());
+        ASSERT_EQ(code.as_with(&this_obj).execute(control, stack, 1), 1);
         ASSERT_EQ(stack.size(), 1u);
         ASSERT_TRUE(std::holds_alternative<LpcStringRef>(this_obj[0]));
         ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
@@ -368,8 +368,8 @@ TEST(VMExecutorTest, StoreGlobalStringRetainsOwnershipAfterExecution) {
     std::vector<uint8_t> bytecode;
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_LOAD_GLOBAL, 0).emit(F_RETURN, 1);
-    lpcvm::Execution code(bytecode.data(), bytecode.size(), nullptr, &this_obj);
-    ASSERT_EQ(code.execute(control, stack), 1);
+    lpcvm::Execution code(bytecode.data(), bytecode.size());
+    ASSERT_EQ(code.as_with(&this_obj).execute(control, stack), 1);
     EXPECT_EQ(std::get<LpcStringRef>(stack.top()), std::get<LpcStringRef>(this_obj[0]));
     this_obj[0] = std::monostate{};
     EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
@@ -387,16 +387,16 @@ TEST(VMExecutorTest, StoreGlobalStringReassignmentReleasesPreviousValue) {
     std::vector<uint8_t> bytecode;
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_STORE_GLOBAL, 0).emit(F_RETURN, 0);
-    lpcvm::Execution code(bytecode.data(), bytecode.size(), nullptr, &this_obj);
+    lpcvm::Execution code(bytecode.data(), bytecode.size());
 
     stack.push(lpcvm::make_shared_string(sandbox, "first"));
-    ASSERT_EQ(code.execute(control, stack, 1), 0);
+    ASSERT_EQ(code.as_with(&this_obj).execute(control, stack, 1), 0);
     ASSERT_TRUE(stack.empty());
     const auto first_bytes = sandbox.shared_string_allocation_size();
 
     // Reassign the same shared string without losing or leaking ownership.
     stack.push(this_obj[0]);
-    ASSERT_EQ(code.execute(control, stack, 1), 0);
+    ASSERT_EQ(code.as_with(&this_obj).execute(control, stack, 1), 0);
     EXPECT_EQ(std::get<LpcStringRef>(this_obj[0]).use_count(), 2u);
     EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
 
@@ -423,11 +423,11 @@ TEST(VMExecutorTest, LoadGlobal) {
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_LOAD_GLOBAL, 0)
         .emit(F_RETURN, 1);
-    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog, &this_obj);
+    lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog);
 
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
-    EXPECT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(code.as_with(&this_obj).execute(control, stack), 1);
     ASSERT_EQ(stack.size(), 1);
     auto res = stack.pop();
     ASSERT_TRUE(std::holds_alternative<int32_t>(res));
