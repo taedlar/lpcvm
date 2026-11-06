@@ -307,8 +307,8 @@ TEST(VMExecutorTest, StringConstantsUseRuntimeOverride) {
     ASSERT_TRUE(compiler.parse("string f() { return \"hello\"; }"));
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
-    lpcvm::Execution entry;
-    ASSERT_TRUE(prog->lookup_method("f", &entry, nullptr, &runtime));
+    lpcvm::Execution entry (&runtime);
+    ASSERT_TRUE(prog->lookup_method("f", &entry));
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     ASSERT_EQ(entry.execute(control, stack), 1);

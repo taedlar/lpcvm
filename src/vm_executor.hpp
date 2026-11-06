@@ -67,16 +67,13 @@ public:
         return stack_.back();
     }
 
-    bool empty() const {
-        return stack_.empty();
-    }
+    bool empty() const { return stack_.empty(); }
 
-    std::size_t size() const {
-        return stack_.size();
-    }
+    std::size_t size() const { return stack_.size(); }
 
 private:
     std::vector<SValue> stack_;
+
 };
 
 class ReturnStack {
@@ -84,7 +81,7 @@ public:
     struct Frame {
         const uint8_t* pc;      // program counter (address of next instruction)
         std::size_t fp;         // frame pointer for the current frame (position of first argument in data stack)
-        std::size_t vbp;        // variable base pointer (position of global variable #0 in this_obj_)
+        std::size_t vbp;        // variable base pointer (position of global variable #0 in self_)
         const uint8_t* start;   // start of the bytecode segment
         const uint8_t* end;     // end of the bytecode segment
     };
@@ -107,13 +104,9 @@ public:
         return stack_.back();
     }
 
-    bool empty() const {
-        return stack_.empty();
-    }
+    bool empty() const { return stack_.empty(); }
 
-    std::size_t size() const {
-        return stack_.size();
-    }
+    std::size_t size() const { return stack_.size(); }
 
 private:
     std::vector<Frame> stack_;
@@ -131,35 +124,45 @@ private:
  * reference to the object to ensure it remains alive during execution (RAII).
  */
 struct Execution {
-public:
     using FabricType = ManagedRuntime;
 
-    Execution()
-        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr), var0_(0), fabric_(nullptr) {}
+    Execution() = default;
+
+    Execution(FabricType* sb)
+        : Execution() {
+        fabric_ = sb;
+    }
 
     Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
-              ObjectState* obj = nullptr, std::size_t offset = 0, FabricType* sb = nullptr)
-        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj), var0_(offset), fabric_(sb) {}
+              ObjectState* self = nullptr, std::size_t offset = 0, FabricType* sb = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), self_(self), var0_(offset), fabric_(sb) {
+        // the manual construction is for unit-testing purposes.
+    }
 
     Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, LpcObjectRef obj)
         : start_(bytecode), end_(bytecode + size), var0_(offset), obj_ref_(obj) {
-        if (obj) {
-            prog_ = obj->program().get();
-            this_obj_ = obj->state().get();
-            fabric_ = obj->fabric();
+        if (obj_ref_) {
+            prog_ = obj_ref_->program().get();
+            self_ = obj_ref_->state().get();
+            fabric_ = obj_ref_->fabric();
         }
     }
 
     std::size_t length() const { return (start_ && end_) ? (end_ - start_) : 0; }
 
+    Execution& as_with(ObjectState* self, std::size_t offset = 0) {
+        self_ = self;
+        var0_ = offset;
+        return *this;
+    }
+
     int execute(ReturnStack& control, DataStack& stack, std::size_t num_args = 0);
 
-private:
     const uint8_t* start_;
     const uint8_t* end_;
     const ObjectClass* prog_; // bytecode site to get F_CALL entry
-    ObjectState* this_obj_;
-    std::size_t var0_; // position of global variable #0 in this_obj_ (inheritance offset)
+    ObjectState* self_;
+    std::size_t var0_; // position of global variable #0 in self_ (inheritance offset)
     FabricType* fabric_;
     LpcObjectRef obj_ref_;  // holds a strong reference when constructed with LpcObjectRef
 };

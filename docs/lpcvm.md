@@ -5,11 +5,13 @@ This document describes LPCVM entities, their relationships, and their lifetimes
 ## Fabric
 
 LPCVM is not a hypervisor-level virtual machine. It is a **fabric** of bytecode,
-data entities, and managed runtime resources. The fabric defines the environment
-in which LPC code executes and the boundary between that code and its host.
+data entities, and managed runtime resources. The fabric defines the substance
+of environment in which LPC code executes, and the boundary between each other
+in the virtual machine and its host.
 
-The boundary works in two directions:
+The boundary works in three directions:
 
+- LPC object-to-object relationships and method calls.
 - LPC code requests host resources or calls native C++ functions (efuns).
 - The C++ host invokes LPC code to handle events or provide application behavior.
 
@@ -46,8 +48,7 @@ See [VM Fabric](vm-fabric.md) for implementations, service contracts, and usage.
 Methods share their bytecode and constants through an `ObjectClass`; object
 variables belong to the target object's `ObjectState`. Each method binding records
 its signature and bytecode range. `ObjectClass::lookup_method()` resolves a name
-to an `Execution` with the class context. Its optional third and fourth arguments
-attach an `ObjectState*` and a fabric pointer (either a `ManagedRuntime*` or `Sandbox*`), respectively.
+to an `Execution` with the class context.
 
 Calls within a class use method-table indices. The caller pushes the method index
 and arguments, and the executor saves the caller's frame on the return stack.

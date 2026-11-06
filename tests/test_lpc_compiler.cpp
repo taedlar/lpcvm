@@ -111,8 +111,8 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
         )"));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry;
-        ASSERT_TRUE(prog->lookup_method("caller", &entry, nullptr, &runtime));
+        lpcvm::Execution entry (&runtime);
+        ASSERT_TRUE(prog->lookup_method("caller", &entry));
         lpcvm::ReturnStack control;
         ASSERT_EQ(entry.execute(control, stack), 1);
         ASSERT_EQ(entry.execute(control, stack), 1);
@@ -120,7 +120,7 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
         ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack[0]));
         EXPECT_EQ(std::get<LpcStringRef>(stack[0]), std::get<LpcStringRef>(stack[1]));
         EXPECT_TRUE(control.empty());
-        ASSERT_TRUE(prog->lookup_method("empty", &entry, nullptr, &runtime));
+        ASSERT_TRUE(prog->lookup_method("empty", &entry));
         ASSERT_EQ(entry.execute(control, stack), 1);
         EXPECT_TRUE(std::get<LpcStringRef>(stack.top())->empty());
         EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
@@ -145,11 +145,11 @@ TEST(LpcCompilerTest, AssignsStringConstantsToGlobalsAndReturnsThem) {
         )"));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry;
-        ASSERT_TRUE(prog->lookup_method("set_message", &entry, &state, &runtime));
+        lpcvm::Execution entry (&runtime);
+        ASSERT_TRUE(prog->lookup_method("set_message", &entry));
         lpcvm::ReturnStack control;
         lpcvm::DataStack stack;
-        ASSERT_EQ(entry.execute(control, stack), 1);
+        ASSERT_EQ(entry.as_with(&state).execute(control, stack), 1);
         ASSERT_EQ(stack.size(), 1u);
         ASSERT_TRUE(std::holds_alternative<LpcStringRef>(state[0]));
         EXPECT_EQ(std::get<LpcStringRef>(state[0]), std::get<LpcStringRef>(stack.top()));

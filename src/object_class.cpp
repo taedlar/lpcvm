@@ -56,19 +56,14 @@ void ObjectClass::inherit_from(std::shared_ptr<ObjectClass> parent) {
     }
 }
 
-bool ObjectClass::lookup_method(const std::string_view name, lpcvm::Execution* entry,
-                              ObjectState* obj, ManagedRuntime* runtime) const {
+bool ObjectClass::lookup_method(const std::string_view name, lpcvm::Execution* entry) const {
     VirtualTable::Binding out_binding;
     if (virtual_table_ && virtual_table_->lookup(name, out_binding)) {
         if (entry) {
-            lpcvm::Execution found{
-                bytecode_.data() + out_binding.bytecode_offset,
-                out_binding.bytecode_length,
-                this,
-                obj, 0,
-                runtime,
-            };
-            *entry = found;
+            entry->start_ = bytecode_.data() + out_binding.bytecode_offset;
+            entry->end_ = entry->start_ + out_binding.bytecode_length;
+            entry->prog_ = this;
+            entry->var0_ = 0; // TODO: lookup inheritance mapping of globals
         }
         return true;
     }

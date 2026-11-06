@@ -190,19 +190,19 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
 
     VM_HANDLER(F_LOAD_GLOBAL) {
         oparg = (extended_arg << 8) | *pc++;
-        if (!this_obj_)
+        if (!self_)
             throw std::runtime_error("Global variable access requires an object state");
-        stack.push((*this_obj_)[var0_ + oparg]);
+        stack.push((*self_)[var0_ + oparg]);
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_STORE_GLOBAL) {
         oparg = (extended_arg << 8) | *pc++;
-        if (!this_obj_)
+        if (!self_)
             throw std::runtime_error("Global variable access requires an object state");
         // Copy owning references (including strings) into persistent state.
         // Keep the stack value as the result of the assignment expression.
-        (*this_obj_)[var0_ + oparg] = stack.top();
+        (*self_)[var0_ + oparg] = stack.top();
         VM_DISPATCH();
     }
 
