@@ -8,6 +8,7 @@
 #include <string>
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
+#include "preprocess.hpp"
 
 extern int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE lpcc);
 
@@ -77,6 +78,22 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 
 /* Flex declarations section */
 %%
+
+^[ \t]*"#"[ \t]*"line"([ \t]+[^\n]*)?\n? {
+    const auto original = yyextra->location;
+    try {
+        const std::string_view text(yytext, yyleng);
+        const auto directive = pp::parse_line_directive(text.substr(text.find("line") + 4));
+        const auto* filename = original.begin.filename;
+        if (directive.filename)
+            filename = &*yyextra->source_names->insert(*directive.filename).first;
+        yyextra->location.initialize(filename, directive.line, 1);
+        if (yyextra->consts && filename)
+            yyextra->current_file = yyextra->consts->find_or_add(*filename);
+    } catch (const std::invalid_argument& error) {
+        throw yy::LpcParser::syntax_error(original, error.what());
+    }
+}
 
 "//"([^\n]*)                { /* Match single-line comment, do nothing to strip it */ }
 "/*"                        { BEGIN(MULTILINE_COMMENT); }

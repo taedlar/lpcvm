@@ -61,10 +61,20 @@ void LpcCompiler::use_predefines(std::shared_ptr<SymbolTable> predefines) {
     }
 }
 
+void LpcCompiler::use_include_directories(std::vector<PathType> directories) {
+    include_directories_ = std::move(directories);
+}
+
 bool LpcCompiler::init() {
     if (!impl_)
         return false;
     messages_.clear();
+    if (!fabric_)
+        fabric_ = std::make_shared<FabricType>();
+    impl_->ctx.fabric = fabric_;
+    impl_->ctx.include_directories = include_directories_;
+    impl_->ctx.active_includes.clear();
+    impl_->ctx.source_path = filename_ == "<unknown>" ? "" : filename_;
     consts_ = std::make_shared<ConstTable>();
     impl_->ctx.consts = consts_;
     if (!impl_->ctx.defines)
@@ -96,7 +106,7 @@ std::string LpcCompiler::preprocess() noexcept {
     }
     catch (const yy::LpcParser::syntax_error& e) {
         const auto& pos = e.location.begin;
-        auto text = fmt::format("{}:{}:{}: {}", filename_, pos.line, pos.column, e.what());
+        auto text = fmt::format("{}:{}:{}: {}", pos.filename ? *pos.filename : filename_, pos.line, pos.column, e.what());
         SPDLOG_DEBUG("preprocessing failed: {}", text);
         messages_.push_back({pos.line, pos.column, std::move(text)});
         return "";
@@ -150,11 +160,11 @@ bool LpcCompiler::parse() noexcept {
     }
     catch (const yy::parse_error& e) {
         // Handle parsing errors
-        if (filename_.empty()) {
+        if (e.filename.empty()) {
             SPDLOG_DEBUG("parsing error at line {}, column {}: {}", e.lineno, e.column, e.what());
             messages_.push_back({e.lineno, e.column, e.what()});
         } else {
-            auto text = fmt::format("{}:{}:{}: {}", filename_, e.lineno, e.column, e.what());
+            auto text = fmt::format("{}:{}:{}: {}", e.filename, e.lineno, e.column, e.what());
             SPDLOG_DEBUG("parsing error: {}", text);
             messages_.push_back({e.lineno, e.column, std::move(text)});
         }

@@ -12,6 +12,7 @@
 #undef YY_DECL
 #define YY_DECL int pplex (yyscan_t yyscanner)
 #include "symbol_table.hpp"
+#include "preprocess.hpp"
 #include <algorithm>
 #include <cctype>
 #include <functional>
@@ -29,6 +30,7 @@
 #define EMIT() yyextra->ppbuffer.insert(yyextra->ppbuffer.end(), yytext, yytext + yyleng)
 
 int preprocessor_feed (char* buf, int max_len, YY_EXTRA_TYPE ctx);
+static void include_file(YY_EXTRA_TYPE ctx, std::string_view operand);
 
 static bool is_ident_start (char c) { return std::isalpha(static_cast<unsigned char>(c)) || c == '_'; }
 static bool is_ident_char (char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
@@ -327,7 +329,29 @@ static void expand_text (YY_EXTRA_TYPE ctx, std::string_view text,
     undef_macro(yyextra, directive_operand(yytext, yyleng, "undef"));
 }
 
-^[ \t]*"#"[ \t]*"include"[ \t]+.*  { /* TODO: handle include directive */ }
+^[ \t]*"#"[ \t]*"include"([ \t]+[^\n]*|[\"<][^\n]*)? {
+    include_file(yyextra, directive_operand(yytext, yyleng, "include"));
+    return 1;
+}
+
+^[ \t]*"#"[ \t]*"line"([ \t]+[^\n]*)?\n? {
+    const auto original = yyextra->pp_location;
+    try {
+        std::vector<char> expanded;
+        std::vector<std::string> active;
+        expand_text(yyextra, directive_operand(yytext, yyleng, "line"), expanded, active);
+        const auto directive = pp::parse_line_directive(std::string_view(expanded.data(), expanded.size()));
+        const auto* filename = original.begin.filename;
+        if (directive.filename)
+            filename = &*yyextra->source_names->insert(*directive.filename).first;
+        const auto marker = pp::line_marker(directive.line, filename ? *filename : "<unknown>");
+        yyextra->ppbuffer.insert(yyextra->ppbuffer.end(), marker.begin(), marker.end());
+        yyextra->pp_location.initialize(filename, directive.line, 1);
+    } catch (const std::invalid_argument& error) {
+        throw yy::LpcParser::syntax_error(original, error.what());
+    }
+    return 1;
+}
 
  /* Comments and string literals pass through untouched so '#' inside them is not a directive. */
 "//".*                             { EMIT(); return 1; }
@@ -353,6 +377,97 @@ static void expand_text (YY_EXTRA_TYPE ctx, std::string_view text,
 [^#/"\nA-Za-z_0-9]+|.|\n           { EMIT(); return 1; }
 
 %%
+
+static void include_file(YY_EXTRA_TYPE ctx, std::string_view operand) {
+    const auto location = ctx->pp_location;
+    auto fail = [&](const std::string& message) {
+        throw yy::LpcParser::syntax_error(location, message);
+    };
+    // Expand a macro operand, but never expand identifiers inside a header name.
+    std::vector<char> expanded;
+    if (!operand.empty() && operand.front() != '"' && operand.front() != '<') {
+        std::vector<std::string> active;
+        expand_text(ctx, operand, expanded, active);
+        operand = std::string_view(expanded.data(), expanded.size());
+    }
+    auto trim = [](std::string_view& text) {
+        while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front())))
+            text.remove_prefix(1);
+    };
+    trim(operand);
+    if (operand.empty() || (operand.front() != '"' && operand.front() != '<'))
+        fail("Expected a quoted or angle-bracket filename in #include");
+    const bool quoted = operand.front() == '"';
+    const auto end = operand.find(quoted ? '"' : '>', 1);
+    if (end == std::string_view::npos || end == 1)
+        fail("Invalid filename in #include");
+    const std::string name(operand.substr(1, end - 1));
+    operand.remove_prefix(end + 1);
+    trim(operand);
+    while (operand.substr(0, 2) == "/*") {
+        const auto close = operand.find("*/", 2);
+        if (close == std::string_view::npos) fail("Unterminated comment in #include");
+        operand.remove_prefix(close + 2);
+        trim(operand);
+    }
+    if (!operand.empty() && operand.substr(0, 2) != "//")
+        fail("Unexpected text after #include filename");
+    if (ctx->active_includes.size() >= 64)
+        fail("Maximum #include depth exceeded");
+
+    try {
+        auto directories = ctx->include_directories;
+        if (quoted && !ctx->source_path.empty()) {
+            auto parent = ctx->source_path.parent_path();
+            directories.insert(directories.begin(), parent.empty() ? "." : parent);
+        }
+        const auto path = ctx->fabric->file_search(name, directories);
+        if (!path) fail("Include file not found: " + name);
+        if (std::find(ctx->active_includes.begin(), ctx->active_includes.end(), *path) !=
+            ctx->active_includes.end())
+            fail("Recursive #include: " + path->generic_string());
+        const std::string filename = path->generic_string();
+        const auto close_file = [](FILE* file) { std::fclose(file); };
+        std::unique_ptr<FILE, decltype(close_file)> file(
+            ctx->fabric->file_open(filename.c_str(), "r"), close_file);
+        if (!file) fail("Cannot open include file: " + filename);
+
+        LpcCompiler::Context child;
+        child.fabric = ctx->fabric;
+        child.source_names = ctx->source_names;
+        child.source_path = *path;
+        child.defines = ctx->defines;
+        child.include_directories = ctx->include_directories;
+        child.active_includes = ctx->active_includes;
+        child.active_includes.push_back(*path);
+        child.pp_location.initialize(&*ctx->source_names->insert(filename).first);
+        yyscan_t scanner = nullptr;
+        if (pplex_init_extra(&child, &scanner) != 0)
+            fail("Cannot initialize include scanner");
+        std::unique_ptr<void, decltype(&pplex_destroy)> guard(scanner, &pplex_destroy);
+        child.ppscanner = scanner;
+        pprestart(file.get(), scanner);
+        const auto enter = pp::line_marker(1, filename);
+        ctx->ppbuffer.insert(ctx->ppbuffer.end(), enter.begin(), enter.end());
+        char buffer[4096];
+        int count;
+        while ((count = preprocessor_feed(buffer, sizeof(buffer), &child)) > 0)
+            ctx->ppbuffer.insert(ctx->ppbuffer.end(), buffer, buffer + count);
+        if (std::ferror(file.get())) fail("Cannot read include file: " + filename);
+        // A header without a trailing newline must not merge with its caller.
+        if (!ctx->ppbuffer.empty() && ctx->ppbuffer.back() != '\n')
+            ctx->ppbuffer.push_back('\n');
+        // The include rule leaves its newline in the input. Restore this line;
+        // consuming that newline advances the lexer to the caller's next line.
+        const auto leave = pp::line_marker(location.begin.line,
+            location.begin.filename ? *location.begin.filename : "<unknown>");
+        ctx->ppbuffer.insert(ctx->ppbuffer.end(), leave.begin(), leave.end());
+    } catch (const yy::LpcParser::syntax_error&) {
+        throw;
+    } catch (const std::exception& error) {
+        fail("#include " + name + ": " + error.what());
+    }
+}
 
 static int scanner_peek (yyscan_t yyscanner) {
     auto* yyg = static_cast<yyguts_t*>(yyscanner);

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include <gtest/gtest.h>
 #include "lpc_types.hpp"
-#include "managed_runtime.hpp"
+#include "fabric.hpp"
 
 static_assert(!std::is_copy_constructible_v<LpcString>);
 static_assert(!std::is_copy_assignable_v<LpcString>);

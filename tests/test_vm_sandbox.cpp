@@ -45,6 +45,75 @@ protected:
 };
 }
 
+TEST_F(SandboxFileTest, RuntimeSearchUsesDirectoryOrderAndCanonicalPaths) {
+    ManagedRuntime runtime;
+    std::ofstream(root / "player.lpc") << "root";
+    EXPECT_EQ(runtime.file_search("player.lpc", {root / "missing", root / "std", root}),
+              std::filesystem::canonical(root / "std/player.lpc"));
+    EXPECT_EQ(runtime.file_search("player.lpc", {root, root / "std"}),
+              std::filesystem::canonical(root / "player.lpc"));
+    EXPECT_EQ(runtime.file_search(root / "std/../player.lpc", {}),
+              std::filesystem::canonical(root / "player.lpc"));
+    EXPECT_FALSE(runtime.file_search("player.lpc", {}));
+    EXPECT_FALSE(runtime.file_search("missing", {root}));
+    EXPECT_FALSE(runtime.file_search("std", {root}));
+    EXPECT_EQ(runtime.file_search("player.lpc", {root / "player.lpc", root / "std"}),
+              std::filesystem::canonical(root / "std/player.lpc"));
+}
+
+TEST_F(SandboxFileTest, SandboxSearchDispatchesVirtuallyAndReturnsOpenablePaths) {
+    Sandbox sandbox(root);
+    ManagedRuntime& runtime = sandbox;
+    std::ofstream(root / "player.lpc") << "root";
+    EXPECT_EQ(runtime.file_search("player.lpc", {"missing", "/std", "/"}),
+              PathType("std/player.lpc"));
+    EXPECT_EQ(runtime.file_search("player.lpc", {"/", "std"}), PathType("player.lpc"));
+    EXPECT_EQ(runtime.file_search("/std/player.lpc", {}), PathType("std/player.lpc"));
+    EXPECT_EQ(runtime.file_search("../player.lpc", {"std"}), PathType("player.lpc"));
+    const auto found = runtime.file_search("player.lpc", {"std"});
+    ASSERT_TRUE(found);
+    EXPECT_TRUE(open(sandbox, found->string().c_str(), "r"));
+    EXPECT_FALSE(runtime.file_search("player.lpc", {}));
+    EXPECT_FALSE(runtime.file_search("missing", {"std"}));
+    EXPECT_FALSE(runtime.file_search("std", {"/"}));
+}
+
+TEST_F(SandboxFileTest, SandboxSearchConfinesTraversalAndSymlinks) {
+    Sandbox sandbox(root);
+    std::filesystem::create_directory_symlink(root / "std", root / "inside");
+    std::filesystem::create_directory_symlink(temporary / "mudlib-other", root / "outside");
+    std::filesystem::create_symlink(temporary / "mudlib-other/secret", root / "secret-link");
+    std::filesystem::create_symlink(root / "missing", root / "dangling");
+    EXPECT_EQ(sandbox.file_search("player.lpc", {"inside"}), PathType("std/player.lpc"));
+    EXPECT_FALSE(sandbox.file_search("dangling", {"/"}));
+    for (const char* name : {"../mudlib-other/secret", "/../mudlib-other/secret",
+                             "outside/secret", "secret-link"}) {
+        try {
+            sandbox.file_search(name, {"/"});
+            FAIL() << name;
+        } catch (const std::filesystem::filesystem_error& error) {
+            EXPECT_EQ(error.code(), std::errc::permission_denied);
+        }
+    }
+    EXPECT_THROW(sandbox.file_search("secret", {"../mudlib-other", "std"}),
+                 std::filesystem::filesystem_error);
+    std::filesystem::create_directory_symlink(root, temporary / "root-link");
+    Sandbox linked(temporary / "root-link");
+    EXPECT_EQ(linked.file_search("player.lpc", {"std"}), PathType("std/player.lpc"));
+}
+
+TEST_F(SandboxFileTest, FileSearchRejectsInvalidNamesAndDirectories) {
+    ManagedRuntime runtime;
+    Sandbox sandbox(root);
+    for (ManagedRuntime* fabric : {&runtime, static_cast<ManagedRuntime*>(&sandbox)}) {
+        EXPECT_THROW(fabric->file_search("", {root}), std::invalid_argument);
+        EXPECT_THROW(fabric->file_search(std::string("player.lpc\0extra", 16), {root}),
+                     std::invalid_argument);
+        EXPECT_THROW(fabric->file_search("player.lpc", {std::string("std\0extra", 9)}),
+                     std::invalid_argument);
+    }
+}
+
 TEST_F(SandboxFileTest, ReadsMudlibRelativeAndAbsolutePaths) {
     Sandbox sandbox(root);
     for (const char* path : {"std/player.lpc", "/std/player.lpc",

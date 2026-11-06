@@ -25,6 +25,7 @@ add_library(lpcvm_obj OBJECT
     ${FLEX_PREPROCESSOR_OUTPUTS}
     lpc_compiler.cpp
     lpc_compiler.hpp
+    preprocess.hpp
     vm_executor.hpp
     vm_executor.cpp
     vm_opcodes.hpp
@@ -41,7 +42,9 @@ add_library(lpcvm_obj OBJECT
     vm_svalue.hpp
     vm_svalue.cpp
     lpc_types.hpp
-    managed_runtime.hpp
+    fabric.hpp
+    vm_file_utils.hpp
+    vm_file_utils.cpp
     lpc_string.cpp
     lpc_object.cpp
     code_generator.hpp

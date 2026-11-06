@@ -5,13 +5,14 @@
 #include <cstddef>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 #include "code_generator.hpp"
 #include "const_pool.hpp"
+#include "fabric.hpp"
 #include "location.hh"
 #include "lpc_types.hpp"
-#include "managed_runtime.hpp"
 
 struct ASTNode;
 class ConstTable;
@@ -28,6 +29,13 @@ public:
     // context data used by the preprocessor, lexer and parser
     struct Context {
         std::shared_ptr<FabricType> fabric; // fabric providing filesystem access and other resources
+        std::vector<PathType> include_directories;
+        std::vector<PathType> active_includes;
+        PathType source_path; // physical path, unaffected by #line
+        // Bison locations borrow filenames; keep them stable through lookahead
+        // and share storage with nested preprocessor scanners.
+        std::shared_ptr<std::set<std::string>> source_names =
+            std::make_shared<std::set<std::string>>();
 
         void* ppscanner{nullptr}; // pointer to the preprocessor scanner (reentrant lexer handle)
         std::vector<char> ppbuffer;
@@ -62,6 +70,9 @@ public:
     };
 
     void use_fabric(std::shared_ptr<FabricType> sb);
+    // Replace the ordered include search directories. Quoted includes first
+    // search the including file's directory, when its filename is known.
+    void use_include_directories(std::vector<PathType> directories);
     void use_predefines(std::shared_ptr<SymbolTable> predefines);
     void set_filename(const std::string_view fn) { filename_ = fn; }
 
@@ -87,6 +98,7 @@ private:
     std::vector<Message> messages_;
 
     std::shared_ptr<FabricType> fabric_;
+    std::vector<PathType> include_directories_;
     std::shared_ptr<SymbolTable> predefines_;
 
     std::shared_ptr<ConstTable> consts_;
@@ -113,5 +125,3 @@ public:
 
 #undef YY_EXTRA_TYPE
 #define YY_EXTRA_TYPE LpcCompiler::Context*
-
-

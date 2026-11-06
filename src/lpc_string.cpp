@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include "lpc_types.hpp"
-#include "managed_runtime.hpp"
+#include "fabric.hpp"
 #include <cstring>
 #include <new>
 
