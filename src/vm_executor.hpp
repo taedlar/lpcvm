@@ -3,16 +3,20 @@
 
 #pragma once
 #include <cstdint>
+#include <limits>
 #include "lpc_types.hpp"
 #include "fabric.hpp"
-// #include "vm_sandbox.hpp"
 #include "vm_svalue.hpp"
 
 namespace lpcvm {
 
 class DataStack {
 public:
-    SValue& operator[](std::size_t index) {
+    DataStack() = default;
+    DataStack(DataStack&& other) = delete; // prevent move construction
+    DataStack(const DataStack& other) = delete; // prevent copy construction
+
+    const SValue& operator[](std::size_t index) const {
         if (index >= stack_.size()) {
             throw std::runtime_error("Evaluation stack index out of bounds");
         }
@@ -29,54 +33,135 @@ public:
     }
 
     void push(const SValue& value) {
+        if (std::holds_alternative<TemporaryString>(value)) {
+            throw std::runtime_error("Cannot push a TemporaryString directly");
+        }
+        SValue copy = value;
         if (stack_.size() + 1 > stack_.capacity()) {
             stack_.reserve(stack_.size() + CHUNK_SIZE);
         }
-        stack_.push_back(value);
+        stack_.push_back(std::move(copy));
+    }
+
+    void push_temp_string(std::string_view str) {
+        constexpr auto max = std::numeric_limits<uint32_t>::max();
+        if (str.size() > max || cat_buffer_.size() > max - str.size()) {
+            throw std::length_error("Temporary string buffer exceeds its representable size");
+        }
+        TemporaryString tmp;
+        tmp.offset = cat_buffer_.size();
+        tmp.length = str.size();
+        cat_buffer_.append(str);
+        try {
+            stack_.push_back(tmp);
+        } catch (...) {
+            cat_buffer_.resize(tmp.offset);
+            throw;
+        }
+    }
+
+    // The returned view is invalidated by mutations of the temporary string buffer.
+    std::string_view fetch_temp_string(std::size_t sp) const {
+        if (sp >= stack_.size()) {
+            throw std::runtime_error("Evaluation stack index out of bounds");
+        }
+        const SValue& value = stack_[sp];
+        if (!std::holds_alternative<TemporaryString>(value)) {
+            throw std::runtime_error("Expected a temporary string at the given stack position");
+        }
+        TemporaryString tmp = std::get<TemporaryString>(value);
+        return std::string_view(cat_buffer_.data() + tmp.offset, tmp.length);
+    }
+
+    void push_copy(std::size_t source) {
+        const SValue& value = (*this)[source];
+        if (std::holds_alternative<TemporaryString>(value)) {
+            std::string copy(fetch_temp_string(source));
+            push_temp_string(copy);
+        } else {
+            push(value);
+        }
+    }
+
+    void assign_copy(std::size_t destination, std::size_t source) {
+        (*this)[destination];
+        (*this)[source];
+        if (destination == source)
+            return;
+        push_copy(source);
+        release(destination);
+        stack_[destination] = std::move(stack_.back());
+        stack_.pop_back();
+    }
+
+    void assign(std::size_t destination, const SValue& value) {
+        (*this)[destination];
+        if (std::holds_alternative<TemporaryString>(value)) {
+            throw std::runtime_error("Cannot assign a TemporaryString directly");
+        }
+        SValue copy = value;
+        release(destination);
+        stack_[destination] = std::move(copy);
     }
 
     void pop_n(std::size_t n) {
-        if (n > stack_.size()) {
+        if (n > stack_.size())
             throw std::runtime_error("Evaluation stack underflow");
-        }
-        stack_.resize(stack_.size() - n);
+        while (n--)
+            pop();
     }
 
-    void pop_i(std::size_t pos, int n) {
-        if (n <= 0)
-            return;
-        if (pos + n > stack_.size()) {
+    void pop_i(std::size_t pos, std::size_t n) {
+        if (pos > stack_.size() || n > stack_.size() - pos) {
             throw std::runtime_error("Evaluation stack underflow");
         }
+        for (std::size_t i = pos; i < pos + n; ++i)
+            release(i);
         stack_.erase(stack_.begin() + pos, stack_.begin() + pos + n);
     }
 
     SValue pop() {
-        if (stack_.empty()) {
+        if (stack_.empty())
             throw std::runtime_error("Evaluation stack underflow");
-        }
         SValue value = stack_.back();
+        if (std::holds_alternative<TemporaryString>(value)) {
+            value = std::monostate{};
+        }
+        release(stack_.size() - 1);
         stack_.pop_back();
         return value;
     }
 
-    SValue& top() {
+    const SValue& top() const {
         if (stack_.empty()) {
             throw std::runtime_error("Evaluation stack is empty");
         }
         return stack_.back();
     }
 
-    bool empty() const {
-        return stack_.empty();
-    }
+    bool empty() const { return stack_.empty(); }
 
-    std::size_t size() const {
-        return stack_.size();
-    }
+    std::size_t size() const { return stack_.size(); }
 
 private:
+    void release(std::size_t pos) {
+        auto* tmp = std::get_if<TemporaryString>(&stack_[pos]);
+        if (!tmp)
+            return;
+        const std::size_t offset = tmp->offset;
+        const std::size_t length = tmp->length;
+        cat_buffer_.erase(offset, length);
+        stack_[pos] = std::monostate{};
+        for (auto& value : stack_) {
+            if (auto* other = std::get_if<TemporaryString>(&value)) {
+                if (other->offset >= offset + length)
+                    other->offset -= length;
+            }
+        }
+    }
+
     std::vector<SValue> stack_;
+    std::string cat_buffer_; // buffer for all pushed strings, optimized for string concatenation
 };
 
 class ReturnStack {
@@ -84,7 +169,7 @@ public:
     struct Frame {
         const uint8_t* pc;      // program counter (address of next instruction)
         std::size_t fp;         // frame pointer for the current frame (position of first argument in data stack)
-        std::size_t vbp;        // variable base pointer (position of global variable #0 in this_obj_)
+        std::size_t vbp;        // variable base pointer (position of global variable #0 in self_)
         const uint8_t* start;   // start of the bytecode segment
         const uint8_t* end;     // end of the bytecode segment
     };
@@ -107,13 +192,9 @@ public:
         return stack_.back();
     }
 
-    bool empty() const {
-        return stack_.empty();
-    }
+    bool empty() const { return stack_.empty(); }
 
-    std::size_t size() const {
-        return stack_.size();
-    }
+    std::size_t size() const { return stack_.size(); }
 
 private:
     std::vector<Frame> stack_;
@@ -131,35 +212,56 @@ private:
  * reference to the object to ensure it remains alive during execution (RAII).
  */
 struct Execution {
-public:
     using FabricType = ManagedRuntime;
 
-    Execution()
-        : start_(nullptr), end_(nullptr), prog_(nullptr), this_obj_(nullptr), var0_(0), fabric_(nullptr) {}
+    Execution() = default;
 
-    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr,
-              ObjectState* obj = nullptr, std::size_t offset = 0, FabricType* sb = nullptr)
-        : start_(bytecode), end_(bytecode + size), prog_(prog), this_obj_(obj), var0_(offset), fabric_(sb) {}
+    Execution(FabricType* sb)
+        : Execution() {
+        fabric_ = sb;
+    }
+
+    Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr)
+        : start_(bytecode), end_(bytecode + size), prog_(prog), self_(nullptr), var0_(0), fabric_(nullptr) {
+        // construct with binding
+    }
 
     Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, LpcObjectRef obj)
         : start_(bytecode), end_(bytecode + size), var0_(offset), obj_ref_(obj) {
-        if (obj) {
-            prog_ = obj->program().get();
-            this_obj_ = obj->state().get();
-            fabric_ = obj->fabric();
+        if (obj_ref_) {
+            prog_ = obj_ref_->program().get();
+            self_ = obj_ref_->state().get();
+            fabric_ = obj_ref_->fabric();
+        }
+        else {
+            prog_ = nullptr;
+            self_ = nullptr;
+            fabric_ = nullptr;
         }
     }
 
     std::size_t length() const { return (start_ && end_) ? (end_ - start_) : 0; }
 
+    Execution& binding(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr) {
+        start_ = bytecode;
+        end_ = bytecode + size;
+        prog_ = prog;
+        return *this;
+    }
+
+    Execution& as_with(ObjectState* self, std::size_t offset = 0) {
+        self_ = self;
+        var0_ = offset;
+        return *this;
+    }
+
     int execute(ReturnStack& control, DataStack& stack, std::size_t num_args = 0);
 
-private:
     const uint8_t* start_;
     const uint8_t* end_;
     const ObjectClass* prog_; // bytecode site to get F_CALL entry
-    ObjectState* this_obj_;
-    std::size_t var0_; // position of global variable #0 in this_obj_ (inheritance offset)
+    ObjectState* self_;
+    std::size_t var0_; // position of global variable #0 in self_ (inheritance offset)
     FabricType* fabric_;
     LpcObjectRef obj_ref_;  // holds a strong reference when constructed with LpcObjectRef
 };

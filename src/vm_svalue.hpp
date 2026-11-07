@@ -6,8 +6,6 @@
 #include <variant>
 #include "lpc_types.hpp"
 
-using ArenaStringView = std::pair<uint32_t, uint32_t>; // first: offset, second: length in the arena
-
 /**
  * @brief Get the index of type T in the variant Variant.
  * Returns std::variant_size_v<Variant> if not found.
@@ -25,6 +23,16 @@ constexpr std::size_t variant_index() {
     }
 }
 
+namespace lpcvm { class DataStack; }
+
+struct TemporaryString {
+private:
+    friend class lpcvm::DataStack; // allow DataStack to construct TemporaryString instances
+    TemporaryString() = default;
+    uint32_t offset;
+    uint32_t length;
+};
+
 /**
  * @brief Represents a value that can hold any of the types allowed to be
  * pushed onto the virtual machine's data stack.
@@ -33,7 +41,6 @@ constexpr std::size_t variant_index() {
  *
  * Owning LPC strings are represented by LpcStringRef, interned through a
  * ManagedRuntime. Copying a value retains its string, including in ObjectState.
- * ArenaStringView remains a non-owning offset/length representation.
  *
  * LPC reference semantics are implemented using a lpcvm::SharedPtr variant
  * for mappings and arrays, and a generational handle variant for objects.
@@ -50,7 +57,7 @@ using SValue = std::variant<
     uint64_t,
     float,
     double,
-    ArenaStringView,
+    TemporaryString, // stack-owned temporary string
     LpcStringRef,
     LpcMappingRef,
     LpcArrayRef,

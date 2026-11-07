@@ -190,32 +190,37 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
 
     VM_HANDLER(F_LOAD_GLOBAL) {
         oparg = (extended_arg << 8) | *pc++;
-        if (!this_obj_)
+        if (!self_)
             throw std::runtime_error("Global variable access requires an object state");
-        stack.push((*this_obj_)[var0_ + oparg]);
+        stack.push((*self_)[var0_ + oparg]);
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_STORE_GLOBAL) {
         oparg = (extended_arg << 8) | *pc++;
-        if (!this_obj_)
+        if (!self_)
             throw std::runtime_error("Global variable access requires an object state");
-        // Copy owning references (including strings) into persistent state.
-        // Keep the stack value as the result of the assignment expression.
-        (*this_obj_)[var0_ + oparg] = stack.top();
+        if (std::holds_alternative<TemporaryString>(stack.top())) {
+            if (!fabric_)
+                throw std::runtime_error("Unable to perform string operation without a fabric");
+            (*self_)[var0_ + oparg] = make_shared_string(*fabric_, stack.fetch_temp_string(stack.size() - 1));
+        } else {
+            (*self_)[var0_ + oparg] = stack.top();
+        }
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_LOAD_LOCAL) {
         oparg = (extended_arg << 8) | *pc++;
-        result = stack[fp + oparg];
-        stack.push(result);
+        stack.push_copy(fp + oparg);
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_STORE_LOCAL) {
         oparg = (extended_arg << 8) | *pc++;
-        stack[fp + oparg] = stack.top();
+        if (stack.empty())
+            throw std::runtime_error("Evaluation stack is empty");
+        stack.assign_copy(fp + oparg, stack.size() - 1);
         VM_DISPATCH();
     }
 
@@ -246,7 +251,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                 throw std::runtime_error("Unsupported unary operand type");
             }
         }, value);
-        stack.top() = result;
+        stack.assign(stack.size() - 1, result);
         VM_DISPATCH();
     }
 
@@ -350,8 +355,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
 
     VM_HANDLER(F_JUMP_IF_FALSE) {
         oparg = (extended_arg << 8) | *pc++;
-        result = stack.pop();
-        bool truth = is_truthy(result);
+        bool truth = is_truthy(stack.top());
+        stack.pop();
         if (!truth) {
             pc += static_cast<int32_t>(oparg);
             if (pc < start_ || pc > end_)
@@ -382,6 +387,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         if (control.size() > entry_frame)
             fp--; // if we are returning from F_CALL, adjust the frame pointer accordingly
         stack.pop_i(fp, stack.size() - oparg - fp); // clean up the stack for the current frame
+
         if (control.size() == entry_frame) {
             // we are done with the VM execution, now return to C++ caller.
             return oparg;

@@ -120,10 +120,7 @@ in this sandbox's filesystem domain.
 
 ## Execution Integration
 
-`ObjectClass::lookup_method()` accepts an optional fabric pointer as its fourth
-argument, after the optional object state. The fabric may be a `ManagedRuntime`
-or a derived `lpcvm::Sandbox`. Execution borrows this pointer, so the fabric must
-remain alive for the duration of the call.
+A `lpcvm::Execution` can be constructed for a fabric to enable string operations.
 
 String literals emit `F_CONST_STR`, which interns the constant-pool bytes through
 `make_shared_string()` in the supplied fabric and pushes an owning reference.

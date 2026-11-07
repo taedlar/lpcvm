@@ -51,6 +51,13 @@ from `[..., left, right]` to `[..., sum]`. Stores copy the top value into the
 selected slot while leaving that value on the stack; `F_POP_N` discards values
 that are no longer needed.
 
+Temporary strings are immutable and owned by their data stack. Stack slots are
+read-only to callers; controlled local copies duplicate temporary string bytes,
+and replacing or removing a slot releases its buffer range. Views returned by
+`fetch_temp_string` must not be retained across buffer mutations. A global store
+promotes a temporary string to an owning `LpcStringRef` through the fabric;
+the assignment expression retains its stack value.
+
 ## Call Frames and Returns
 
 The executor maintains a program counter, frame pointer, active bytecode bounds,
