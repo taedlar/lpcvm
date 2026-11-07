@@ -99,6 +99,37 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 579);
 }
 
+TEST(LpcCompilerTest, ReturnsTemporaryStringArgument) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        string identity(string value) { return value; }
+        string forward(string value) { return identity(value); }
+    )"));
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+
+    for (const auto* method : {"identity", "forward"}) {
+        SCOPED_TRACE(method);
+        lpcvm::Execution entry;
+        ASSERT_TRUE(prog->lookup_method(method, &entry));
+        for (const auto& text : {std::string(), std::string("hello\0world", 11), std::string(128, 'x')}) {
+            SCOPED_TRACE(text.size());
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            stack.push_temp_string("caller");
+            stack.push_temp_string(text);
+            ASSERT_EQ(entry.execute(control, stack, 1), 1);
+            ASSERT_EQ(stack.size(), 2u);
+            ASSERT_TRUE(std::holds_alternative<TemporaryString>(stack.top()));
+            EXPECT_EQ(stack.fetch_temp_string(0), "caller");
+            EXPECT_EQ(stack.fetch_temp_string(1), text);
+            EXPECT_TRUE(control.empty());
+            EXPECT_TRUE(std::holds_alternative<std::monostate>(stack.pop()));
+            EXPECT_EQ(stack.fetch_temp_string(0), "caller");
+        }
+    }
+}
+
 TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
     lpcvm::DataStack stack;
     {

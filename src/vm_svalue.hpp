@@ -23,6 +23,16 @@ constexpr std::size_t variant_index() {
     }
 }
 
+namespace lpcvm { class DataStack; }
+
+struct TemporaryString {
+private:
+    friend class lpcvm::DataStack; // allow DataStack to construct TemporaryString instances
+    TemporaryString() = default;
+    uint32_t offset;
+    uint32_t length;
+};
+
 /**
  * @brief Represents a value that can hold any of the types allowed to be
  * pushed onto the virtual machine's data stack.
@@ -47,6 +57,7 @@ using SValue = std::variant<
     uint64_t,
     float,
     double,
+    TemporaryString, // stack-owned temporary string
     LpcStringRef,
     LpcMappingRef,
     LpcArrayRef,
