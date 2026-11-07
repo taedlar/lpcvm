@@ -3,6 +3,7 @@
 
 #include "config.hpp"
 #include "code_generator.hpp"
+#include "fabric.hpp"
 #include "vm_executor.hpp"
 #include "vm_opcodes.hpp"
 #include <algorithm>
@@ -96,7 +97,8 @@ BENCHMARK(BM_Dispatch)
 
 void BM_IntegerAdd(benchmark::State& state) {
     const auto additions = static_cast<std::size_t>(state.range(0));
-    ConstTable constants;
+    ManagedRuntime fabric;
+    ConstTable constants(fabric);
     const auto zero = constants.find_or_add(int32_t{0});
     const auto one = constants.find_or_add(int32_t{1});
     ObjectClass program(0, &constants);
@@ -114,7 +116,8 @@ BENCHMARK(BM_IntegerAdd)->Arg(64)->Arg(4096)->Arg(65536)->ArgName("additions");
 
 void BM_LocalAccess(benchmark::State& state) {
     const auto accesses = static_cast<std::size_t>(state.range(0));
-    ConstTable constants;
+    ManagedRuntime fabric;
+    ConstTable constants(fabric);
     const auto value = constants.find_or_add(int32_t{42});
     ObjectClass program(0, &constants);
     std::vector<uint8_t> bytecode;

@@ -75,7 +75,7 @@ bool LpcCompiler::init() {
     impl_->ctx.include_directories = include_directories_;
     impl_->ctx.active_includes.clear();
     impl_->ctx.source_path = filename_ == "<unknown>" ? "" : filename_;
-    consts_ = std::make_shared<ConstTable>();
+    consts_ = std::make_shared<ConstTable>(*fabric_);
     impl_->ctx.consts = consts_;
     if (!impl_->ctx.defines)
         impl_->ctx.defines = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);

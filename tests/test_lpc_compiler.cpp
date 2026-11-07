@@ -133,8 +133,9 @@ TEST(LpcCompilerTest, ReturnsTemporaryStringArgument) {
 TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
     lpcvm::DataStack stack;
     {
-        ManagedRuntime runtime;
+        auto runtime = std::make_shared<ManagedRuntime>();
         LpcCompiler compiler;
+        compiler.use_fabric(runtime);
         ASSERT_TRUE(compiler.parse(R"(
             string leaf() { return "hello"; }
             string caller() { string value = leaf(); return value; }
@@ -142,7 +143,7 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
         )"));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry (&runtime);
+        lpcvm::Execution entry(runtime.get());
         ASSERT_TRUE(prog->lookup_method("caller", &entry));
         lpcvm::ReturnStack control;
         ASSERT_EQ(entry.execute(control, stack), 1);
@@ -154,7 +155,7 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
         ASSERT_TRUE(prog->lookup_method("empty", &entry));
         ASSERT_EQ(entry.execute(control, stack), 1);
         EXPECT_TRUE(std::get<LpcStringRef>(stack.top())->empty());
-        EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
+        EXPECT_EQ(runtime->sweep_shared_strings(), 0u);
     }
     EXPECT_EQ(std::get<LpcStringRef>(stack[0])->view(), "hello");
     EXPECT_EQ(std::get<LpcStringRef>(stack[1])->view(), "hello");
@@ -162,10 +163,11 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
 }
 
 TEST(LpcCompilerTest, AssignsStringConstantsToGlobalsAndReturnsThem) {
-    ManagedRuntime runtime;
+    auto runtime = std::make_shared<ManagedRuntime>();
     ObjectState state(1);
     {
         LpcCompiler compiler;
+        compiler.use_fabric(runtime);
         ASSERT_TRUE(compiler.parse(R"(
             string message;
             string set_message() {
@@ -176,7 +178,7 @@ TEST(LpcCompilerTest, AssignsStringConstantsToGlobalsAndReturnsThem) {
         )"));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry (&runtime);
+        lpcvm::Execution entry(runtime.get());
         ASSERT_TRUE(prog->lookup_method("set_message", &entry));
         lpcvm::ReturnStack control;
         lpcvm::DataStack stack;
@@ -186,11 +188,11 @@ TEST(LpcCompilerTest, AssignsStringConstantsToGlobalsAndReturnsThem) {
         EXPECT_EQ(std::get<LpcStringRef>(state[0]), std::get<LpcStringRef>(stack.top()));
     }
     EXPECT_EQ(std::get<LpcStringRef>(state[0])->view(), "hello");
-    EXPECT_GT(runtime.sweep_shared_strings(), 0u); // Discarded literal only.
+    EXPECT_GT(runtime->sweep_shared_strings(), 0u);
     EXPECT_EQ(std::get<LpcStringRef>(state[0])->view(), "hello");
     state[0] = std::monostate{};
-    EXPECT_GT(runtime.sweep_shared_strings(), 0u);
-    EXPECT_EQ(runtime.shared_string_allocation_size(), 0u);
+    EXPECT_GT(runtime->sweep_shared_strings(), 0u);
+    EXPECT_EQ(runtime->shared_string_allocation_size(), 0u);
 }
 
 TEST(LpcCompilerTest, MultipleFunctionBytecodeRanges) {
@@ -248,7 +250,8 @@ TEST(LpcCompilerTest, NestedFunctionCallsPassArgumentsAndReturnValues) {
 
 TEST(LpcCompilerTest, BytecodeGenerationContext) {
     // construct an AST of binary addition
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c1 = consts.find_or_add(int32_t{1});
     ASTNode root = AST::BinaryOp{
         oparg::ADD,

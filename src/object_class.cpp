@@ -10,8 +10,8 @@ void ObjectClass::set_source_location(std::size_t bytecode_offset, ConstPool::In
     if (!const_pool_)
         throw std::runtime_error("Source location requires a constant pool");
     SourceLocation loc{
-        file_name == ConstPool::INVALID_INDEX ? "<unknown-file>" : const_pool_->fetch_string(file_name),
-        func_name == ConstPool::INVALID_INDEX ? "" : const_pool_->fetch_string(func_name),
+        file_name == ConstPool::INVALID_INDEX ? std::string_view("<unknown-file>") : const_pool_->fetch_string(file_name)->view(),
+        func_name == ConstPool::INVALID_INDEX ? std::string_view("") : const_pool_->fetch_string(func_name)->view(),
         lineno,
         column
     };

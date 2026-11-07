@@ -28,7 +28,7 @@ bool VirtualTable::bind (std::size_t index, const Binding& binding) {
 }
 
 void VirtualTable::emplace (ConstPool::IndexType name_index, const Binding& binding) {
-    auto name = name_pool_->fetch_string(name_index);
+    auto name = name_pool_->fetch_string(name_index)->view();
     auto it = std::lower_bound(
         bindings_.begin(),
         bindings_.end(),
