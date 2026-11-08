@@ -114,6 +114,12 @@ and modulo operations require integer operands; shifts retain the left operand's
 type. Division by zero raises a VM exception. These are target-code semantics
 that a frontend must account for when compiling expressions.
 
+`ADD` also concatenates two strings, whether interned or stack-owned, into a
+stack-owned temporary string. It preserves embedded NULs and does not require
+a fabric. Other mixed string/numeric operands and other string binary operations
+are unsupported. The frontend lowers `+=` using the same `ADD` operation followed
+by a store; a global store promotes the temporary through the fabric.
+
 ### Branch Semantics
 
 Branch offsets are signed byte displacements relative to the next instruction.

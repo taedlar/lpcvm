@@ -73,6 +73,30 @@ public:
         return std::string_view(cat_buffer_.data() + tmp.offset, tmp.length);
     }
 
+    void concat_top_strings() {
+        if (stack_.size() < 2)
+            throw std::runtime_error("Evaluation stack underflow");
+        const auto string_view_at = [this](std::size_t pos) -> std::string_view {
+            const auto& value = (*this)[pos];
+            if (std::holds_alternative<TemporaryString>(value))
+                return fetch_temp_string(pos);
+            if (const auto* str = std::get_if<LpcStringRef>(&value))
+                return (*str)->view();
+            throw std::runtime_error("Unsupported binary operand types");
+        };
+        const auto left = string_view_at(stack_.size() - 2);
+        const auto right = string_view_at(stack_.size() - 1);
+        constexpr auto max = std::numeric_limits<uint32_t>::max();
+        if (left.size() > max || right.size() > max - left.size())
+            throw std::length_error("Temporary string buffer exceeds its representable size");
+        std::string combined;
+        combined.reserve(left.size() + right.size());
+        combined.append(left);
+        combined.append(right);
+        push_temp_string(combined);
+        pop_i(stack_.size() - 3, 2);
+    }
+
     void push_copy(std::size_t source) {
         const SValue& value = (*this)[source];
         if (std::holds_alternative<TemporaryString>(value)) {

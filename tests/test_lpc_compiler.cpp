@@ -130,6 +130,69 @@ TEST(LpcCompilerTest, ReturnsTemporaryStringArgument) {
     }
 }
 
+TEST(LpcCompilerTest, StringConcatenationAndCompoundAssignment) {
+    struct TestCase {
+        const char* source;
+        std::string expected;
+    };
+    for (const auto& test : {
+        TestCase{R"(string f() { return "a" + "" + "b"; })", "ab"},
+        TestCase{R"(string f() { string s = "A"; s += "B"; s += "C"; return s; })", "ABC"},
+        TestCase{R"(string f() { string s = "A"; string t = s; s += "B"; return t + s; })", "AAB"},
+        TestCase{R"(string f() { string s = "A"; string t = (s += "B"); s += "C"; return t + s; })", "ABABC"},
+        TestCase{R"(string f() { string s = "A"; s += (s = "B"); return s; })", "AB"},
+        TestCase{R"(string f() { string s = "a" + "b"; s += s; return s; })", "abab"},
+        TestCase{R"(string f() { string s = ""; for (int i = 0; i < 40; i++) s += "xxx"; return s; })",
+            std::string(120, 'x')},
+        TestCase{R"(string f() { return "a\0b" + "\0c"; })", std::string("a\0b\0c", 5)},
+        TestCase{R"(string g(string s) { return s + "!"; } string f() { return g("a" + "b") + "?"; })", "ab!?"},
+    }) {
+        SCOPED_TRACE(test.source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(test.source));
+        auto prog = compiler.generate_code();
+        ASSERT_NE(prog, nullptr);
+        lpcvm::Execution entry;
+        ASSERT_TRUE(prog->lookup_method("f", &entry));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push_temp_string("caller");
+        ASSERT_EQ(entry.execute(control, stack), 1);
+        ASSERT_EQ(stack.size(), 2u);
+        ASSERT_TRUE(std::holds_alternative<TemporaryString>(stack.top()));
+        EXPECT_EQ(stack.fetch_temp_string(0), "caller");
+        EXPECT_EQ(stack.fetch_temp_string(1), test.expected);
+        EXPECT_TRUE(control.empty());
+    }
+}
+
+TEST(LpcCompilerTest, StringCompoundAssignmentToGlobal) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    LpcCompiler compiler;
+    compiler.use_fabric(runtime);
+    ASSERT_TRUE(compiler.parse(R"(
+        string message;
+        string f() {
+            message = "A";
+            string result = (message += "B");
+            message += "C";
+            return result + message;
+        }
+    )"));
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    ObjectState state(1);
+    lpcvm::Execution entry(runtime.get());
+    ASSERT_TRUE(prog->lookup_method("f", &entry));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(entry.as_with(&state).execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    EXPECT_EQ(stack.fetch_temp_string(0), "ABABC");
+    ASSERT_TRUE(std::holds_alternative<LpcStringRef>(state[0]));
+    EXPECT_EQ(std::get<LpcStringRef>(state[0])->view(), "ABC");
+}
+
 TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
     lpcvm::DataStack stack;
     {

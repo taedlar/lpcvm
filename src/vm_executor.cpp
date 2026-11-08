@@ -258,8 +258,16 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
     VM_HANDLER(F_BINARY_OP) {
         oparg = (extended_arg << 8) | *pc++; // fetch the binary operation code
         auto sp = stack.size();
+        if (sp < 2)
+            throw std::runtime_error("Evaluation stack underflow");
         auto& rhs = stack[sp - 1];
         auto& lhs = stack[sp - 2];
+        if (oparg == oparg::ADD &&
+            (std::holds_alternative<TemporaryString>(lhs) || std::holds_alternative<LpcStringRef>(lhs)) &&
+            (std::holds_alternative<TemporaryString>(rhs) || std::holds_alternative<LpcStringRef>(rhs))) {
+            stack.concat_top_strings();
+            VM_DISPATCH();
+        }
         result = std::visit([&](const auto& lhs_value, const auto& rhs_value) -> SValue {
             using LhsType = std::decay_t<decltype(lhs_value)>;
             using RhsType = std::decay_t<decltype(rhs_value)>;
