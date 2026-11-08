@@ -137,54 +137,54 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
 
     VM_HANDLER(F_CONST_I4) {
         oparg = (extended_arg << 8) | *pc++;
-        int32_t value = prog_->const_pool()->fetch<int32_t>(oparg);
+        int32_t value = prog_->const_pool()->fetch_numeric<int32_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_I8) {
         oparg = (extended_arg << 8) | *pc++;
-        int64_t value = prog_->const_pool()->fetch<int64_t>(oparg);
+        int64_t value = prog_->const_pool()->fetch_numeric<int64_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_U4) {
         oparg = (extended_arg << 8) | *pc++;
-        uint32_t value = prog_->const_pool()->fetch<uint32_t>(oparg);
+        uint32_t value = prog_->const_pool()->fetch_numeric<uint32_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_U8) {
         oparg = (extended_arg << 8) | *pc++;
-        uint64_t value = prog_->const_pool()->fetch<uint64_t>(oparg);
+        uint64_t value = prog_->const_pool()->fetch_numeric<uint64_t>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_F4) {
         oparg = (extended_arg << 8) | *pc++;
-        float value = prog_->const_pool()->fetch<float>(oparg);
+        float value = prog_->const_pool()->fetch_numeric<float>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_F8) {
         oparg = (extended_arg << 8) | *pc++;
-        double value = prog_->const_pool()->fetch<double>(oparg);
+        double value = prog_->const_pool()->fetch_numeric<double>(oparg);
         stack.push(SValue(value));
         VM_DISPATCH();
     }
 
     VM_HANDLER(F_CONST_STR) {
         oparg = (extended_arg << 8) | *pc++;
-        if (!fabric_)
-            throw std::runtime_error("Unable to perform string operation without a fabric");
         if (!prog_ || !prog_->const_pool())
             throw std::runtime_error("Unable to fetch string constant without a constant pool");
-        auto value = prog_->const_pool()->fetch_string(oparg);
-        stack.push(make_shared_string(*fabric_, value));
+        {
+            auto value = prog_->const_pool()->fetch_string(oparg);
+            stack.push(SValue(value));
+        }
         VM_DISPATCH();
     }
 

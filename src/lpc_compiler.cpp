@@ -48,9 +48,14 @@ LpcCompiler::~LpcCompiler() {
 }
 
 void LpcCompiler::use_fabric(std::shared_ptr<FabricType> sb) {
+    if (sb == fabric_)
+        return;
     fabric_ = std::move(sb);
     if (impl_)
         impl_->ctx.fabric = fabric_;
+    ast_.reset();
+    consts_.reset();
+    globals_.reset();
 }
 
 void LpcCompiler::use_predefines(std::shared_ptr<SymbolTable> predefines) {
@@ -75,7 +80,7 @@ bool LpcCompiler::init() {
     impl_->ctx.include_directories = include_directories_;
     impl_->ctx.active_includes.clear();
     impl_->ctx.source_path = filename_ == "<unknown>" ? "" : filename_;
-    consts_ = std::make_shared<ConstTable>();
+    consts_ = std::make_shared<ConstTable>(*fabric_);
     impl_->ctx.consts = consts_;
     if (!impl_->ctx.defines)
         impl_->ctx.defines = std::make_shared<SymbolTable>(SymbolTable::ScopeType::PREPROCESSOR, 0, nullptr);
@@ -124,6 +129,8 @@ std::string LpcCompiler::preprocess(const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
+        if (!fabric_)
+            fabric_ = std::make_shared<FabricType>();
         tmp.ctx.fabric = fabric_;
         if (predefines_) {
             tmp.ctx.defines = predefines_;
@@ -188,6 +195,8 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     auto saved_impl = impl_;
     struct internal_s tmp;
     try {
+        if (!fabric_)
+            fabric_ = std::make_shared<FabricType>();
         tmp.ctx.fabric = fabric_;
         if (predefines_) {
             tmp.ctx.defines = predefines_;

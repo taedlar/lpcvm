@@ -137,7 +137,8 @@ TEST(VMExecutorTest, TemporaryGlobalStoreRequiresFabric) {
 }
 
 TEST(VMExecutorTest, TemporaryStringIsTruthyBeforePop) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto one = consts.find_or_add(int32_t{1});
     auto two = consts.find_or_add(int32_t{2});
     ObjectClass prog(0, &consts);
@@ -200,8 +201,8 @@ TEST_F(SourceExceptionTest, SourceLocationsReferenceInternedFileNames) {
     const auto interned = object->const_pool()->fetch_string(index);
 
     EXPECT_EQ(first->file_name, "example.lpc");
-    EXPECT_EQ(first->file_name.data(), interned.data());
-    EXPECT_EQ(second->file_name.data(), interned.data());
+    EXPECT_EQ(first->file_name, interned->view());
+    EXPECT_EQ(second->file_name, interned->view());
     EXPECT_EQ(second->func_name, "f");
     EXPECT_EQ(second->lineno, 43);
 }
@@ -295,7 +296,8 @@ TEST_F(SourceExceptionTest, InvalidContextPreservesMessage) {
 }
 
 TEST(VMExecutorTest, EmptyFunction) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode = {};
     lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog); // zero-length bytecode
@@ -307,7 +309,8 @@ TEST(VMExecutorTest, EmptyFunction) {
 }
 
 TEST(VMExecutorTest, BasicExecution) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c1 = consts.find_or_add(int32_t{123});
     auto c2 = consts.find_or_add(int32_t{456});
     ObjectClass prog(0, &consts); 
@@ -352,7 +355,8 @@ TEST(VMExecutorTest, DivisionByZeroIncludesExpressionSourceLocation) {
 }
 
 TEST(VMExecutorTest, ReturnUnderflow) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
     lpcvm::Bytecode bgen(bytecode);
@@ -365,7 +369,8 @@ TEST(VMExecutorTest, ReturnUnderflow) {
 }
 
 TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
 
@@ -387,7 +392,8 @@ TEST(VMExecutorTest, ArgumentsPoppedUponReturn) {
 }
 
 TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
@@ -403,8 +409,31 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
     EXPECT_EQ(stack.size(), 0); // arguments popped, no return value on the stack
 }
 
-TEST(VMExecutorTest, StringConstantRequiresRuntime) {
-    ConstTable consts;
+TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
+    for (int32_t i = 0; i < 260; ++i)
+        consts.find_or_add(std::string_view(std::to_string(i)));
+    const auto text = std::string_view("a\0b", 3);
+    auto index = consts.find_or_add(text);
+    ASSERT_GT(index & ConstPool::STRING_REF_INDEX_MASK, 255u);
+    ObjectClass prog(0, &consts);
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode bgen(bytecode);
+    bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
+    lpcvm::Execution code(&fabric);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(code.binding(bytecode.data(), bytecode.size(), &prog).execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), lpcvm::make_shared_string(fabric, text));
+}
+
+TEST(VMExecutorTest, StringConstantDoesNotRequireExecutionFabric) {
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto index = consts.find_or_add(std::string_view("hello"));
     ObjectClass prog(0, &consts);
     std::vector<uint8_t> bytecode;
@@ -413,33 +442,12 @@ TEST(VMExecutorTest, StringConstantRequiresRuntime) {
     lpcvm::Execution code(bytecode.data(), bytecode.size(), &prog);
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
-    EXPECT_THROW(code.execute(control, stack), std::runtime_error);
-    EXPECT_TRUE(stack.empty());
-}
-
-TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
-    ConstTable consts;
-    for (int32_t i = 0; i < 260; ++i)
-        consts.find_or_add(i);
-    const auto text = std::string_view("a\0b", 3);
-    auto index = consts.find_or_add(text);
-    ASSERT_GT(index, 255u);
-    ObjectClass prog(0, &consts);
-    std::vector<uint8_t> bytecode;
-    lpcvm::Bytecode bgen(bytecode);
-    bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
-    ManagedRuntime runtime;
-    lpcvm::Execution code(&runtime);
-    lpcvm::ReturnStack control;
-    lpcvm::DataStack stack;
-    ASSERT_EQ(code.binding(bytecode.data(), bytecode.size(), &prog).execute(control, stack), 1);
-    ASSERT_EQ(stack.size(), 1u);
+    ASSERT_EQ(code.execute(control, stack), 1);
     ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
-    EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
-    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), lpcvm::make_shared_string(runtime, text));
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), fabric.make_shared_string("hello"));
 }
 
-TEST(VMExecutorTest, StringConstantsUseRuntimeOverride) {
+TEST(VMExecutorTest, StringConstantsUsePoolFabric) {
     class TrackingRuntime : public ManagedRuntime {
     public:
         int calls = 0;
@@ -447,22 +455,33 @@ TEST(VMExecutorTest, StringConstantsUseRuntimeOverride) {
             ++calls;
             return ManagedRuntime::make_shared_string(value);
         }
-    } runtime;
+    };
+    auto runtime = std::make_shared<TrackingRuntime>();
+    ManagedRuntime other_runtime;
     LpcCompiler compiler;
+    compiler.use_fabric(runtime);
     ASSERT_TRUE(compiler.parse("string f() { return \"hello\"; }"));
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
-    lpcvm::Execution entry (&runtime);
+    const auto index = compiler.get_consts()->find(std::string_view("hello"));
+    ASSERT_NE(index, ConstPool::INVALID_INDEX);
+    const auto interned = prog->const_pool()->fetch_string(index);
+    const auto calls_after_compile = runtime->calls;
+    EXPECT_GT(calls_after_compile, 0);
+    lpcvm::Execution entry(&other_runtime);
     ASSERT_TRUE(prog->lookup_method("f", &entry));
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     ASSERT_EQ(entry.execute(control, stack), 1);
-    EXPECT_EQ(runtime.calls, 1);
+    EXPECT_EQ(runtime->calls, calls_after_compile);
     EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), "hello");
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), interned);
+    EXPECT_FALSE(std::get<LpcStringRef>(stack.top()) == other_runtime.make_shared_string("hello"));
 }
 
 TEST(VMExecutorTest, StoreGlobal) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c1 = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
     ObjectState this_obj(1);
@@ -559,7 +578,8 @@ TEST(VMExecutorTest, StoreGlobalStringReassignmentReleasesPreviousValue) {
 }
 
 TEST(VMExecutorTest, LoadGlobal) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     ObjectClass prog(0, &consts);
     ObjectState this_obj(1);
     this_obj[0] = SValue(int32_t{123});
@@ -580,7 +600,8 @@ TEST(VMExecutorTest, LoadGlobal) {
 }
 
 TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto value = consts.find_or_add(int32_t{123});
     ObjectClass prog(0, &consts);
     lpcvm::ReturnStack control;
@@ -599,7 +620,8 @@ TEST(VMExecutorTest, GlobalAccessRequiresObjectState) {
 }
 
 TEST(VMExecutorTest, LoadAndStoreLocal) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto local_value = consts.find_or_add(int32_t{99});
     ObjectClass prog(0, &consts);
 
@@ -635,7 +657,8 @@ TEST(VMExecutorTest, LoadAndStoreLocal) {
 }
 
 TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     ObjectClass prog(0, &consts);
 
     std::vector<uint8_t> bytecode;
@@ -658,7 +681,8 @@ TEST(VMExecutorTest, LoadLocalWhenDataStackGrows) {
 }
 
 TEST(VMExecutorTest, IfElseJumps) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c0 = consts.find_or_add(int32_t{0});
     auto c1 = consts.find_or_add(int32_t{1});
     auto c2 = consts.find_or_add(int32_t{2});
@@ -686,7 +710,8 @@ TEST(VMExecutorTest, IfElseJumps) {
 }
 
 TEST(VMExecutorTest, BackwardJump) {
-    ConstTable consts;
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
     auto c1 = consts.find_or_add(int32_t{1});
     auto c3 = consts.find_or_add(int32_t{3});
     ObjectClass prog(0, &consts);

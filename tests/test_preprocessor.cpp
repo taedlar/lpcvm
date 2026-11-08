@@ -222,9 +222,9 @@ TEST_F(IncludeTest, AstLocationsRetainFilesAcrossLexerLookahead) {
     const auto pool = compiler.get_consts()->freeze();
     const auto& header = *std::get<AST::FunctionDef>(defs[0].node).decl;
     const auto& main = *std::get<AST::FunctionDef>(defs[1].node).decl;
-    EXPECT_EQ(pool->fetch_string(header.src.current_file), "virtual.h");
+    EXPECT_EQ(pool->fetch_string(header.src.current_file)->view(), "virtual.h");
     EXPECT_EQ(header.src.lineno, 30);
-    EXPECT_EQ(pool->fetch_string(main.src.current_file), "main.lpc");
+    EXPECT_EQ(pool->fetch_string(main.src.current_file)->view(), "main.lpc");
     EXPECT_EQ(main.src.lineno, 2);
     EXPECT_TRUE(compiler.generate_code());
 }
