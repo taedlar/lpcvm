@@ -29,6 +29,8 @@ conditional expressions, and short-circuit logical operators.
 - Mixed numeric operands are promoted to a common type: floating point takes
   precedence, and mixed-sign integers become `int64`, or `uint64` when the
   unsigned operand is 64-bit.
+- String `+` concatenates two strings; string `+=` assigns the concatenated
+  value to its target. Concatenation preserves embedded NUL bytes.
 
 ### Statements and Control Flow
 
