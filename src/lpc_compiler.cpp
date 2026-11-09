@@ -226,7 +226,7 @@ bool LpcCompiler::parse (const std::string& source) noexcept {
     return result;
 }
 
-std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
+std::shared_ptr<ObjectClass> LpcCompiler::generate_code(bool string_accumulator) noexcept {
     // the AST must contain a valid program node
     if (!ast_ || std::holds_alternative<AST::Program>(ast_->node) == false) {
         messages_.push_back({-1, -1, "No valid AST available"});
@@ -249,7 +249,7 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code() noexcept {
         prog->virtual_table_->static_bindings_.resize(num_functions);
 
         // generate code for each top-level definition in the program
-        lpcvm::Bytecode codegen(prog->bytecode_, prog.get());
+        lpcvm::Bytecode codegen(prog->bytecode_, prog.get(), string_accumulator);
         for(auto& elt: prog_node.defs) {
             std::visit (overloaded {
                 [&](AST::Inheritance& inh) {

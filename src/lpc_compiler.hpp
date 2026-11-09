@@ -52,6 +52,7 @@ public:
         uint32_t next_func_idx; // index for the next function
         uint32_t next_global;
         uint32_t next_local;
+        SymbolSignature variable_signature{};
 
         std::string current_string;
         std::string raw_string_delimiter;
@@ -81,7 +82,7 @@ public:
 
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
-    std::shared_ptr<ObjectClass> generate_code() noexcept;
+    std::shared_ptr<ObjectClass> generate_code(bool string_accumulator = true) noexcept;
 
     const std::vector<Message>& messages() const { return messages_; }
 

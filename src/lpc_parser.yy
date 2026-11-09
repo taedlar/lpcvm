@@ -253,8 +253,15 @@ def
 
 storage_or_type
     : type_modifier_list
-        { ($$ = $1).b.data_type = LpcDataType::T_INT; };
+        {
+            ($$ = $1).b.data_type = LpcDataType::T_INT;
+            yyget_extra(yyscanner)->variable_signature = $$;
+        }
     | typed_storage
+        {
+            $$ = $1;
+            yyget_extra(yyscanner)->variable_signature = $$;
+        }
     ;
 
 typed_storage
@@ -321,7 +328,9 @@ new_var
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Variable already defined: " + $2, yyscanner);
-            auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
+            auto signature = lpcc->variable_signature;
+            signature.value |= $1.value;
+            auto entry = std::make_shared<SymbolTable::Entry>($2, signature);
             if (lpcc->current_scope->get_enclosing_scope()) { // LOCAL or BLOCK scope
                 entry->value = uint32_t{lpcc->next_local++};
                 entry->signature.b.is_local = 1; // mark as local variable
@@ -338,7 +347,9 @@ new_var
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Variable already defined: " + $2, yyscanner);
-            auto entry = std::make_shared<SymbolTable::Entry>($2, $1);
+            auto signature = lpcc->variable_signature;
+            signature.value |= $1.value;
+            auto entry = std::make_shared<SymbolTable::Entry>($2, signature);
             if (lpcc->current_scope->get_enclosing_scope()) { // LOCAL or BLOCK scope
                 entry->value = uint32_t{lpcc->next_local++};
                 entry->signature.b.is_local = 1; // mark as local variable

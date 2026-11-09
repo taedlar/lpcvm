@@ -58,6 +58,45 @@ and replacing or removing a slot releases its buffer range. Views returned by
 promotes a temporary string to an owning `LpcStringRef` through the fabric;
 the assignment expression retains its stack value.
 
+Releasing a temporary at the end of the string buffer truncates the buffer
+without scanning stack slots. Non-tail releases compact the buffer and adjust
+live nonempty temporary offsets. Empty temporaries have no meaningful buffer
+offset and require neither compaction nor offset repair.
+
+### String Accumulator
+
+Each `execute()` invocation owns one initially inactive string accumulator,
+separate from the stack's temporary-string buffer. Its capacity is reused across
+concatenation chains within that invocation, not across invocations. The compiler
+emits these instructions by default for eligible string addition chains;
+`generate_code(false)` retains stack-based addition for comparison. See
+[string-handling.md](string-handling.md) for storage, ownership, cleanup costs,
+and compiler eligibility rules.
+
+- `F_STR_BEGIN 0` requires an inactive accumulator, copies the stack-top string
+  into it, consumes the operand, and activates the accumulator.
+- `F_STR_APPEND 0` requires an active accumulator, appends the stack-top string,
+  and consumes the operand. Append retains capacity and avoids intermediate
+  results in the stack's string buffer.
+- `F_STR_FINISH 0` requires an active accumulator, copies its bytes into a normal
+  stack-owned temporary, and deactivates it while retaining its capacity.
+
+All three instructions require a zero argument. Operands may be shared or
+temporary strings, including empty strings and embedded NULs. Null references,
+non-string operands, invalid states, and missing operands are errors. Accumulated
+length is limited to `uint32_t`; finishing also respects the stack buffer's size
+limit. Validation or allocation failure leaves the instruction's operand and
+accumulator contents unchanged. An execution failure discards the accumulator.
+
+Calls and returns, including implicit returns at the end of bytecode, require
+an inactive accumulator. Finish a chain before making a call or starting another
+chain. Ordinary instructions can execute while it is active.
+
+Consuming a shared string or a buffer-tail temporary needs no buffer compaction
+or stack scan. Consuming a non-tail temporary uses normal stack cleanup.
+Finishing still copies the result, and storing over a temporary local still uses
+normal local replacement semantics.
+
 ## Call Frames and Returns
 
 The executor maintains a program counter, frame pointer, active bytecode bounds,
@@ -97,6 +136,7 @@ in [vm_opcodes.hpp](../src/vm_opcodes.hpp); execution handlers live in
 | Constants | `F_CONST_I4/I8/U4/U8/F4/F8`, `F_CONST_STR` | Push a typed constant-pool entry. |
 | Storage | `F_LOAD_LOCAL`, `F_STORE_LOCAL`, `F_LOAD_GLOBAL`, `F_STORE_GLOBAL` | Load a slot or copy the top value into it; stores preserve the top value. |
 | Operators | `F_UNARY_OP`, `F_BINARY_OP` | Replace one or two operands with an operation result. |
+| String accumulator | `F_STR_BEGIN`, `F_STR_APPEND`, `F_STR_FINISH` | Consume a string to begin/append a chain, or push its completed temporary result. Arguments must be zero. |
 | Calls | `F_PUSH_FUNC`, `F_CALL`, `F_RETURN` | Select a function, enter its frame, or return values to the caller. |
 | Branches | `F_JUMP`, `F_JUMP_IF_FALSE`, `F_JUMP_IF_FALSE_OR_POP`, `F_JUMP_IF_TRUE_OR_POP` | Change the program counter, optionally testing or removing the top value. |
 

@@ -72,7 +72,18 @@ public:
             throw std::runtime_error("Expected a temporary string at the given stack position");
         }
         TemporaryString tmp = std::get<TemporaryString>(value);
+        if (tmp.length == 0)
+            return {};
         return std::string_view(cat_buffer_.data() + tmp.offset, tmp.length);
+    }
+
+    std::string_view top_string() const {
+        const auto& value = top();
+        if (std::holds_alternative<TemporaryString>(value))
+            return fetch_temp_string(stack_.size() - 1);
+        if (const auto* string = std::get_if<LpcStringRef>(&value); string && *string)
+            return (*string)->view();
+        throw std::runtime_error("Expected a string operand");
     }
 
     void concat_top_strings() {
@@ -176,11 +187,17 @@ private:
             return;
         const std::size_t offset = tmp->offset;
         const std::size_t length = tmp->length;
-        cat_buffer_.erase(offset, length);
         stack_[pos] = std::monostate{};
+        if (length == 0)
+            return;
+        if (offset + length == cat_buffer_.size()) {
+            cat_buffer_.resize(offset);
+            return;
+        }
+        cat_buffer_.erase(offset, length);
         for (auto& value : stack_) {
             if (auto* other = std::get_if<TemporaryString>(&value)) {
-                if (other->offset >= offset + length)
+                if (other->length != 0 && other->offset >= offset + length)
                     other->offset -= length;
             }
         }

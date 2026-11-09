@@ -74,6 +74,57 @@ TEST(CodeGeneratorTest, ReusesReservedCapacity) {
     EXPECT_EQ(bytecode.size(), 128);
 }
 
+TEST(CodeGeneratorTest, StringConcatenationEmissionModes) {
+    struct TestCase {
+        const char* source;
+        bool eligible;
+    };
+    for (const auto& test : {
+        TestCase{R"(string f() { string left = "a"; string right = "b";
+            return left + right + left; })", true},
+        TestCase{R"(string f() { return "a" + ("b" + "a"); })", true},
+        TestCase{R"(string f() { mixed left = "a"; mixed right = "b";
+            return left + right + left; })", false},
+        TestCase{R"(string identity(string value) { return value; }
+            string f() { string left = "a"; string right = "b";
+                return identity(left) + right + left; })", false}
+    }) {
+        for (int mode : {0, 1, 2}) {
+            const bool accumulator = mode != 0;
+            SCOPED_TRACE(::testing::Message() << test.source << " " << mode);
+            LpcCompiler compiler;
+            ASSERT_TRUE(compiler.parse(test.source));
+            auto program = mode == 2 ? compiler.generate_code() : compiler.generate_code(accumulator);
+            ASSERT_NE(program, nullptr);
+            lpcvm::Execution code;
+            ASSERT_TRUE(program->lookup_method("f", &code));
+            std::size_t begins = 0;
+            std::size_t appends = 0;
+            std::size_t finishes = 0;
+            std::size_t additions = 0;
+            for (std::size_t offset = 0; offset < code.length(); offset += 2) {
+                begins += code.start_[offset] == F_STR_BEGIN;
+                appends += code.start_[offset] == F_STR_APPEND;
+                finishes += code.start_[offset] == F_STR_FINISH;
+                additions += code.start_[offset] == F_BINARY_OP && code.start_[offset + 1] == oparg::ADD;
+            }
+            const bool optimized = accumulator && test.eligible;
+            EXPECT_EQ(begins, optimized ? 1u : 0u);
+            EXPECT_EQ(appends, optimized ? 2u : 0u);
+            EXPECT_EQ(finishes, optimized ? 1u : 0u);
+            EXPECT_EQ(additions, optimized ? 0u : 2u);
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            stack.push_temp_string("caller");
+            ASSERT_EQ(code.execute(control, stack), 1);
+            ASSERT_EQ(stack.size(), 2u);
+            EXPECT_EQ(stack.fetch_temp_string(0), "caller");
+            EXPECT_EQ(stack.fetch_temp_string(1), "aba");
+            EXPECT_TRUE(control.empty());
+        }
+    }
+}
+
 TEST(LpcCompilerTest, BytecodeGeneration) {
     // Compile a simple LPC function and generate its AST
     LpcCompiler compiler;
