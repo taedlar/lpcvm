@@ -99,6 +99,13 @@ public:
         };
         const auto left = string_view_at(stack_.size() - 2);
         const auto right = string_view_at(stack_.size() - 1);
+        if ((right.end() == cat_buffer_.data() + cat_buffer_.size()) && (left.end() == right.begin())) {
+            // Both strings are temporary strings and contiguous in the buffer.
+            stack_.pop_back(); // Remove the right operand as it has been merged with the left
+            auto& combined = std::get<TemporaryString>(stack_.back());
+            combined.length = static_cast<uint32_t>(left.size() + right.size());
+            return;
+        }
         constexpr auto max = std::numeric_limits<uint32_t>::max();
         if (left.size() > max || right.size() > max - left.size())
             throw std::length_error("Temporary string buffer exceeds its representable size");
@@ -113,16 +120,13 @@ public:
     void push_copy(std::size_t source) {
         const SValue& value = (*this)[source];
         if (std::holds_alternative<TemporaryString>(value)) {
-            std::string copy(fetch_temp_string(source));
-            push_temp_string(copy);
+            push_temp_string(fetch_temp_string(source));
         } else {
-            push(value);
+            push(value); // safe for immutable storage types like LpcStringRef and others
         }
     }
 
     void assign_copy(std::size_t destination, std::size_t source) {
-        (*this)[destination];
-        (*this)[source];
         if (destination == source)
             return;
         push_copy(source);
@@ -132,10 +136,8 @@ public:
     }
 
     void assign(std::size_t destination, const SValue& value) {
-        (*this)[destination];
-        if (std::holds_alternative<TemporaryString>(value)) {
+        if (std::holds_alternative<TemporaryString>(value))
             throw std::runtime_error("Cannot assign a TemporaryString directly");
-        }
         SValue copy = value;
         release(destination);
         stack_[destination] = std::move(copy);
