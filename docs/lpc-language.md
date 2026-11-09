@@ -97,6 +97,18 @@ A visitor-pattern [bytecode generator](../src/code_generator.cpp) traverses the
 AST and emits VM bytecode. See [vm-architecture.md](vm-architecture.md) for the
 execution model and bytecode architecture.
 
+`LpcCompiler::generate_code()` enables accumulator lowering by default
+for addition chains made entirely of string literals and statically declared
+scalar string variables. Parenthesized string chains are flattened in operand
+order. Other expressions retain ordinary lowering, though eligible subchains
+can still be optimized independently. Calls and side-effecting expressions are
+never evaluated with an accumulator active. Compound `+=` itself still uses
+the ordinary binary operation and store.
+
+`generate_code(false)` retains ordinary stack-based addition for benchmarks and
+comparison. See [string-handling.md](string-handling.md) for the complete string
+storage and accumulator design.
+
 ### Compiler Frontend
 
 `lpcfront` is the command-line compiler frontend and provides AST output for

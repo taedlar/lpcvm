@@ -41,6 +41,7 @@ namespace lpcvm {
         };
         std::vector<LoopContext> loops_;
         std::size_t local_depth_ = 0; // number of block locals currently allocated
+        bool string_accumulator_;
 
         void grow_bytecode(std::size_t length);
         void set_source_location(const ASTNode& expr) {
@@ -50,8 +51,10 @@ namespace lpcvm {
         }
 
     public:
-        Bytecode(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr)
-            : bytecode_(bytecode), prog_(prog), context_(STATEMENT) {}
+                Bytecode(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr,
+                        bool string_accumulator = true)
+                        : bytecode_(bytecode), prog_(prog), context_(STATEMENT),
+                            string_accumulator_(string_accumulator) {}
 
         std::size_t position() const { return bytecode_.size(); }
 

@@ -33,6 +33,9 @@
     X(F_JUMP_IF_FALSE_OR_POP) \
     X(F_JUMP_IF_TRUE_OR_POP) \
     X(F_RETURN) \
+    X(F_STR_BEGIN) \
+    X(F_STR_APPEND) \
+    X(F_STR_FINISH) \
 
 /// F_JUMP adds its argument to the program counter (relative to the next instruction).
 /// F_JUMP_IF_FALSE pops the top of the stack and jumps only if the value is false (zero/void).

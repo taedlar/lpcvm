@@ -9,6 +9,22 @@
 
 using namespace lpcvm;
 
+static bool collect_string_terms(const ASTNode& expression, std::vector<const ASTNode*>& terms) {
+    if (const auto* binary = std::get_if<AST::BinaryOp>(&expression.node)) {
+        return binary->arg == oparg::ADD && binary->lhs && binary->rhs &&
+            collect_string_terms(*binary->lhs, terms) && collect_string_terms(*binary->rhs, terms);
+    }
+    if (const auto* variable = std::get_if<AST::Variable>(&expression.node)) {
+        if (!variable->entry || variable->entry->signature.b.data_type != T_STRING ||
+            variable->entry->signature.b.is_array || variable->entry->signature.b.is_function)
+            return false;
+    } else if (!std::holds_alternative<AST::StringLiteral>(expression.node)) {
+        return false;
+    }
+    terms.push_back(&expression);
+    return true;
+}
+
 void Bytecode::grow_bytecode(std::size_t length) {
     constexpr std::size_t allocation_granularity = 64;
     const auto max_capacity = bytecode_.max_size();
@@ -210,6 +226,21 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             emit(F_UNARY_OP, unary_op.arg);
         },
         [&](const AST::BinaryOp& bin_op) {
+            if (string_accumulator_ && bin_op.arg == oparg::ADD) {
+                std::vector<const ASTNode*> terms;
+                if (collect_string_terms(expr, terms)) {
+                    emit_expression(*terms.front());
+                    set_source_location(expr);
+                    emit(F_STR_BEGIN);
+                    for (std::size_t term = 1; term < terms.size(); ++term) {
+                        emit_expression(*terms[term]);
+                        set_source_location(expr);
+                        emit(F_STR_APPEND);
+                    }
+                    emit(F_STR_FINISH);
+                    return;
+                }
+            }
             if (bin_op.arg == oparg::LOGICAL_AND || bin_op.arg == oparg::LOGICAL_OR) {
                 // short-circuit: the lhs value is the result unless it must be replaced by the rhs
                 emit_expression(*bin_op.lhs);

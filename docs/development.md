@@ -58,6 +58,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build --target bench_bytecode
 ./build/benchmarks/bench_bytecode --benchmark_min_time=0.1s --benchmark_repetitions=5
 ./build/benchmarks/bench_bytecode --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
+./build/benchmarks/bench_bytecode --benchmark_filter=BM_StringLocalConcat --benchmark_min_time=0.1s --benchmark_repetitions=5
 ~~~
 
 - `BM_ReturnOnly` measures the execution entry/return baseline.
@@ -67,11 +68,42 @@ cmake --build build --target bench_bytecode
   intentionally redundant and are not emitted by the compiler.
 - `BM_IntegerAdd` measures constant loads and integer addition.
 - `BM_LocalAccess` measures repeated local loads, stores, and stack pops.
+- `BM_StringLocalConcat` and `BM_StringLocalConcatAccumulator` compare ordinary
+    stack addition against the explicit string accumulator for the same local
+    assignment: `result = left + right + ...`. Both vary assignment count, each
+    operand's byte length, and chain length (2, 8, or 32 terms). Operands remain
+    fixed-size shared strings; each completed temporary replaces the previous
+    result local, so results do not grow across assignments. Timings include local
+    loads, concatenation, local stores, temporary-string cleanup, and returning
+    and popping the final result. Accumulator timings also include begin/finish
+    instructions and copying the completed result into the stack buffer. Its
+    capacity is reused within each execution, but not across executions.
+    `concats/s` counts binary concatenations (assignments times terms minus one).
+    Compare elapsed time or `concats/s`, not instruction throughput: the two paths
+    execute different instruction counts. Both use the same tail-release shortcut.
+
+Both string benchmarks parse identical LPC source and generate the complete
+function through `LpcCompiler::generate_code(false)` or `generate_code(true)`.
+They verify that the emitted bytecode uses the requested mode. Parsing and code
+generation are outside the timed loop; only repeated VM execution is measured.
+Assignments are unrolled, so the comparison does not include LPC loop overhead.
+To save a Release comparison with interleaved repetitions:
+
+~~~bash
+./build/benchmarks/bench_bytecode --benchmark_filter=BM_StringLocalConcat \
+    --benchmark_min_time=0.05s --benchmark_repetitions=5 \
+    --benchmark_enable_random_interleaving=true \
+    --benchmark_out=build/string_concat_release.json --benchmark_out_format=json
+~~~
+
+Compare median CPU time for matching parameters, dividing by `assignments` for
+time per assignment. Every assignment includes `terms - 1` binary concatenations.
 
 Bytecode construction, constant-pool setup, and a validating stack warm-up are
-outside the timed loop. Arithmetic and local-access timings include popping one
-returned value per execution so stack capacity can be reused. These are repeated
-execution benchmarks, not cold-cache or isolated memory-bandwidth measurements.
+outside the timed loop. Arithmetic, local-access, and string timings include
+popping one returned value per execution so stack capacity can be reused. These
+are repeated execution benchmarks, not cold-cache or isolated memory-bandwidth
+measurements.
 
 `items_per_second` counts decoded two-byte words, including extended-argument
 prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports

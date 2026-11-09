@@ -122,6 +122,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
     uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
     uint32_t oparg; // holds the extendable argument for the current opcode
     SValue result;
+    std::string string_accumulator;
+    bool string_active = false;
     VM_LOOP_START()
 
     VM_HANDLER(F_EXTENDED_ARG) {
@@ -338,6 +340,42 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         VM_DISPATCH();
     }
 
+    VM_HANDLER(F_STR_BEGIN)
+    VM_HANDLER(F_STR_APPEND) {
+        const bool begin = pc[-1] == F_STR_BEGIN;
+        if (pc >= end_)
+            throw std::runtime_error("Missing string accumulator argument");
+        oparg = (extended_arg << 8) | *pc++;
+        if (oparg != 0)
+            throw std::runtime_error("Invalid string accumulator argument");
+        if (begin == string_active)
+            throw std::runtime_error("Invalid string accumulator state");
+        if (stack.size() <= fp)
+            throw std::runtime_error("String accumulator operand underflow");
+        const auto operand = stack.top_string();
+        constexpr auto max = std::numeric_limits<uint32_t>::max();
+        if (operand.size() > max || string_accumulator.size() > max - operand.size())
+            throw std::length_error("String accumulator exceeds its representable size");
+        string_accumulator.append(operand);
+        stack.pop();
+        string_active = true;
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_STR_FINISH) {
+        if (pc >= end_)
+            throw std::runtime_error("Missing string accumulator argument");
+        oparg = (extended_arg << 8) | *pc++;
+        if (oparg != 0)
+            throw std::runtime_error("Invalid string accumulator argument");
+        if (!string_active)
+            throw std::runtime_error("String accumulator is inactive");
+        stack.push_temp_string(string_accumulator);
+        string_accumulator.clear();
+        string_active = false;
+        VM_DISPATCH();
+    }
+
     VM_HANDLER(F_PUSH_FUNC) {
         oparg = (extended_arg << 8) | *pc++;
         stack.push(oparg); // push the function index onto the stack
@@ -347,6 +385,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
     }
 
     VM_HANDLER(F_CALL) {
+        if (string_active)
+            throw std::runtime_error("Cannot call with an active string accumulator");
         oparg = (extended_arg << 8) | *pc++; // number of items on the stack for this call (func_index + arguments)
         if (oparg < 1)
             throw std::runtime_error("Invalid call with no function index on the stack");
@@ -395,6 +435,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
     }
 
     VM_HANDLER(F_RETURN) {
+        if (string_active)
+            throw std::runtime_error("Cannot return with an active string accumulator");
         oparg = pc ? (extended_arg << 8) | *pc++ : 0; // number of return values on the stack
         if (oparg > stack.size() || stack.size() - oparg < fp)
             throw std::runtime_error("Stack underflow on return");
