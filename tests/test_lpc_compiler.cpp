@@ -182,7 +182,7 @@ TEST(LpcCompilerTest, StringCompoundAssignmentToGlobal) {
     auto prog = compiler.generate_code();
     ASSERT_NE(prog, nullptr);
     ObjectState state(1);
-    lpcvm::Execution entry(runtime.get());
+    lpcvm::Execution entry(runtime);
     ASSERT_TRUE(prog->lookup_method("f", &entry));
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
@@ -206,7 +206,7 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
         )"));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry(runtime.get());
+        lpcvm::Execution entry(runtime);
         ASSERT_TRUE(prog->lookup_method("caller", &entry));
         lpcvm::ReturnStack control;
         ASSERT_EQ(entry.execute(control, stack), 1);
@@ -241,7 +241,7 @@ TEST(LpcCompilerTest, AssignsStringConstantsToGlobalsAndReturnsThem) {
         )"));
         auto prog = compiler.generate_code();
         ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry(runtime.get());
+        lpcvm::Execution entry(runtime);
         ASSERT_TRUE(prog->lookup_method("set_message", &entry));
         lpcvm::ReturnStack control;
         lpcvm::DataStack stack;

@@ -4,8 +4,10 @@
 #pragma once
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include "lpc_types.hpp"
 #include "fabric.hpp"
+#include "object_state.hpp"
 #include "vm_svalue.hpp"
 
 namespace lpcvm {
@@ -240,22 +242,21 @@ struct Execution {
 
     Execution() = default;
 
-    Execution(FabricType* sb)
+    Execution(std::shared_ptr<FabricType> sb)
         : Execution() {
-        fabric_ = sb;
+        fabric_ = std::move(sb);
     }
 
     Execution(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr)
         : start_(bytecode), end_(bytecode + size), prog_(prog), self_(nullptr), var0_(0), fabric_(nullptr) {
-        // construct with binding
     }
 
     Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, LpcObjectRef obj)
         : start_(bytecode), end_(bytecode + size), var0_(offset), obj_ref_(obj) {
         if (obj_ref_) {
             prog_ = obj_ref_->program().get();
-            self_ = obj_ref_->state().get();
-            fabric_ = obj_ref_->fabric();
+            self_ = obj_ref_->state();
+            fabric_ = obj_ref_->retain_fabric();
         }
         else {
             prog_ = nullptr;
@@ -266,27 +267,24 @@ struct Execution {
 
     std::size_t length() const { return (start_ && end_) ? (end_ - start_) : 0; }
 
-    Execution& binding(const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr) {
+    Execution& binding(std::shared_ptr<FabricType> sb, const uint8_t* bytecode, std::size_t size, const ObjectClass* prog = nullptr) {
+        fabric_ = std::move(sb);
         start_ = bytecode;
         end_ = bytecode + size;
         prog_ = prog;
         return *this;
     }
 
-    Execution& as_with(ObjectState* self, std::size_t offset = 0) {
-        self_ = self;
-        var0_ = offset;
-        return *this;
-    }
+    Execution& as_with(ObjectState* self, std::size_t offset = 0);
 
     int execute(ReturnStack& control, DataStack& stack, std::size_t num_args = 0);
 
-    const uint8_t* start_;
-    const uint8_t* end_;
-    const ObjectClass* prog_; // bytecode site to get F_CALL entry
-    ObjectState* self_;
-    std::size_t var0_; // position of global variable #0 in self_ (inheritance offset)
-    FabricType* fabric_;
+    const uint8_t* start_ = nullptr;
+    const uint8_t* end_ = nullptr;
+    const ObjectClass* prog_ = nullptr; // bytecode site to get F_CALL entry
+    ObjectState* self_ = nullptr;
+    std::size_t var0_ = 0; // position of global variable #0 in self_ (inheritance offset)
+    std::shared_ptr<FabricType> fabric_; // fabric associated with the execution context
     LpcObjectRef obj_ref_;  // holds a strong reference when constructed with LpcObjectRef
 };
 

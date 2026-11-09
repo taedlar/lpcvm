@@ -324,27 +324,26 @@ public:
     using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC objects
     using HandleType = lpcvm::Handle<LpcObject, LpcObjectRef>;
 
-    static HandleType create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program);
+    static HandleType create(std::shared_ptr<FabricType> sb, std::string_view name, std::shared_ptr<ObjectClass> program);
 
     LpcObject() = delete;
     LpcObject(const LpcObject&) = delete;
     LpcObject& operator=(const LpcObject&) = delete;
-    ~LpcObject() = default;
+    ~LpcObject();
 
-    FabricType *fabric() const noexcept { return fabric_; }
-    // Owning reference; null for objects constructed without a registered name.
+    std::shared_ptr<FabricType> retain_fabric() const noexcept { return weak_fabric_.lock(); }
     LpcStringRef name() const { return name_; }
+    ObjectState* state() const noexcept { return state_.get(); }
     std::shared_ptr<ObjectClass> program() const noexcept { return program_; }
-    std::shared_ptr<ObjectState> state() const noexcept { return state_; }
 
 private:
     template <typename U, typename... Args>
-    friend lpcvm::SharedPtr<U> lpcvm::create_shared(Args&&... args);
+    friend lpcvm::SharedPtr<U> lpcvm::create_shared(Args&&... args); // co-allocator to create prefix control block and the object
 
-    LpcObject(FabricType *sb, std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
+    LpcObject(std::shared_ptr<FabricType> sb, std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
 
-    FabricType *fabric_;
+    std::weak_ptr<FabricType> weak_fabric_;
     LpcStringRef name_;
+    std::unique_ptr<ObjectState> state_;
     std::shared_ptr<ObjectClass> program_;
-    std::shared_ptr<ObjectState> state_;
 };

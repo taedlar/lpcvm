@@ -3,6 +3,7 @@
 #pragma once
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <unordered_map>
@@ -15,11 +16,11 @@ using ObjectHandle = LpcObject::HandleType;
 
 /** Lightweight, scope-owned runtime services, usable without a Sandbox.
  * Destruction releases the tables' owning references. External owning references
- * may survive, but must not use an object's fabric pointer after this runtime dies.
- * The address is stable: objects and execution contexts borrow this runtime.
+ * may survive; objects observe this runtime weakly and execution contexts retain
+ * shared ownership. Object creation requires a shared runtime.
  * Like SharedPtr, allocation, references, and sweeping are thread-confined.
  */
-struct ManagedRuntime {
+struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
     ManagedRuntime() = default;
     ManagedRuntime(const ManagedRuntime&) = delete;
     ManagedRuntime& operator=(const ManagedRuntime&) = delete;
@@ -86,7 +87,7 @@ struct ManagedRuntime {
         const auto name = obj->name();
         if (!name || name->empty())
             throw std::invalid_argument("Object name cannot be empty");
-        if (obj->fabric() != this)
+        if (obj->retain_fabric().get() != this)
             throw std::invalid_argument("Object belongs to another runtime");
 
         mutable_objects().erase(name->view()); // replace the borrowed key, not just its value

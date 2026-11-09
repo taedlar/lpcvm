@@ -6,17 +6,21 @@
 #include "object_state.hpp"
 #include "vm_sandbox.hpp"
 
-LpcObject::LpcObject(FabricType *sb, std::shared_ptr<ObjectClass> program)
-    : fabric_(sb), program_(std::move(program)), state_(nullptr) {
+LpcObject::LpcObject(std::shared_ptr<FabricType> sb, std::shared_ptr<ObjectClass> program)
+    : weak_fabric_(sb),
+      program_(std::move(program)), state_(nullptr) {
     if (program_) {
-        state_ = std::make_shared<ObjectState>(program_->num_variables_inheriting());
+        state_ = std::make_unique<ObjectState>(program_->num_variables_inheriting());
     }
 }
 
-LpcObject::HandleType LpcObject::create(FabricType *sb, std::string_view name, std::shared_ptr<ObjectClass> program) {
-    if (name.empty()) {
+LpcObject::~LpcObject() = default;
+
+LpcObject::HandleType LpcObject::create(std::shared_ptr<FabricType> sb, std::string_view name, std::shared_ptr<ObjectClass> program) {
+    if (name.empty())
         throw std::invalid_argument("Object name cannot be empty");
-    }
+    if (!sb)
+        throw std::invalid_argument("Named object requires a valid fabric");
     auto obj_ref = lpcvm::create_shared<LpcObject>(sb, program);
     obj_ref->name_ = lpcvm::make_shared_string(*sb, name);
     return sb->emplace_object(obj_ref);

@@ -137,10 +137,10 @@ without encoding source-language statement forms in the instruction set.
 ## Fabric Boundary and Language Policies
 
 The fabric supplies host runtime services beyond stack and bytecode mechanics.
-`Execution` accepts a `ManagedRuntime` pointer. `ManagedRuntime` provides
+`Execution` retains a `std::shared_ptr<ManagedRuntime>`. `ManagedRuntime` provides
 shared-string allocation, filesystem access, and object table management.
-`F_CONST_STR`, for example, obtains an owning string through the fabric before
-pushing it onto the stack.
+Storing a temporary string in object state obtains an owning string through the
+fabric. `F_CONST_STR` loads an owning string directly from the constant pool.
 
 The object table is a core fabric service that maintains strong references to all
 registered LPC objects and maps their unique names to references. This enables
