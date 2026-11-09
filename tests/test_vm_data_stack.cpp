@@ -99,13 +99,13 @@ TEST(DataStackTest, TemporaryLocalCopySurvivesFrameCleanup) {
 }
 
 TEST(DataStackTest, TemporaryGlobalStorePromotesAndRetainsValue) {
+    auto sandbox = std::make_shared<lpcvm::Sandbox>("/mudlib");
     ObjectState state(1);
-    lpcvm::Sandbox sandbox("/mudlib");
     std::vector<uint8_t> bytecode;
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_STORE_GLOBAL, 0).emit(F_RETURN, 1);
-    lpcvm::Execution code(&sandbox);
-    code.binding(bytecode.data(), bytecode.size()).as_with(&state);
+    lpcvm::Execution code(sandbox);
+    code.binding(sandbox, bytecode.data(), bytecode.size()).as_with(&state);
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     stack.push_temp_string(std::string_view("a\0b", 3));

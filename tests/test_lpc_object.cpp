@@ -9,7 +9,6 @@
 #include "object_class.hpp"
 #include "vm_sandbox.hpp"
 
-// Objects and execution contexts borrow the runtime's stable address.
 static_assert(!std::is_copy_constructible_v<ManagedRuntime>);
 static_assert(!std::is_copy_assignable_v<ManagedRuntime>);
 static_assert(!std::is_move_constructible_v<ManagedRuntime>);
@@ -21,10 +20,10 @@ TEST(ManagedRuntimeTest, ScopeExitReleasesObjectsAndStrings) {
     ObjectHandle object;
     lpcvm::Handle<LpcString, LpcStringRef> string;
     {
-        ManagedRuntime runtime;
-        EXPECT_TRUE(runtime.objects().empty());
-        object = LpcObject::create(&runtime, "test/object", nullptr);
-        auto name = runtime.find_object("test/object")->name();
+        auto runtime = std::make_shared<ManagedRuntime>();
+        EXPECT_TRUE(runtime->objects().empty());
+        object = LpcObject::create(runtime, "test/object", nullptr);
+        auto name = runtime->find_object("test/object")->name();
         string = decltype(string)(name);
         EXPECT_FALSE(object.expired());
         EXPECT_FALSE(string.expired());
@@ -37,9 +36,9 @@ TEST(ManagedRuntimeTest, ExceptionUnwindingReleasesOwnedResources) {
     ObjectHandle object;
     lpcvm::Handle<LpcString, LpcStringRef> string;
     EXPECT_THROW({
-        ManagedRuntime runtime;
-        object = LpcObject::create(&runtime, "test/object", nullptr);
-        auto name = runtime.find_object("test/object")->name();
+        auto runtime = std::make_shared<ManagedRuntime>();
+        object = LpcObject::create(runtime, "test/object", nullptr);
+        auto name = runtime->find_object("test/object")->name();
         string = decltype(string)(name);
         throw std::runtime_error("test failure");
     }, std::runtime_error);
@@ -75,48 +74,48 @@ TEST(LpcObjectHandleTest, HandleOutlivesObject) {
 }
 
 TEST(LpcObjectTest, CreatingDuplicateNameReplacesWithoutInvalidatingOldName) {
-    lpcvm::Sandbox sb ("/mudlib");
-    auto old_object = LpcObject::create(&sb, "duplicate-name", std::make_shared<ObjectClass>());
+    auto sb = std::make_shared<lpcvm::Sandbox>("/mudlib");
+    auto old_object = LpcObject::create(sb, "duplicate-name", std::make_shared<ObjectClass>());
     auto old_ref = old_object.lock();
     ASSERT_TRUE(old_ref.has_value());
 
-    auto new_object = LpcObject::create(&sb, "duplicate-name", std::make_shared<ObjectClass>());
+    auto new_object = LpcObject::create(sb, "duplicate-name", std::make_shared<ObjectClass>());
     auto new_ref = new_object.lock();
     ASSERT_TRUE(new_ref.has_value());
 
     EXPECT_EQ((*old_ref)->name()->view(), "duplicate-name");
     EXPECT_EQ((*old_ref)->name(), (*new_ref)->name());
-    EXPECT_EQ(sb.find_object("duplicate-name"), new_ref);
+    EXPECT_EQ(sb->find_object("duplicate-name"), new_ref);
 
-    sb.destruct_object(old_object);
-    EXPECT_EQ(sb.find_object("duplicate-name"), new_ref);
-    sb.destruct_object(new_object);
-    EXPECT_FALSE(sb.find_object("duplicate-name"));
+    sb->destruct_object(old_object);
+    EXPECT_EQ(sb->find_object("duplicate-name"), new_ref);
+    sb->destruct_object(new_object);
+    EXPECT_FALSE(sb->find_object("duplicate-name"));
 }
 
 TEST(LpcObjectTest, RegistrationRejectsInvalidObjectsWithoutChangingTable) {
-    ManagedRuntime runtime;
-    ManagedRuntime other;
-    auto existing = LpcObject::create(&runtime, "std/player", nullptr);
-    auto foreign = LpcObject::create(&other, "std/player", nullptr);
-    auto unnamed = lpcvm::create_shared<LpcObject>(&runtime, nullptr);
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto other = std::make_shared<ManagedRuntime>();
+    auto existing = LpcObject::create(runtime, "std/player", nullptr);
+    auto foreign = LpcObject::create(other, "std/player", nullptr);
+    auto unnamed = lpcvm::create_shared<LpcObject>(runtime, nullptr);
 
-    EXPECT_THROW(runtime.emplace_object({}), std::invalid_argument);
-    EXPECT_THROW(runtime.emplace_object(unnamed), std::invalid_argument);
-    EXPECT_THROW(runtime.emplace_object(*foreign.lock()), std::invalid_argument);
-    EXPECT_EQ(runtime.find_object("std/player"), *existing.lock());
-    EXPECT_EQ(other.find_object("std/player"), *foreign.lock());
-    EXPECT_EQ(runtime.objects().size(), 1u);
+    EXPECT_THROW(runtime->emplace_object({}), std::invalid_argument);
+    EXPECT_THROW(runtime->emplace_object(unnamed), std::invalid_argument);
+    EXPECT_THROW(runtime->emplace_object(*foreign.lock()), std::invalid_argument);
+    EXPECT_EQ(runtime->find_object("std/player"), *existing.lock());
+    EXPECT_EQ(other->find_object("std/player"), *foreign.lock());
+    EXPECT_EQ(runtime->objects().size(), 1u);
 }
 
 TEST(LpcObjectTest, RegistrationCanReinsertTheSameObject) {
-    ManagedRuntime runtime;
-    auto handle = LpcObject::create(&runtime, "std/player", nullptr);
-    EXPECT_EQ(runtime.emplace_object(runtime.find_object("std/player")), handle);
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto handle = LpcObject::create(runtime, "std/player", nullptr);
+    EXPECT_EQ(runtime->emplace_object(runtime->find_object("std/player")), handle);
     auto retained = *handle.lock();
-    runtime.destruct_object(handle);
-    EXPECT_EQ(runtime.emplace_object(retained), handle);
-    EXPECT_EQ(runtime.find_object("std/player"), retained);
+    runtime->destruct_object(handle);
+    EXPECT_EQ(runtime->emplace_object(retained), handle);
+    EXPECT_EQ(runtime->find_object("std/player"), retained);
 }
 
 TEST(LpcObjectTest, ReplacementKeyUsesNewObjectNameStorage) {
@@ -125,56 +124,59 @@ TEST(LpcObjectTest, ReplacementKeyUsesNewObjectNameStorage) {
         LpcStringRef make_shared_string(std::string_view value) override {
             return allocate_shared_string(value);
         }
-    } runtime;
-    auto old_handle = LpcObject::create(&runtime, "std/player", nullptr);
-    auto old_name = runtime.find_object("std/player")->name();
-    auto new_handle = LpcObject::create(&runtime, "std/player", nullptr);
-    auto new_name = runtime.find_object("std/player")->name();
+    };
+    auto runtime = std::make_shared<UninternedRuntime>();
+    auto old_handle = LpcObject::create(runtime, "std/player", nullptr);
+    auto old_name = runtime->find_object("std/player")->name();
+    auto new_handle = LpcObject::create(runtime, "std/player", nullptr);
+    auto new_name = runtime->find_object("std/player")->name();
     EXPECT_TRUE(old_handle.expired());
     EXPECT_FALSE(old_name == new_name);
-    const auto& table = runtime.objects();
+    const auto& table = runtime->objects();
     ASSERT_EQ(table.size(), 1u);
     EXPECT_EQ(table.begin()->first.data(), new_name->data());
     old_name = {};
-    EXPECT_EQ(runtime.find_object("std/player"), *new_handle.lock());
+    EXPECT_EQ(runtime->find_object("std/player"), *new_handle.lock());
 }
 
 TEST(LpcObjectTest, NameSharesRuntimeStringAndSurvivesObjectDestruction) {
-    ManagedRuntime runtime;
+    auto runtime = std::make_shared<ManagedRuntime>();
     std::string input = "std/player";
-    auto handle = LpcObject::create(&runtime, input, nullptr);
+    auto handle = LpcObject::create(runtime, input, nullptr);
     input.assign("changed");
-    auto name = runtime.find_object("std/player")->name();
-    EXPECT_EQ(name, lpcvm::make_shared_string(runtime, "std/player"));
-    const auto bytes = runtime.shared_string_allocation_size();
+    auto name = runtime->find_object("std/player")->name();
+    EXPECT_EQ(name, lpcvm::make_shared_string(*runtime, "std/player"));
+    const auto bytes = runtime->shared_string_allocation_size();
     EXPECT_GT(bytes, 0u);
 
     // The object's reference alone protects both its name and the table key.
     name = {};
-    EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
-    ASSERT_TRUE(runtime.find_object("std/player"));
-    name = runtime.find_object("std/player")->name();
-    runtime.destruct_object(handle);
+    EXPECT_EQ(runtime->sweep_shared_strings(), 0u);
+    ASSERT_TRUE(runtime->find_object("std/player"));
+    name = runtime->find_object("std/player")->name();
+    runtime->destruct_object(handle);
     EXPECT_TRUE(handle.expired());
-    EXPECT_FALSE(runtime.find_object("std/player"));
-    EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
+    EXPECT_FALSE(runtime->find_object("std/player"));
+    EXPECT_EQ(runtime->sweep_shared_strings(), 0u);
     EXPECT_EQ(name->view(), "std/player");
 
     name = {};
     // The expired object handle must not retain the string.
-    EXPECT_EQ(runtime.sweep_shared_strings(), bytes);
-    EXPECT_EQ(runtime.shared_string_allocation_size(), 0u);
+    EXPECT_EQ(runtime->sweep_shared_strings(), bytes);
+    EXPECT_EQ(runtime->shared_string_allocation_size(), 0u);
 }
 
 TEST(LpcObjectTest, NameSurvivesRuntimeDestruction) {
     LpcStringRef name;
     LpcObjectRef object;
     {
-        ManagedRuntime runtime;
-        auto handle = LpcObject::create(&runtime, "std/player", nullptr);
+        auto runtime = std::make_shared<ManagedRuntime>();
+        auto handle = LpcObject::create(runtime, "std/player", nullptr);
         object = *handle.lock();
+        EXPECT_EQ(object->retain_fabric(), runtime);
         name = object->name();
     }
+    EXPECT_FALSE(object->retain_fabric());
     EXPECT_EQ(object->name(), name);
     EXPECT_EQ(object->name()->view(), "std/player");
     object = {};
@@ -183,16 +185,31 @@ TEST(LpcObjectTest, NameSurvivesRuntimeDestruction) {
 }
 
 TEST(LpcObjectTest, UnnamedObjectHasNullNameAndCanBeDestructed) {
-    ManagedRuntime runtime;
-    auto object = lpcvm::create_shared<LpcObject>(&runtime, nullptr);
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto object = lpcvm::create_shared<LpcObject>(runtime, nullptr);
     EXPECT_FALSE(object->name());
-    EXPECT_NO_THROW(runtime.destruct_object(LpcObject::HandleType(object)));
+    EXPECT_NO_THROW(runtime->destruct_object(LpcObject::HandleType(object)));
 }
 
 TEST(LpcObjectTest, EmptyNameIsRejectedBeforeInterning) {
-    ManagedRuntime runtime;
-    EXPECT_THROW(LpcObject::create(&runtime, "", nullptr), std::invalid_argument);
-    EXPECT_EQ(runtime.shared_string_allocation_size(), 0u);
+    auto runtime = std::make_shared<ManagedRuntime>();
+    EXPECT_THROW(LpcObject::create(runtime, "", nullptr), std::invalid_argument);
+    EXPECT_EQ(runtime->shared_string_allocation_size(), 0u);
+}
+
+TEST(LpcObjectTest, NullFabricIsRejected) {
+    EXPECT_THROW(LpcObject::create(nullptr, "std/player", nullptr), std::invalid_argument);
+}
+
+TEST(LpcObjectTest, RegistrationRejectsObjectWithExpiredFabric) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto handle = LpcObject::create(runtime, "std/player", nullptr);
+    auto object = *handle.lock();
+    runtime.reset();
+    EXPECT_FALSE(object->retain_fabric());
+    auto other = std::make_shared<ManagedRuntime>();
+    EXPECT_THROW(other->emplace_object(object), std::invalid_argument);
+    EXPECT_TRUE(other->objects().empty());
 }
 
 // Thread-confinement contract: counts are plain integers, not atomics.

@@ -15,12 +15,12 @@ LPMud-style object loading, cloning, and filesystem services.
 
 Declared in [fabric.hpp](../src/fabric.hpp).
 
-A lightweight RAII fabric that can be declared directly on the stack or as a unit
-test fixture member. It needs no explicit initialization or shutdown. Scope exit,
-including exception unwinding, releases its object and string table references.
-It cannot be copied or moved because objects and execution contexts borrow its
-address. External owning references may survive destruction, but a surviving
-object's fabric pointer must no longer be used.
+A lightweight RAII fabric usable on the stack for file and string services.
+Object creation requires shared ownership, typically through
+`std::make_shared<ManagedRuntime>()`. It needs no explicit initialization or
+shutdown. Destruction releases its object and string table references. It cannot
+be copied or moved. External owning references may survive destruction; a
+surviving object's `retain_fabric()` returns empty after the runtime expires.
 
 Provides default file access, shared-string services, and object table management
 without requiring a sandbox. This is the base fabric for execution with or without
@@ -71,16 +71,16 @@ removes an object from the table. Callers receive weak handles; the object is de
 once all remaining strong references are released.
 
 ```cpp
-ManagedRuntime fabric;
-auto handle = LpcObject::create(&fabric, "std/player", nullptr); // creates and registers
-auto found = fabric.find_object("std/player");  // returns the LpcObjectRef
-fabric.emplace_object(found);  // registers using the object's own name
-fabric.destruct_object(handle);  // removes from table
+auto fabric = std::make_shared<ManagedRuntime>();
+auto handle = LpcObject::create(fabric, "std/player", nullptr); // creates and registers
+auto found = fabric->find_object("std/player");  // returns the LpcObjectRef
+fabric->emplace_object(found);  // registers using the object's own name
+fabric->destruct_object(handle);  // removes from table
 ```
 
 The object table is immutable from a caller's perspective through `objects()` const
 member. `emplace_object(obj)` rejects null objects, absent or empty names, and objects
-belonging to another fabric with `std::invalid_argument` before changing the table.
+belonging to another or expired fabric with `std::invalid_argument` before changing the table.
 Replacing an existing name replaces both the object reference and the borrowed key.
 The virtual method's overrides should preserve this contract. Derived classes access
 the mutable table through `mutable_objects()` for custom implementations.
@@ -89,7 +89,9 @@ stores an owning `LpcStringRef`; the object table borrows a view of those bytes.
 `LpcObject::name()` returns an owning reference by value, allowing LPC variables
 to share the string and retain it after object or fabric destruction. Unnamed
 objects constructed directly have a null name reference; `create()` rejects empty
-names. Unused interned names remain until sweeping or fabric destruction.
+names and null fabrics. Objects hold only a weak fabric reference, avoiding an
+ownership cycle with the object table. Unused interned names remain until sweeping
+or fabric destruction.
 
 ## class `lpcvm::Sandbox`
 
@@ -112,6 +114,10 @@ access; this is not an OS-level filesystem jail.
 `clone_object()` creates a new instance from an existing blueprint, sharing its
 `ObjectClass` but with separate state. Both operations register the object in the
 inherited object table from `ManagedRuntime`.
+These operations require a shared-owned sandbox, created with
+`std::make_shared<lpcvm::Sandbox>(root)`. Calling object loading or cloning without
+shared ownership throws `std::bad_weak_ptr` when creating an object. File and
+string services remain usable with a stack-owned sandbox.
 
 Shared-string allocation, accounting, and sweeping are inherited from
 `ManagedRuntime` and remain available through the sandbox. The object table
@@ -120,17 +126,30 @@ in this sandbox's filesystem domain.
 
 ## Execution Integration
 
-A `lpcvm::Execution` can be constructed for a fabric to enable string operations.
+A `lpcvm::Execution` accepts and retains a `std::shared_ptr<ManagedRuntime>`.
+Copies of the execution share ownership; destruction or rebinding releases its
+reference. `binding(fabric, bytecode, size, program)` replaces both the fabric
+and bytecode binding.
 
-String literals emit `F_CONST_STR`, which interns the constant-pool bytes through
-`make_shared_string()` in the supplied fabric and pushes an owning reference.
-Executing this opcode without a fabric throws. Returned strings and strings
-stored in object state remain valid after the execution, program, or fabric is
-destroyed, as long as their owning references remain alive.
+`LpcObject` holds a weak fabric reference to avoid ownership cycles with the
+runtime's object table. `retain_fabric()` locks that reference; object-backed
+executions acquire it automatically, even for objects without a program or state.
+Stack-owned runtimes remain supported for file and string services, but cannot be
+passed to the object factory.
+
+Each object uniquely owns its `ObjectState`; `state()` returns a borrowed pointer
+that remains valid while the object lives. State has no fabric reference.
+`as_with(&state)` binds the state without changing the execution's fabric.
+
+String literals emit `F_CONST_STR`, which loads an owning string from the
+constant pool without requiring an execution fabric. Storing a temporary string
+in object state requires a live execution fabric to allocate an owning string.
+Owning strings remain valid after the execution, program, or fabric is destroyed.
 
 ```cpp
-ManagedRuntime fabric; // A Sandbox can also be supplied.
-lpcvm::Execution entry;
-if (program->lookup_method("set_message", &entry, &state, &fabric))
-    entry.execute(control, stack);
+auto fabric = std::make_shared<ManagedRuntime>(); // A shared Sandbox also works.
+ObjectState state(program->num_variables_inheriting());
+lpcvm::Execution entry(fabric);
+if (program->lookup_method("set_message", &entry))
+    entry.as_with(&state).execute(control, stack);
 ```

@@ -48,6 +48,7 @@ std::optional<PathType> Sandbox::file_search(
 
 ObjectHandle Sandbox::load_object (const PathType &path) {
     using namespace lpcvm::detail;
+    auto fabric = shared_from_this();
     const auto canonical_path = canonicalize_object_path(path, mudlib_root_);
     FILE* file = std::fopen(canonical_path.filesystem_path.string().c_str(), "r");
     if (!file) {
@@ -56,8 +57,7 @@ ObjectHandle Sandbox::load_object (const PathType &path) {
 
     // Compile the object using the LPC compiler
     LpcCompiler compiler(file);
-    // Compilation is synchronous; the compiler borrows this sandbox's fabric.
-    compiler.use_fabric(std::shared_ptr<ManagedRuntime>(this, [](ManagedRuntime*) {}));
+    compiler.use_fabric(fabric);
     compiler.set_filename(canonical_path.local_path.generic_string());
     if (!compiler.parse()) {
         fclose(file);
@@ -70,7 +70,7 @@ ObjectHandle Sandbox::load_object (const PathType &path) {
     if (!prog)
         return LpcObject::HandleType();
 
-    return LpcObject::create(this, object_key(canonical_path.local_path), prog);
+    return LpcObject::create(fabric, object_key(canonical_path.local_path), prog);
 }
 
 ObjectHandle Sandbox::clone_object (ObjectHandle obj) {
@@ -81,5 +81,5 @@ ObjectHandle Sandbox::clone_object (ObjectHandle obj) {
     }
     const auto name = (*obj_ref)->name();
     std::string clone_name = fmt::format("{}#{}", name ? name->view() : std::string_view{}, ++clone_counter);
-    return LpcObject::create(this, clone_name, (*obj_ref)->program());
+    return LpcObject::create(shared_from_this(), clone_name, (*obj_ref)->program());
 }

@@ -12,6 +12,125 @@
 #include <cstdint>
 #include <gtest/gtest.h>
 
+TEST(VMExecutorTest, DefaultExecutionIsEmpty) {
+    lpcvm::Execution code;
+    EXPECT_EQ(code.length(), 0u);
+    EXPECT_EQ(code.prog_, nullptr);
+    EXPECT_EQ(code.self_, nullptr);
+    EXPECT_EQ(code.var0_, 0u);
+    EXPECT_FALSE(code.fabric_);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    EXPECT_EQ(code.execute(control, stack), 0);
+}
+
+TEST(VMExecutorTest, ExecutionAndCopyRetainFabric) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    std::weak_ptr<ManagedRuntime> lifetime = fabric;
+    {
+        lpcvm::Execution code(fabric);
+        lpcvm::Execution copy = code;
+        fabric.reset();
+        EXPECT_FALSE(lifetime.expired());
+        code = lpcvm::Execution{};
+        EXPECT_FALSE(lifetime.expired());
+        EXPECT_EQ(copy.fabric_, lifetime.lock());
+    }
+    EXPECT_TRUE(lifetime.expired());
+}
+
+TEST(VMExecutorTest, BindingReplacesAndRetainsFabric) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    std::weak_ptr<ManagedRuntime> old_lifetime = fabric;
+    lpcvm::Execution code(fabric);
+    fabric.reset();
+    auto replacement = std::make_shared<ManagedRuntime>();
+    std::weak_ptr<ManagedRuntime> lifetime = replacement;
+    const uint8_t bytecode[] = {F_RETURN, 0};
+    EXPECT_EQ(&code.binding(replacement, bytecode, sizeof(bytecode)), &code);
+    replacement.reset();
+    EXPECT_TRUE(old_lifetime.expired());
+    EXPECT_FALSE(lifetime.expired());
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    EXPECT_EQ(code.execute(control, stack), 0);
+    code.binding(nullptr, bytecode, sizeof(bytecode));
+    EXPECT_TRUE(lifetime.expired());
+}
+
+TEST(VMExecutorTest, StateBindingPreservesExecutionFabric) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    std::weak_ptr<ManagedRuntime> lifetime = fabric;
+    ObjectState state(1);
+    {
+        lpcvm::Execution code(fabric);
+        EXPECT_EQ(&code.as_with(&state, 1), &code);
+        EXPECT_EQ(code.fabric_, fabric);
+        EXPECT_EQ(code.self_, &state);
+        EXPECT_EQ(code.var0_, 1u);
+        fabric.reset();
+        EXPECT_FALSE(lifetime.expired());
+        code.as_with(nullptr);
+        EXPECT_EQ(code.fabric_, lifetime.lock());
+    }
+    EXPECT_TRUE(lifetime.expired());
+}
+
+TEST(VMExecutorTest, ExpiredObjectFabricDoesNotRetainFabric) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    auto object = lpcvm::create_shared<LpcObject>(fabric, std::make_shared<ObjectClass>(1));
+    ASSERT_EQ(object->retain_fabric(), fabric);
+    fabric.reset();
+    EXPECT_FALSE(object->retain_fabric());
+    const uint8_t bytecode[] = {F_RETURN, 0};
+    lpcvm::Execution code(bytecode, sizeof(bytecode), 0, object);
+    EXPECT_FALSE(code.fabric_);
+    EXPECT_EQ(code.self_, object->state());
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    EXPECT_EQ(code.execute(control, stack), 0);
+}
+
+TEST(VMExecutorTest, ObjectExecutionRetainsFabricWithoutOwnershipCycle) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    std::weak_ptr<ManagedRuntime> lifetime = fabric;
+    auto handle = LpcObject::create(fabric, "test/execution", std::make_shared<ObjectClass>(1));
+    ASSERT_TRUE(handle.lock().has_value());
+    const uint8_t bytecode[] = {F_STORE_GLOBAL, 0, F_RETURN, 1};
+    {
+        lpcvm::Execution code(bytecode, sizeof(bytecode), 0, *handle.lock()); // keep fabric alive during execution (RAII)
+        ASSERT_EQ(code.fabric_, fabric);
+        ASSERT_EQ(code.obj_ref_->retain_fabric(), fabric);
+        fabric.reset();
+        EXPECT_FALSE(lifetime.expired());
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push_temp_string("retained");
+        ASSERT_EQ(code.execute(control, stack, 1), 1);
+        ASSERT_TRUE(std::holds_alternative<LpcStringRef>((*code.self_)[0]));
+        EXPECT_EQ(std::get<LpcStringRef>((*code.self_)[0])->view(), "retained");
+    }
+    EXPECT_TRUE(lifetime.expired());
+    EXPECT_TRUE(handle.expired());
+}
+
+TEST(VMExecutorTest, ObjectWithoutStateCanRetainFabric) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    std::weak_ptr<ManagedRuntime> lifetime = fabric;
+    auto object = lpcvm::create_shared<LpcObject>(fabric, nullptr);
+    ASSERT_EQ(object->state(), nullptr);
+    const uint8_t bytecode[] = {F_RETURN, 0};
+    {
+        lpcvm::Execution code(bytecode, sizeof(bytecode), 0, object);
+        ASSERT_EQ(code.fabric_, fabric);
+        EXPECT_EQ(code.self_, nullptr);
+        fabric.reset();
+        EXPECT_FALSE(lifetime.expired());
+    }
+    EXPECT_TRUE(lifetime.expired());
+    EXPECT_FALSE(object->retain_fabric());
+}
+
 TEST(VMExecutorTest, EmptyFunction) {
     ManagedRuntime fabric;
     ConstTable consts(fabric);
@@ -127,8 +246,8 @@ TEST(VMExecutorTest, ArgumentsPoppedImplicitReturn) {
 }
 
 TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
-    ManagedRuntime fabric;
-    ConstTable consts(fabric);
+    auto fabric = std::make_shared<ManagedRuntime>();
+    ConstTable consts(*fabric);
     for (int32_t i = 0; i < 260; ++i)
         consts.find_or_add(std::string_view(std::to_string(i)));
     const auto text = std::string_view("a\0b", 3);
@@ -138,14 +257,14 @@ TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
     std::vector<uint8_t> bytecode;
     lpcvm::Bytecode bgen(bytecode);
     bgen.emit(F_CONST_STR, index).emit(F_RETURN, 1);
-    lpcvm::Execution code(&fabric);
+    lpcvm::Execution code(fabric);
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
-    ASSERT_EQ(code.binding(bytecode.data(), bytecode.size(), &prog).execute(control, stack), 1);
+    ASSERT_EQ(code.binding(fabric, bytecode.data(), bytecode.size(), &prog).execute(control, stack), 1);
     ASSERT_EQ(stack.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
     EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
-    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), lpcvm::make_shared_string(fabric, text));
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), lpcvm::make_shared_string(*fabric, text));
 }
 
 TEST(VMExecutorTest, StringConstantDoesNotRequireExecutionFabric) {
@@ -176,7 +295,7 @@ TEST(VMExecutorTest, StringConstantsUsePoolFabric) {
         }
     };
     auto runtime = std::make_shared<TrackingRuntime>();
-    ManagedRuntime other_runtime;
+    auto other_runtime = std::make_shared<ManagedRuntime>();
     LpcCompiler compiler;
     compiler.use_fabric(runtime);
     ASSERT_TRUE(compiler.parse("string f() { return \"hello\"; }"));
@@ -187,7 +306,7 @@ TEST(VMExecutorTest, StringConstantsUsePoolFabric) {
     const auto interned = prog->const_pool()->fetch_string(index);
     const auto calls_after_compile = runtime->calls;
     EXPECT_GT(calls_after_compile, 0);
-    lpcvm::Execution entry(&other_runtime);
+    lpcvm::Execution entry(other_runtime);
     ASSERT_TRUE(prog->lookup_method("f", &entry));
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
@@ -195,7 +314,7 @@ TEST(VMExecutorTest, StringConstantsUsePoolFabric) {
     EXPECT_EQ(runtime->calls, calls_after_compile);
     EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), "hello");
     EXPECT_EQ(std::get<LpcStringRef>(stack.top()), interned);
-    EXPECT_FALSE(std::get<LpcStringRef>(stack.top()) == other_runtime.make_shared_string("hello"));
+    EXPECT_FALSE(std::get<LpcStringRef>(stack.top()) == other_runtime->make_shared_string("hello"));
 }
 
 TEST(VMExecutorTest, StoreGlobal) {

@@ -202,37 +202,37 @@ TEST_F(SandboxFileTest, RequiresExistingFilesForEveryMode) {
 }
 
 TEST_F(SandboxFileTest, FindsObjectsOnlyByExactName) {
-    Sandbox sandbox(root);
-    auto object = sandbox.load_object("std/player.lpc");
+    auto sandbox = std::make_shared<Sandbox>(root);
+    auto object = sandbox->load_object("std/player.lpc");
     ASSERT_TRUE(object);
     std::filesystem::create_directory_symlink(root / "std", root / "inside");
-    EXPECT_EQ(sandbox.find_object("std/player"), object);
+    EXPECT_EQ(sandbox->find_object("std/player"), object);
     for (const char* name : {"/std/player", "std/player.lpc", "./std/player",
                              "std/../std/player", "inside/player", ""}) {
-        EXPECT_FALSE(sandbox.find_object(name)) << name;
+        EXPECT_FALSE(sandbox->find_object(name)) << name;
     }
-    auto clone = sandbox.clone_object(object);
+    auto clone = sandbox->clone_object(object);
     auto clone_ref = clone.lock();
     ASSERT_TRUE(clone_ref);
     const auto clone_name = std::string((*clone_ref)->name()->view());
-    EXPECT_EQ(sandbox.find_object(clone_name), clone);
-    EXPECT_FALSE(sandbox.find_object("/" + clone_name));
+    EXPECT_EQ(sandbox->find_object(clone_name), clone);
+    EXPECT_FALSE(sandbox->find_object("/" + clone_name));
 
     // Neither successful lookups nor misses depend on the filesystem.
     std::filesystem::remove_all(root);
-    EXPECT_EQ(sandbox.find_object("std/player"), object);
-    EXPECT_EQ(sandbox.find_object(clone_name), clone);
-    EXPECT_FALSE(sandbox.find_object("missing"));
-    EXPECT_FALSE(sandbox.find_object("../outside"));
+    EXPECT_EQ(sandbox->find_object("std/player"), object);
+    EXPECT_EQ(sandbox->find_object(clone_name), clone);
+    EXPECT_FALSE(sandbox->find_object("missing"));
+    EXPECT_FALSE(sandbox->find_object("../outside"));
 }
 
 TEST_F(SandboxFileTest, FindsObjectUsingNonNullTerminatedStringView) {
-    Sandbox sandbox(root);
-    auto object = sandbox.load_object("std/player.lpc");
+    auto sandbox = std::make_shared<Sandbox>(root);
+    auto object = sandbox->load_object("std/player.lpc");
     ASSERT_TRUE(object);
     const std::string name = "std/player.lpc-extra";
-    EXPECT_EQ(sandbox.find_object(std::string_view(name.data(), 10)), object);
-    EXPECT_FALSE(sandbox.find_object(std::string_view(name.data(), 14)));
+    EXPECT_EQ(sandbox->find_object(std::string_view(name.data(), 10)), object);
+    EXPECT_FALSE(sandbox->find_object(std::string_view(name.data(), 14)));
 }
 
 TEST_F(SandboxFileTest, ObjectKeysAreRelativeToEachMudlibRoot) {
@@ -242,42 +242,42 @@ TEST_F(SandboxFileTest, ObjectKeysAreRelativeToEachMudlibRoot) {
     // A symlink root must also be stripped from the object name.
     std::filesystem::create_directory_symlink(root, temporary / "root-link");
     for (const auto& mudlib : {root, other_root, temporary / "root-link"}) {
-        Sandbox sandbox(mudlib);
-        auto object = sandbox.load_object("/std/../std/player.lpc");
+        auto sandbox = std::make_shared<Sandbox>(mudlib);
+        auto object = sandbox->load_object("/std/../std/player.lpc");
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
         EXPECT_EQ((*object_ref)->name()->view(), "std/player");
-        ASSERT_EQ(static_cast<const Sandbox&>(sandbox).objects().size(), 1u);
-        EXPECT_EQ(static_cast<const Sandbox&>(sandbox).objects().begin()->first, "std/player");
-        EXPECT_EQ(sandbox.find_object((*object_ref)->name()->view()), object);
-        sandbox.destruct_object(object);
-        EXPECT_TRUE(static_cast<const Sandbox&>(sandbox).objects().empty());
+        ASSERT_EQ(sandbox->objects().size(), 1u);
+        EXPECT_EQ(sandbox->objects().begin()->first, "std/player");
+        EXPECT_EQ(sandbox->find_object((*object_ref)->name()->view()), object);
+        sandbox->destruct_object(object);
+        EXPECT_TRUE(sandbox->objects().empty());
     }
 }
 
 TEST_F(SandboxFileTest, StripsSourceExtensionAndPreservesCloneSuffix) {
-    Sandbox sandbox(root);
+    auto sandbox = std::make_shared<Sandbox>(root);
     std::filesystem::create_directory(root / "dir.with.dots");
     for (const char* filename : {"player.lpc", "player.test.lpc", "noextension"}) {
         const auto source = PathType("dir.with.dots") / filename;
         std::ofstream(root / source) << "int x;\n";
         auto key = source;
         key.replace_extension();
-        auto object = sandbox.load_object(source);
+        auto object = sandbox->load_object(source);
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
         EXPECT_EQ((*object_ref)->name()->view(), key.generic_string());
-        EXPECT_EQ(sandbox.find_object(key.generic_string()), object);
-        auto clone = sandbox.clone_object(object);
+        EXPECT_EQ(sandbox->find_object(key.generic_string()), object);
+        auto clone = sandbox->clone_object(object);
         auto clone_ref = clone.lock();
         ASSERT_TRUE(clone_ref);
         const auto clone_name = std::string((*clone_ref)->name()->view());
         ASSERT_EQ(clone_name.find(key.generic_string() + "#"), 0u);
-        EXPECT_EQ(sandbox.find_object(clone_name), clone);
+        EXPECT_EQ(sandbox->find_object(clone_name), clone);
         std::filesystem::remove(root / source);
-        EXPECT_EQ(sandbox.find_object(key.generic_string()), object);
-        sandbox.destruct_object(clone);
-        EXPECT_FALSE(sandbox.find_object(clone_name));
+        EXPECT_EQ(sandbox->find_object(key.generic_string()), object);
+        sandbox->destruct_object(clone);
+        EXPECT_FALSE(sandbox->find_object(clone_name));
     }
 }
 
@@ -295,18 +295,51 @@ TEST_F(SandboxFileTest, UnknownObjectNamesReturnEmptyHandles) {
 }
 
 TEST_F(SandboxFileTest, LoadObjectUsesMudlibRoot) {
-    Sandbox sandbox(root);
-    EXPECT_TRUE(sandbox.load_object("/std/player.lpc"));
-    EXPECT_THROW(sandbox.load_object("../mudlib-other/secret"), std::runtime_error);
+    auto sandbox = std::make_shared<Sandbox>(root);
+    EXPECT_TRUE(sandbox->load_object("/std/player.lpc"));
+    EXPECT_THROW(sandbox->load_object("../mudlib-other/secret"), std::runtime_error);
+}
+
+TEST_F(SandboxFileTest, LoadedAndClonedObjectsObserveSharedFabric) {
+    std::weak_ptr<ManagedRuntime> lifetime;
+    LpcObjectRef blueprint;
+    LpcObjectRef clone;
+    {
+        auto sandbox = std::make_shared<Sandbox>(root);
+        lifetime = sandbox;
+        auto handle = sandbox->load_object("std/player.lpc");
+        ASSERT_TRUE(handle.lock().has_value());
+        blueprint = *handle.lock();
+        auto clone_handle = sandbox->clone_object(handle);
+        ASSERT_TRUE(clone_handle.lock().has_value());
+        clone = *clone_handle.lock();
+        EXPECT_EQ(blueprint->retain_fabric(), sandbox);
+        EXPECT_EQ(clone->retain_fabric(), sandbox);
+        EXPECT_NE(blueprint->state(), clone->state());
+        EXPECT_EQ(blueprint->program(), clone->program());
+    }
+    EXPECT_TRUE(lifetime.expired());
+    EXPECT_FALSE(blueprint->retain_fabric());
+    EXPECT_FALSE(clone->retain_fabric());
+}
+
+TEST_F(SandboxFileTest, ObjectLoadingAndCloningRequireSharedOwnership) {
+    Sandbox borrowed(root);
+    EXPECT_THROW(borrowed.load_object("std/player.lpc"), std::bad_weak_ptr);
+    auto sandbox = std::make_shared<Sandbox>(root);
+    auto handle = sandbox->load_object("std/player.lpc");
+    ASSERT_TRUE(handle);
+    EXPECT_THROW(borrowed.clone_object(handle), std::bad_weak_ptr);
+    EXPECT_TRUE(borrowed.objects().empty());
 }
 
 TEST(VmSandboxTest, LoadObject) {
-    Sandbox sandbox (std::filesystem::current_path());
+    auto sandbox = std::make_shared<Sandbox>(std::filesystem::current_path());
     // create a LPC file for testing
     std::ofstream file("example.lpc");
     file << "int x;\n";
     file.close();
-    auto obj = sandbox.load_object("example.lpc");
+    auto obj = sandbox->load_object("example.lpc");
     EXPECT_TRUE(obj);
     std::filesystem::remove("example.lpc");
 }

@@ -9,7 +9,7 @@
 
 namespace lpcvm {
 
-class Sandbox: public ManagedRuntime, public std::enable_shared_from_this<Sandbox> {
+class Sandbox: public ManagedRuntime {
 public:
     Sandbox(const PathType &mudlib_root)
         : mudlib_root_(mudlib_root) {}
@@ -41,6 +41,8 @@ public:
      * Once an object is loaded or cloned, the sandbox maintains a reference
      * to it in the object table until it is explicitly destructed with
      * the `destruct_object` method or in the sandbox's destructor.
+    * Loading and cloning require shared ownership of the sandbox; otherwise
+    * they throw std::bad_weak_ptr when creating an object.
      *
      * In LPC, objects are always passed around by handle (weak references).
      * This allows the sandbox to represent any external resource as an

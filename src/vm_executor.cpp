@@ -46,6 +46,12 @@ static bool is_truthy(const SValue& value) {
     }, value);
 }
 
+lpcvm::Execution& lpcvm::Execution::as_with(ObjectState* self, std::size_t offset) {
+    self_ = self;
+    var0_ = offset;
+    return *this;
+}
+
 /**
  * @brief Execution::execute() implementation (a token-threaded virtual machine)
  *
