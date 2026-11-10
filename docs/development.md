@@ -83,7 +83,9 @@ cmake --build build --target bench_bytecode
     execute different instruction counts. Both use the same tail-release shortcut.
 
 Both string benchmarks parse identical LPC source and generate the complete
-function through `LpcCompiler::generate_code(false)` or `generate_code(true)`.
+function through `LpcCompiler::generate_code(options)`, setting
+`lpcvm::CodeGenerationOptions::use_string_accumulator` to `false` or `true`.
+The option defaults to `true`.
 They verify that the emitted bytecode uses the requested mode. Parsing and code
 generation are outside the timed loop; only repeated VM execution is measured.
 Assignments are unrolled, so the comparison does not include LPC loop overhead.
