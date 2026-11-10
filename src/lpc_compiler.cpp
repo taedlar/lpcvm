@@ -161,7 +161,7 @@ bool LpcCompiler::parse() noexcept {
             return false;
         impl_->parser->parse();
         ast_ = impl_->ctx.root;
-        SPDLOG_INFO("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());
+        SPDLOG_DEBUG("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());
         messages_.push_back({-1, -1, "parsing succeeded"});
         result = true;
     }

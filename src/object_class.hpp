@@ -21,7 +21,7 @@ struct ManagedRuntime;
 class ObjectClass {
 public:
 
-    ObjectClass(std::size_t num_vars = 0,ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
+    ObjectClass(std::size_t num_vars = 0, ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
     ~ObjectClass() = default;
 
     std::size_t num_variables() const { return num_variables_; }
