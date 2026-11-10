@@ -13,8 +13,9 @@ namespace lpcvm {
 
     struct CodeGenerationOptions {
         uint64_t use_string_accumulator : 1;
+        uint64_t use_local_string_buffer : 1; // store string locals as fabric-pooled LpcBuffer
 
-        constexpr CodeGenerationOptions() : use_string_accumulator(true) {}
+        constexpr CodeGenerationOptions() : use_string_accumulator(true), use_local_string_buffer(true) {}
     };
 
     /**
@@ -50,6 +51,7 @@ namespace lpcvm {
         CodeGenerationOptions options_;
 
         void grow_bytecode(std::size_t length);
+        void emit_string_terms(const std::vector<const ASTNode*>& terms, const ASTNode& expr);
         void set_source_location(const ASTNode& expr) {
             if (prog_ && expr.src.lineno > 0)
                 prog_->set_source_location(position(), expr.src.current_file, expr.src.current_func,

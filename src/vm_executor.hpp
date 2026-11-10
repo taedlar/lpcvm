@@ -77,29 +77,32 @@ public:
         return std::string_view(cat_buffer_.data() + tmp.offset, tmp.length);
     }
 
-    std::string_view top_string() const {
-        const auto& value = top();
+    // Views of temporaries are invalidated by mutations of the temporary string buffer.
+    std::string_view string_at(std::size_t pos) const {
+        const auto& value = (*this)[pos];
         if (std::holds_alternative<TemporaryString>(value))
-            return fetch_temp_string(stack_.size() - 1);
+            return fetch_temp_string(pos);
         if (const auto* string = std::get_if<LpcStringRef>(&value); string && *string)
             return (*string)->view();
+        if (const auto* buffer = std::get_if<LpcBufferRef>(&value); buffer && *buffer)
+            return (*buffer)->data;
         throw std::runtime_error("Expected a string operand");
+    }
+
+    std::string_view top_string() const {
+        if (stack_.empty())
+            throw std::runtime_error("Evaluation stack is empty");
+        return string_at(stack_.size() - 1);
     }
 
     void concat_top_strings() {
         if (stack_.size() < 2)
             throw std::runtime_error("Evaluation stack underflow");
-        const auto string_view_at = [this](std::size_t pos) -> std::string_view {
-            const auto& value = (*this)[pos];
-            if (std::holds_alternative<TemporaryString>(value))
-                return fetch_temp_string(pos);
-            if (const auto* str = std::get_if<LpcStringRef>(&value))
-                return (*str)->view();
-            throw std::runtime_error("Unsupported binary operand types");
-        };
-        const auto left = string_view_at(stack_.size() - 2);
-        const auto right = string_view_at(stack_.size() - 1);
-        if ((right.end() == cat_buffer_.data() + cat_buffer_.size()) && (left.end() == right.begin())) {
+        const auto left = string_at(stack_.size() - 2);
+        const auto right = string_at(stack_.size() - 1);
+        if (std::holds_alternative<TemporaryString>(stack_[stack_.size() - 2]) &&
+            std::holds_alternative<TemporaryString>(stack_.back()) &&
+            (right.end() == cat_buffer_.data() + cat_buffer_.size()) && (left.end() == right.begin())) {
             // Both strings are temporary strings and contiguous in the buffer.
             stack_.pop_back(); // Remove the right operand as it has been merged with the left
             auto& combined = std::get<TemporaryString>(stack_.back());
@@ -141,6 +144,56 @@ public:
         SValue copy = value;
         release(destination);
         stack_[destination] = std::move(copy);
+    }
+
+    /**
+     * @brief Copy the stack-top string into an LpcBuffer held by the destination slot.
+     * An unshared destination buffer is overwritten in place; otherwise a new buffer
+     * is acquired from the fabric, so earlier copies of the reference are unchanged.
+     * Non-string values are stored as by assign_copy().
+     */
+    void assign_buffer(std::size_t destination, ManagedRuntime& fabric) {
+        if (destination >= stack_.size())
+            throw std::runtime_error("Evaluation stack index out of bounds");
+        const auto& top = stack_.back();
+        if (!std::holds_alternative<TemporaryString>(top) && !std::holds_alternative<LpcStringRef>(top) &&
+            !std::holds_alternative<LpcBufferRef>(top)) {
+            assign_copy(destination, stack_.size() - 1);
+            return;
+        }
+        const auto source = top_string();
+        auto* current = std::get_if<LpcBufferRef>(&stack_[destination]);
+        if (current && *current) {
+            if (current->use_count() == 1) { // the source cannot alias an unshared buffer
+                (*current)->data.assign(source);
+                return;
+            }
+            if (const auto* shared = std::get_if<LpcBufferRef>(&top); shared && *shared == *current)
+                return;
+        }
+        auto buffer = fabric.make_buffer(source.size());
+        buffer->data.assign(source);
+        release(destination); // may compact temporaries, so copy the source first
+        stack_[destination] = std::move(buffer);
+    }
+
+    /**
+     * @brief Move `bytes` into an LpcBuffer held by the destination slot, swapping
+     * storage with an unshared buffer or else a new one from the fabric. Clears `bytes`.
+     */
+    void swap_into_buffer(std::size_t destination, std::string& bytes, ManagedRuntime& fabric) {
+        if (destination >= stack_.size())
+            throw std::runtime_error("Evaluation stack index out of bounds");
+        auto* current = std::get_if<LpcBufferRef>(&stack_[destination]);
+        if (current && *current && current->use_count() == 1) {
+            (*current)->data.swap(bytes);
+        } else {
+            auto buffer = fabric.make_buffer();
+            buffer->data.swap(bytes);
+            release(destination);
+            stack_[destination] = std::move(buffer);
+        }
+        bytes.clear();
     }
 
     void pop_n(std::size_t n) {

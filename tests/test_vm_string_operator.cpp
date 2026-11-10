@@ -234,3 +234,123 @@ TEST(VMExecutorTest, StringAccumulatorConsumesNonTailTemporary) {
     EXPECT_EQ(stack.fetch_temp_string(2), "third");
     EXPECT_TRUE(control.empty());
 }
+
+TEST(VMExecutorTest, LocalBufferStoreReusesUnsharedBuffer) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    const uint8_t bytecode[] = {
+        F_LOAD_LOCAL, 0, F_STORE_LOCAL_BUFFER, 2, F_POP_N, 1,
+        F_LOAD_LOCAL, 1, F_STORE_LOCAL_BUFFER, 2, F_POP_N, 1,
+        F_LOAD_LOCAL, 2, F_RETURN, 1
+    };
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    code.fabric_ = runtime;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_temp_string(std::string(64, 'x'));
+    stack.push(runtime->make_shared_string("short"));
+    stack.push_n(1);
+    ASSERT_EQ(code.execute(control, stack, 3), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    const auto& result = std::get<LpcBufferRef>(stack.top());
+    EXPECT_EQ(result->data, "short");
+    EXPECT_GE(result->data.capacity(), 64u); // overwritten in place
+    EXPECT_EQ(result.use_count(), 1u);
+    EXPECT_EQ(runtime->buffer_pool_stats().live_buffers, 1u);
+}
+
+TEST(VMExecutorTest, LocalBufferStoreCopiesOnWrite) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    // local 0 = "first"; push local 0; local 0 = "second"; return [old, new]
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode generator(bytecode);
+    generator.emit(F_LOAD_LOCAL, 1).emit(F_STORE_LOCAL_BUFFER, 0).emit(F_POP_N, 1)
+        .emit(F_LOAD_LOCAL, 0)
+        .emit(F_LOAD_LOCAL, 2).emit(F_STORE_LOCAL_BUFFER, 0).emit(F_POP_N, 1)
+        .emit(F_LOAD_LOCAL, 0).emit(F_STORE_LOCAL_BUFFER, 0) // self-assignment keeps the buffer
+        .emit(F_RETURN, 2);
+    lpcvm::Execution code(bytecode.data(), bytecode.size());
+    code.fabric_ = runtime;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_n(1);
+    stack.push_temp_string("first");
+    stack.push_temp_string("second");
+    ASSERT_EQ(code.execute(control, stack, 3), 2);
+    ASSERT_EQ(stack.size(), 2u);
+    EXPECT_EQ(stack.string_at(0), "first");
+    EXPECT_EQ(stack.string_at(1), "second");
+    EXPECT_FALSE(std::get<LpcBufferRef>(stack[0]) == std::get<LpcBufferRef>(stack[1]));
+}
+
+TEST(VMExecutorTest, StringAccumulatorFinishesIntoLocalBuffer) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    // local 1 = local 0 + local 0, keep a reference, then local 1 = local 1 + local 0
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode generator(bytecode);
+    generator.emit(F_LOAD_LOCAL, 0).emit(F_STR_BEGIN).emit(F_LOAD_LOCAL, 0).emit(F_STR_APPEND)
+        .emit(F_STR_FINISH_LOCAL, 1)
+        .emit(F_LOAD_LOCAL, 1).emit(F_STR_BEGIN).emit(F_LOAD_LOCAL, 0).emit(F_STR_APPEND)
+        .emit(F_STR_FINISH_LOCAL, 1)
+        .emit(F_LOAD_LOCAL, 1).emit(F_STR_BEGIN).emit(F_STR_FINISH_LOCAL, 1).emit(F_POP_N, 1)
+        .emit(F_RETURN, 2);
+    lpcvm::Execution code(bytecode.data(), bytecode.size());
+    code.fabric_ = runtime;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_temp_string("ab");
+    stack.push_n(1);
+    ASSERT_EQ(code.execute(control, stack, 2), 2);
+    ASSERT_EQ(stack.size(), 2u);
+    const auto& first = std::get<LpcBufferRef>(stack[0]);
+    const auto& second = std::get<LpcBufferRef>(stack[1]);
+    EXPECT_EQ(first->data, "abab");
+    EXPECT_EQ(second->data, "ababab");
+    EXPECT_FALSE(first == second);
+
+    for (const auto& invalid : std::vector<std::vector<uint8_t>>{
+        {F_STR_FINISH_LOCAL, 0},
+        {F_LOAD_LOCAL, 0, F_STR_BEGIN, 0, F_STR_FINISH_LOCAL},
+        {F_LOAD_LOCAL, 0, F_STR_BEGIN, 0, F_STR_FINISH_LOCAL, 9}
+    }) {
+        lpcvm::Execution bad(invalid.data(), invalid.size());
+        bad.fabric_ = runtime;
+        lpcvm::DataStack args;
+        args.push_temp_string("x");
+        EXPECT_THROW(bad.execute(control, args, 1), std::runtime_error);
+    }
+    const uint8_t no_fabric[] = {F_LOAD_LOCAL, 0, F_STR_BEGIN, 0, F_STR_FINISH_LOCAL, 0};
+    lpcvm::Execution bad(no_fabric, sizeof(no_fabric));
+    lpcvm::DataStack args;
+    args.push_temp_string("x");
+    EXPECT_THROW(bad.execute(control, args, 1), std::runtime_error);
+}
+
+TEST(VMExecutorTest, LocalBufferOperandsAndFallbacks) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    ObjectState state(1);
+    std::vector<uint8_t> bytecode;
+    lpcvm::Bytecode generator(bytecode);
+    generator.emit(F_LOAD_LOCAL, 0).emit(F_STORE_LOCAL_BUFFER, 2).emit(F_POP_N, 1)
+        .emit(F_LOAD_LOCAL, 2).emit(F_STORE_GLOBAL, 0).emit(F_POP_N, 1)
+        .emit(F_LOAD_LOCAL, 2).emit(F_LOAD_LOCAL, 2).emit(F_BINARY_OP, oparg::ADD)
+        .emit(F_LOAD_LOCAL, 1).emit(F_STORE_LOCAL_BUFFER, 2).emit(F_POP_N, 1) // non-string falls back
+        .emit(F_RETURN, 1);
+    lpcvm::Execution code(bytecode.data(), bytecode.size());
+    code.fabric_ = runtime;
+    code.as_with(&state);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_temp_string("ab");
+    stack.push(int32_t{7});
+    stack.push_n(1);
+    ASSERT_EQ(code.execute(control, stack, 3), 1);
+    EXPECT_EQ(stack.top_string(), "abab");
+    EXPECT_EQ(std::get<LpcStringRef>(state[0])->view(), "ab");
+
+    code.fabric_ = nullptr;
+    stack.pop();
+    stack.push_temp_string("ab");
+    stack.push(int32_t{7});
+    stack.push_n(1);
+    EXPECT_THROW(code.execute(control, stack, 3), std::runtime_error);
+}

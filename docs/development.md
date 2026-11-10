@@ -81,11 +81,20 @@ cmake --build build --target run_bench
     `concats/s` counts binary concatenations (assignments times terms minus one).
     Compare elapsed time or `concats/s`, not instruction throughput: the two paths
     execute different instruction counts. Both use the same tail-release shortcut.
+- `BM_StringLocalConcatBuffer` and `BM_StringLocalConcatAccumulatorBuffer` repeat
+    both modes with `use_local_string_buffer` enabled: string locals, including
+    `left` and `right`, are stored as fabric-pooled `LpcBuffer`s via
+    `F_STORE_LOCAL_BUFFER`. Each result store overwrites the unshared buffer in
+    place and releases the completed temporary from the stack-buffer tail,
+    instead of replacing a non-tail temporary local. With the accumulator, each
+    assignment finishes with `F_STR_FINISH_LOCAL`, swapping the result into the
+    local's buffer without copying it. The execution binds a
+    `ManagedRuntime`, so buffers are recycled across executions.
 
 Both string benchmarks parse identical LPC source and generate the complete
 function through `LpcCompiler::generate_code(options)`, setting
 `lpcvm::CodeGenerationOptions::use_string_accumulator` to `false` or `true`.
-The option defaults to `true`.
+The accumulator option defaults to `true`, as does `use_local_string_buffer`.
 They verify that the emitted bytecode uses the requested mode. Parsing and code
 generation are outside the timed loop; only repeated VM execution is measured.
 Assignments are unrolled, so the comparison does not include LPC loop overhead.

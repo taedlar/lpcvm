@@ -69,7 +69,8 @@ Each `execute()` invocation owns one initially inactive string accumulator,
 separate from the stack's temporary-string buffer. Its capacity is reused across
 concatenation chains within that invocation, not across invocations. The compiler
 emits these instructions by default for eligible string addition chains;
-`generate_code(false)` retains stack-based addition for comparison. See
+clearing `CodeGenerationOptions::use_string_accumulator` retains stack-based
+addition for comparison. See
 [string-handling.md](string-handling.md) for storage, ownership, cleanup costs,
 and compiler eligibility rules.
 
@@ -135,6 +136,7 @@ in [vm_opcodes.hpp](../src/vm_opcodes.hpp); execution handlers live in
 | Stack | `F_PUSH_N`, `F_POP_N` | Allocate or discard value slots. |
 | Constants | `F_CONST_I4/I8/U4/U8/F4/F8`, `F_CONST_STR` | Push a typed constant-pool entry. |
 | Storage | `F_LOAD_LOCAL`, `F_STORE_LOCAL`, `F_LOAD_GLOBAL`, `F_STORE_GLOBAL` | Load a slot or copy the top value into it; stores preserve the top value. |
+| Local buffer | `F_STORE_LOCAL_BUFFER`, `F_STR_FINISH_LOCAL` | Copy the top string, or move the active accumulator, into a fabric-pooled `LpcBuffer` local, reusing an unshared buffer; the stored value is left on the stack. |
 | Operators | `F_UNARY_OP`, `F_BINARY_OP` | Replace one or two operands with an operation result. |
 | String accumulator | `F_STR_BEGIN`, `F_STR_APPEND`, `F_STR_FINISH` | Consume a string to begin/append a chain, or push its completed temporary result. Arguments must be zero. |
 | Calls | `F_PUSH_FUNC`, `F_CALL`, `F_RETURN` | Select a function, enter its frame, or return values to the caller. |
