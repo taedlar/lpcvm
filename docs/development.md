@@ -55,10 +55,10 @@ Benchmarks need `BUILD_TESTING=ON`. Use an optimized `Release` configuration for
 
 ~~~bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build --target bench_bytecode
-./build/benchmarks/bench_bytecode --benchmark_min_time=0.1s --benchmark_repetitions=5
-./build/benchmarks/bench_bytecode --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
-./build/benchmarks/bench_bytecode --benchmark_filter=BM_StringLocalConcat --benchmark_min_time=0.1s --benchmark_repetitions=5
+cmake --build build --target run_bench
+./build/benchmarks/run_bench --benchmark_min_time=0.1s --benchmark_repetitions=5
+./build/benchmarks/run_bench --benchmark_filter=BM_Dispatch --benchmark_min_time=0.1s
+./build/benchmarks/run_bench --benchmark_filter=BM_StringLocalConcat --benchmark_min_time=0.1s --benchmark_repetitions=5
 ~~~
 
 - `BM_ReturnOnly` measures the execution entry/return baseline.
@@ -92,7 +92,7 @@ Assignments are unrolled, so the comparison does not include LPC loop overhead.
 To save a Release comparison with interleaved repetitions:
 
 ~~~bash
-./build/benchmarks/bench_bytecode --benchmark_filter=BM_StringLocalConcat \
+./build/benchmarks/run_bench --benchmark_filter=BM_StringLocalConcat \
     --benchmark_min_time=0.05s --benchmark_repetitions=5 \
     --benchmark_enable_random_interleaving=true \
     --benchmark_out=build/string_concat_release.json --benchmark_out_format=json
@@ -115,9 +115,9 @@ bytecode bytes traversed, not physical memory traffic.
 
 ~~~bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build --target bench_macro_expansion
-./build/benchmarks/bench_macro_expansion --benchmark_min_time=0.1s --benchmark_repetitions=5
-./build/benchmarks/bench_macro_expansion --benchmark_filter=BM_ObjectMacroChain
+cmake --build build --target run_bench
+./build/benchmarks/run_bench --benchmark_min_time=0.1s --benchmark_repetitions=5
+./build/benchmarks/run_bench --benchmark_filter=BM_ObjectMacroChain
 ~~~
 
 The suite covers plain-text scanning, object-like macros, function arguments,
