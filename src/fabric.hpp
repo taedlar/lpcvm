@@ -26,7 +26,7 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
     ManagedRuntime& operator=(const ManagedRuntime&) = delete;
     ManagedRuntime(ManagedRuntime&&) = delete;
     ManagedRuntime& operator=(ManagedRuntime&&) = delete;
-    virtual ~ManagedRuntime() = default;
+    virtual ~ManagedRuntime();
 
     virtual FILE* file_open(const char* path, const char* mode) {
         return std::fopen(path, mode);
@@ -63,6 +63,18 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
      * override allocation accounting and sweeping together.
      */
     virtual std::size_t sweep_shared_strings();
+
+    /**
+     * @brief Acquire an empty mutable buffer with at least `capacity` reserved
+     * bytes from this runtime's pool. Buffers can outlive this runtime; those
+     * released afterwards are freed rather than recycled.
+     */
+    LpcBufferRef make_buffer(std::size_t capacity = 0);
+
+    lpcvm::BufferPoolStats buffer_pool_stats() const noexcept;
+
+    /** @brief Free recycled buffers; return their approximate allocation bytes. */
+    std::size_t trim_buffer_pool() noexcept;
 
     /**
      * @brief The immutable object table provides a view of all named objects
@@ -131,5 +143,6 @@ protected:
 private:
     ObjectTable named_collection_; // named references to LpcObject instances
     std::unordered_map<std::string_view, LpcStringRef> strings_;
+    lpcvm::BufferPool* buffer_pool_ = nullptr; // created on first use, closed on destruction
 
 };

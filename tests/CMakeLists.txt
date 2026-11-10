@@ -7,6 +7,7 @@ add_executable(test_lpcvm
     test_lpc_lexer.cpp
     test_lpc_object.cpp
     test_lpc_string.cpp
+    test_lpc_buffer.cpp
     test_vm_executor.cpp
     test_vm_svalue.cpp
     test_lpc_parser.cpp
