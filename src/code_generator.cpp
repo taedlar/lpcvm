@@ -9,14 +9,18 @@
 
 using namespace lpcvm;
 
+static bool is_scalar_string(const AST::Variable& variable) {
+    return variable.entry && variable.entry->signature.b.data_type == T_STRING &&
+        !variable.entry->signature.b.is_array && !variable.entry->signature.b.is_function;
+}
+
 static bool collect_string_terms(const ASTNode& expression, std::vector<const ASTNode*>& terms) {
     if (const auto* binary = std::get_if<AST::BinaryOp>(&expression.node)) {
         return binary->arg == oparg::ADD && binary->lhs && binary->rhs &&
             collect_string_terms(*binary->lhs, terms) && collect_string_terms(*binary->rhs, terms);
     }
     if (const auto* variable = std::get_if<AST::Variable>(&expression.node)) {
-        if (!variable->entry || variable->entry->signature.b.data_type != T_STRING ||
-            variable->entry->signature.b.is_array || variable->entry->signature.b.is_function)
+        if (!is_scalar_string(*variable))
             return false;
     } else if (!std::holds_alternative<AST::StringLiteral>(expression.node)) {
         return false;
@@ -41,6 +45,17 @@ void Bytecode::grow_bytecode(std::size_t length) {
     bytecode_.reserve(new_capacity);
 }
 
+void Bytecode::emit_string_terms(const std::vector<const ASTNode*>& terms, const ASTNode& expr) {
+    emit_expression(*terms.front());
+    set_source_location(expr);
+    emit(F_STR_BEGIN);
+    for (std::size_t term = 1; term < terms.size(); ++term) {
+        emit_expression(*terms[term]);
+        set_source_location(expr);
+        emit(F_STR_APPEND);
+    }
+}
+
 void Bytecode::emit_variable_load(const AST::Variable& var) {
     if (!var.entry || !var.entry->value || !std::holds_alternative<uint32_t>(*var.entry->value))
         throw std::runtime_error("Variable has no storage index");
@@ -50,7 +65,10 @@ void Bytecode::emit_variable_load(const AST::Variable& var) {
 void Bytecode::emit_variable_store(const AST::Variable& var) {
     if (!var.entry || !var.entry->value || !std::holds_alternative<uint32_t>(*var.entry->value))
         throw std::runtime_error("Variable has no storage index");
-    emit(var.entry->signature.b.is_local ? F_STORE_LOCAL : F_STORE_GLOBAL, std::get<uint32_t>(*var.entry->value));
+    const bool local = var.entry->signature.b.is_local;
+    const auto op = !local ? F_STORE_GLOBAL :
+        options_.use_local_string_buffer && is_scalar_string(var) ? F_STORE_LOCAL_BUFFER : F_STORE_LOCAL;
+    emit(op, std::get<uint32_t>(*var.entry->value));
 }
 
 Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
@@ -187,6 +205,20 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             const auto* var = std::get_if<AST::Variable>(&assign.lhs->node);
             if (!var)
                 throw std::runtime_error("Unsupported assignment target");
+            if (options_.use_string_accumulator && options_.use_local_string_buffer && assign.rhs &&
+                var->entry && var->entry->value && std::holds_alternative<uint32_t>(*var->entry->value) &&
+                var->entry->signature.b.is_local && is_scalar_string(*var) &&
+                (assign.arg == oparg::ASSIGN_ADD || (assign.arg == oparg::ASSIGN &&
+                    std::holds_alternative<AST::BinaryOp>(assign.rhs->node)))) {
+                std::vector<const ASTNode*> terms;
+                if (assign.arg == oparg::ASSIGN_ADD)
+                    terms.push_back(assign.lhs.get());
+                if (collect_string_terms(*assign.rhs, terms)) {
+                    emit_string_terms(terms, expr);
+                    emit(F_STR_FINISH_LOCAL, std::get<uint32_t>(*var->entry->value));
+                    return;
+                }
+            }
             int binary_arg;
             switch (assign.arg) {
                 case oparg::ASSIGN:     binary_arg = -1; break;
@@ -229,14 +261,7 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             if (options_.use_string_accumulator && bin_op.arg == oparg::ADD) {
                 std::vector<const ASTNode*> terms;
                 if (collect_string_terms(expr, terms)) {
-                    emit_expression(*terms.front());
-                    set_source_location(expr);
-                    emit(F_STR_BEGIN);
-                    for (std::size_t term = 1; term < terms.size(); ++term) {
-                        emit_expression(*terms[term]);
-                        set_source_location(expr);
-                        emit(F_STR_APPEND);
-                    }
+                    emit_string_terms(terms, expr);
                     emit(F_STR_FINISH);
                     return;
                 }

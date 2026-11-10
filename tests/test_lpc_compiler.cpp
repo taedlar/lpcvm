@@ -99,7 +99,7 @@ TEST(CodeGeneratorTest, StringConcatenationEmissionModes) {
             auto program = mode == 2 ? compiler.generate_code() :
                 compiler.generate_code(options);
             ASSERT_NE(program, nullptr);
-            lpcvm::Execution code;
+            lpcvm::Execution code(std::make_shared<ManagedRuntime>());
             ASSERT_TRUE(program->lookup_method("f", &code));
             std::size_t begins = 0;
             std::size_t appends = 0;
@@ -124,6 +124,45 @@ TEST(CodeGeneratorTest, StringConcatenationEmissionModes) {
             EXPECT_EQ(stack.fetch_temp_string(0), "caller");
             EXPECT_EQ(stack.fetch_temp_string(1), "aba");
             EXPECT_TRUE(control.empty());
+        }
+    }
+}
+
+TEST(CodeGeneratorTest, LocalStringBufferEmission) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(int count; string f() {
+        string left = "a"; string right = "b"; int n = 1; string result;
+        result = left + right; result = result + left; result += ""; count = n; return result; })"));
+    for (bool buffer : {false, true}) {
+        for (bool accumulator : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << buffer << " " << accumulator);
+            lpcvm::CodeGenerationOptions options;
+            options.use_string_accumulator = accumulator;
+            options.use_local_string_buffer = buffer;
+            auto program = compiler.generate_code(options);
+            ASSERT_NE(program, nullptr);
+            lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+            ASSERT_TRUE(program->lookup_method("f", &code));
+            std::size_t buffer_stores = 0;
+            std::size_t buffer_finishes = 0;
+            std::size_t local_stores = 0;
+            for (std::size_t offset = 0; offset < code.length(); offset += 2) {
+                buffer_stores += code.start_[offset] == F_STORE_LOCAL_BUFFER;
+                buffer_finishes += code.start_[offset] == F_STR_FINISH_LOCAL;
+                local_stores += code.start_[offset] == F_STORE_LOCAL;
+            }
+            const bool finish_local = buffer && accumulator;
+            EXPECT_EQ(buffer_finishes, finish_local ? 3u : 0u);
+            EXPECT_EQ(buffer_stores, !buffer ? 0u : finish_local ? 2u : 5u);
+            EXPECT_EQ(local_stores, buffer ? 1u : 6u);
+            ObjectState state(program->num_variables_inheriting());
+            code.as_with(&state);
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            ASSERT_EQ(code.execute(control, stack), 1);
+            ASSERT_EQ(stack.size(), 1u);
+            EXPECT_EQ(stack.top_string(), "aba");
+            EXPECT_EQ(std::holds_alternative<LpcBufferRef>(stack.top()), buffer);
         }
     }
 }
@@ -204,19 +243,23 @@ TEST(LpcCompilerTest, StringConcatenationAndCompoundAssignment) {
         SCOPED_TRACE(test.source);
         LpcCompiler compiler;
         ASSERT_TRUE(compiler.parse(test.source));
-        auto prog = compiler.generate_code();
-        ASSERT_NE(prog, nullptr);
-        lpcvm::Execution entry;
-        ASSERT_TRUE(prog->lookup_method("f", &entry));
-        lpcvm::ReturnStack control;
-        lpcvm::DataStack stack;
-        stack.push_temp_string("caller");
-        ASSERT_EQ(entry.execute(control, stack), 1);
-        ASSERT_EQ(stack.size(), 2u);
-        ASSERT_TRUE(std::holds_alternative<TemporaryString>(stack.top()));
-        EXPECT_EQ(stack.fetch_temp_string(0), "caller");
-        EXPECT_EQ(stack.fetch_temp_string(1), test.expected);
-        EXPECT_TRUE(control.empty());
+        for (bool buffer : {false, true}) {
+            SCOPED_TRACE(buffer);
+            lpcvm::CodeGenerationOptions options;
+            options.use_local_string_buffer = buffer;
+            auto prog = compiler.generate_code(options);
+            ASSERT_NE(prog, nullptr);
+            lpcvm::Execution entry(std::make_shared<ManagedRuntime>());
+            ASSERT_TRUE(prog->lookup_method("f", &entry));
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            stack.push_temp_string("caller");
+            ASSERT_EQ(entry.execute(control, stack), 1);
+            ASSERT_EQ(stack.size(), 2u);
+            EXPECT_EQ(stack.fetch_temp_string(0), "caller");
+            EXPECT_EQ(stack.string_at(1), test.expected);
+            EXPECT_TRUE(control.empty());
+        }
     }
 }
 
@@ -258,7 +301,9 @@ TEST(LpcCompilerTest, StringConstantsSurviveProgramAndRuntimeDestruction) {
             string caller() { string value = leaf(); return value; }
             string empty() { return ""; }
         )"));
-        auto prog = compiler.generate_code();
+        lpcvm::CodeGenerationOptions options;
+        options.use_local_string_buffer = false; // keep the shared constant reference in the local
+        auto prog = compiler.generate_code(options);
         ASSERT_NE(prog, nullptr);
         lpcvm::Execution entry(runtime);
         ASSERT_TRUE(prog->lookup_method("caller", &entry));

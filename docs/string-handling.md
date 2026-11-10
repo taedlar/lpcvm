@@ -14,6 +14,7 @@ Unicode normalization.
 |----------------|-------|---------|
 | `LpcStringRef` | Reference-counted shared storage | Constants, object state, and other retained strings. |
 | `TemporaryString` | One `DataStack` | Intermediate values, temporary locals, arguments, and returns. |
+| `LpcBufferRef` | Reference-counted, fabric-pooled mutable storage | Scalar `string` locals by default; see [Local String Buffers](#local-string-buffers). |
 | String accumulator | One `Execution::execute()` invocation | Mutable storage for a concatenation chain; not an `SValue`. |
 
 ### Shared Strings
@@ -60,6 +61,10 @@ the execution's state offset.
 | `F_STORE_LOCAL` | Retain the source reference and release the old destination. | Copy bytes, release the old destination, and install the new descriptor. |
 | `F_LOAD_GLOBAL` | Copy the owning reference from object state. | Object state does not store stack-owned descriptors. |
 | `F_STORE_GLOBAL` | Copy the owning reference into object state. | Intern through the execution's fabric and store the resulting owning reference. |
+
+With local string buffers enabled, stores to `string` locals use
+`F_STORE_LOCAL_BUFFER` or `F_STR_FINISH_LOCAL` instead, and loads copy the
+buffer reference; see [Local String Buffers](#local-string-buffers).
 
 Stores leave the expression value on the stack. A temporary global store
 therefore promotes the stored value without replacing the expression's temporary.
@@ -131,9 +136,38 @@ Capacity is reused across chains within the same invocation, but not across
 `execute()` invocations. Appends avoid intermediate stack-buffer results and
 repeated prefix copies except when accumulator growth requires reallocation.
 Consuming a shared operand or buffer-tail temporary needs no buffer compaction
-or offset scan; a non-tail temporary still uses normal cleanup. Finish still
-copies the complete result, and a later local store still has normal replacement
-costs. This is not a zero-copy string representation.
+or offset scan; a non-tail temporary still uses normal cleanup. `F_STR_FINISH`
+still copies the complete result, and a later local store still has normal
+replacement costs; `F_STR_FINISH_LOCAL` avoids both by moving the result into a
+local buffer.
+
+## Local String Buffers
+
+A local string buffer is an `LpcBufferRef`: a reference-counted `LpcBuffer`
+holding a mutable `std::string`, acquired from the execution fabric's buffer pool
+(see [vm-fabric.md](vm-fabric.md)). Unlike a temporary, it owns its bytes
+independently of the `DataStack`, so replacing a local never compacts the stack
+buffer, and its capacity is reused across assignments and, through the pool,
+across executions. LPC string value semantics are preserved by copy-on-write:
+the VM mutates a buffer only while the local holds its sole reference.
+
+`CodeGenerationOptions::use_local_string_buffer` (default `true`) lowers stores
+to scalar `string` locals to `F_STORE_LOCAL_BUFFER` instead of `F_STORE_LOCAL`.
+Executions of such code require a fabric.
+The handler copies the stack-top string into an `LpcBuffer` from the execution's
+fabric pool. If the local already holds an unshared buffer, its
+bytes are overwritten in place, reusing capacity. Otherwise a new buffer is
+acquired, so loaded copies of the old reference are unchanged (copy-on-write).
+Non-string values are stored as by `F_STORE_LOCAL`. Loads copy the buffer
+reference. Buffers are accepted wherever string operands are, and
+`F_STORE_GLOBAL` interns their bytes.
+
+When the accumulator is also enabled, `local = <eligible chain>` and
+`local += <eligible terms>` end with `F_STR_FINISH_LOCAL slot` instead of
+`F_STR_FINISH` and a store. It swaps the accumulator's storage with the local's
+unshared buffer (or a newly acquired one), so the result is never copied, then
+pushes the local's reference as the expression value. The accumulator inherits
+the buffer's previous capacity.
 
 ## Compiler Lowering
 
@@ -159,13 +193,16 @@ Two-term additions use the same path with one append. Numeric and `mixed`
 expressions, calls, and side-effecting expressions retain ordinary lowering;
 eligible subtrees can still be optimized independently. The compiler does not
 evaluate calls or another accumulator chain while an accumulator is active.
-Compound `+=` itself still uses binary addition followed by a store, although
-an eligible chain on its right-hand side can use the accumulator.
+Compound `+=` on a global, or on a local with buffers disabled, uses binary
+addition followed by a store, although an eligible chain on its right-hand side
+can use the accumulator. With buffers enabled, `+=` and `=` on string locals
+finish into the local's buffer as described above.
 
-`generate_code(false)` explicitly selects ordinary stack addition for comparison.
-Direct generator users can pass `false` as the third `Bytecode` constructor
-argument. The paired string benchmarks compile identical LPC source in both
-modes, verify the selected bytecode, and time execution rather than compilation.
+Setting `use_string_accumulator` or `use_local_string_buffer` to `false` in the
+`CodeGenerationOptions` passed to `generate_code()` or the `Bytecode`
+constructor selects the alternative lowering for comparison. The string
+benchmarks compile identical LPC source in all four combinations, verify the
+selected bytecode, and time execution rather than compilation.
 
 ## Ownership and Verification
 

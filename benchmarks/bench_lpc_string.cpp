@@ -8,7 +8,7 @@
 namespace {
 using namespace bm;
 
-void string_local_concat(benchmark::State& state, bool accumulator) {
+void string_local_concat(benchmark::State& state, bool accumulator, bool buffer = false) {
     const auto concatenations = static_cast<std::size_t>(state.range(0));
     const auto length = static_cast<std::size_t>(state.range(1));
     const auto terms = static_cast<std::size_t>(state.range(2));
@@ -34,21 +34,31 @@ void string_local_concat(benchmark::State& state, bool accumulator) {
     }
     lpcvm::CodeGenerationOptions options;
     options.use_string_accumulator = accumulator;
+    options.use_local_string_buffer = buffer;
     auto program = compiler.generate_code(options);
-    lpcvm::Execution code;
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
     if (!program || !program->lookup_method("run", &code)) {
         state.SkipWithError("Could not generate string benchmark bytecode");
         return;
     }
     std::size_t logical_instructions = 0;
     std::size_t accumulator_begins = 0;
+    std::size_t buffer_stores = 0;
+    std::size_t buffer_finishes = 0;
     for (std::size_t offset = 0; offset < code.length(); offset += 2) {
         if (code.start_[offset] != F_EXTENDED_ARG)
             ++logical_instructions;
         if (code.start_[offset] == F_STR_BEGIN)
             ++accumulator_begins;
+        if (code.start_[offset] == F_STORE_LOCAL_BUFFER)
+            ++buffer_stores;
+        if (code.start_[offset] == F_STR_FINISH_LOCAL)
+            ++buffer_finishes;
     }
-    if (accumulator_begins != (accumulator ? concatenations : 0)) {
+    // left and right are stored; each result assignment is stored or finished into its buffer
+    if (accumulator_begins != (accumulator ? concatenations : 0) ||
+        buffer_finishes != (accumulator && buffer ? concatenations : 0) ||
+        buffer_stores + buffer_finishes != (buffer ? concatenations + 2 : 0)) {
         state.SkipWithError("String benchmark did not use the requested emission mode");
         return;
     }
@@ -68,6 +78,20 @@ void BM_StringLocalConcatAccumulator(benchmark::State& state) {
     string_local_concat(state, true);
 }
 BENCHMARK(BM_StringLocalConcatAccumulator)
+    ->ArgsProduct({{64, 4096}, {0, 16, 128, 4096}, {2, 8, 32}})
+    ->ArgNames({"assignments", "operand_bytes", "terms"});
+
+void BM_StringLocalConcatBuffer(benchmark::State& state) {
+    string_local_concat(state, false, true);
+}
+BENCHMARK(BM_StringLocalConcatBuffer)
+    ->ArgsProduct({{64, 4096}, {0, 16, 128, 4096}, {2, 8, 32}})
+    ->ArgNames({"assignments", "operand_bytes", "terms"});
+
+void BM_StringLocalConcatAccumulatorBuffer(benchmark::State& state) {
+    string_local_concat(state, true, true);
+}
+BENCHMARK(BM_StringLocalConcatAccumulatorBuffer)
     ->ArgsProduct({{64, 4096}, {0, 16, 128, 4096}, {2, 8, 32}})
     ->ArgNames({"assignments", "operand_bytes", "terms"});
 

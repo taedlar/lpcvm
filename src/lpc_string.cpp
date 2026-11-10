@@ -9,10 +9,6 @@ namespace {
 constexpr auto string_overhead = sizeof(LpcStringRef::ControlBlock) + sizeof(LpcString) + 1;
 }
 
-LpcStringRef lpcvm::make_shared_string(ManagedRuntime& runtime, std::string_view value) {
-    return runtime.make_shared_string(value);
-}
-
 LpcStringRef ManagedRuntime::make_shared_string(std::string_view value) {
     auto found = strings_.find(value);
     if (found != strings_.end())

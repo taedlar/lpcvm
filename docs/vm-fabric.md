@@ -28,9 +28,8 @@ named object management. `make_shared_string()`, `shared_string_allocation_size(
 `sweep_shared_strings()`, `emplace_object()`, `find_object()`, and `destruct_object()`
 are virtual.
 
-The free factory `lpcvm::make_shared_string(fabric, value)` forwards to the
-virtual member. Custom storage implementations should override all three string
-services consistently.
+Custom storage implementations should override all three string services
+consistently.
 
 `file_search(name, search_paths)` is virtual and searches directories in order
 for the first regular file, returning `std::optional<PathType>`.
@@ -42,14 +41,14 @@ errors are propagated as-is (e.g. `std::filesystem::filesystem_error`).
 Empty names and embedded NUL bytes in names or searched directories throw `std::invalid_argument`.
 
 The default fabric interns immutable shared strings. Equal byte sequences created
-through `lpcvm::make_shared_string(fabric, value)` share one `LpcString` within
+through `fabric.make_shared_string(value)` share one `LpcString` within
 that fabric. The factory copies the input, including embedded NUL bytes.
 The table holds a strong reference until sweeping or fabric destruction;
 external owning references remain valid after the fabric is destroyed.
 
 ```cpp
 ManagedRuntime fabric;
-auto text = lpcvm::make_shared_string(fabric, "hello");
+auto text = fabric.make_shared_string("hello");
 auto bytes = fabric.shared_string_allocation_size(); // 22 on the 64-bit build
 text = {};
 auto removed_bytes = fabric.sweep_shared_strings(); // 22

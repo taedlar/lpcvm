@@ -46,6 +46,11 @@ static bool is_truthy(const SValue& value) {
     }, value);
 }
 
+static bool is_string(const SValue& value) {
+    return std::holds_alternative<TemporaryString>(value) || std::holds_alternative<LpcStringRef>(value) ||
+        std::holds_alternative<LpcBufferRef>(value);
+}
+
 lpcvm::Execution& lpcvm::Execution::as_with(ObjectState* self, std::size_t offset) {
     self_ = self;
     var0_ = offset;
@@ -208,10 +213,10 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         oparg = (extended_arg << 8) | *pc++;
         if (!self_)
             throw std::runtime_error("Global variable access requires an object state");
-        if (std::holds_alternative<TemporaryString>(stack.top())) {
+        if (std::holds_alternative<TemporaryString>(stack.top()) || std::holds_alternative<LpcBufferRef>(stack.top())) {
             if (!fabric_)
                 throw std::runtime_error("Unable to perform string operation without a fabric");
-            (*self_)[var0_ + oparg] = make_shared_string(*fabric_, stack.fetch_temp_string(stack.size() - 1));
+            (*self_)[var0_ + oparg] = fabric_->make_shared_string(stack.top_string());
         } else {
             (*self_)[var0_ + oparg] = stack.top();
         }
@@ -229,6 +234,14 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         if (stack.empty())
             throw std::runtime_error("Evaluation stack is empty");
         stack.assign_copy(fp + oparg, stack.size() - 1);
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_STORE_LOCAL_BUFFER) {
+        oparg = (extended_arg << 8) | *pc++;
+        if (!fabric_)
+            throw std::runtime_error("Unable to perform string operation without a fabric");
+        stack.assign_buffer(fp + oparg, *fabric_);
         VM_DISPATCH();
     }
 
@@ -270,9 +283,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             throw std::runtime_error("Evaluation stack underflow");
         auto& rhs = stack[sp - 1];
         auto& lhs = stack[sp - 2];
-        if (oparg == oparg::ADD &&
-            (std::holds_alternative<TemporaryString>(lhs) || std::holds_alternative<LpcStringRef>(lhs)) &&
-            (std::holds_alternative<TemporaryString>(rhs) || std::holds_alternative<LpcStringRef>(rhs))) {
+        if (oparg == oparg::ADD && is_string(lhs) && is_string(rhs)) {
             stack.concat_top_strings();
             VM_DISPATCH();
         }
@@ -373,6 +384,20 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         stack.push_temp_string(string_accumulator);
         string_accumulator.clear();
         string_active = false;
+        VM_DISPATCH();
+    }
+
+    VM_HANDLER(F_STR_FINISH_LOCAL) {
+        if (pc >= end_)
+            throw std::runtime_error("Missing string accumulator argument");
+        oparg = (extended_arg << 8) | *pc++;
+        if (!string_active)
+            throw std::runtime_error("String accumulator is inactive");
+        if (!fabric_)
+            throw std::runtime_error("Unable to perform string operation without a fabric");
+        stack.swap_into_buffer(fp + oparg, string_accumulator, *fabric_);
+        string_active = false;
+        stack.push_copy(fp + oparg);
         VM_DISPATCH();
     }
 

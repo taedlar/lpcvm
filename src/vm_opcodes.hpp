@@ -36,7 +36,11 @@
     X(F_STR_BEGIN) \
     X(F_STR_APPEND) \
     X(F_STR_FINISH) \
+    X(F_STORE_LOCAL_BUFFER) \
+    X(F_STR_FINISH_LOCAL) \
 
+/// F_STORE_LOCAL_BUFFER copies the stack-top string into an LpcBuffer local, reusing it when unshared.
+/// F_STR_FINISH_LOCAL moves the accumulator into an LpcBuffer local and pushes the local's reference.
 /// F_JUMP adds its argument to the program counter (relative to the next instruction).
 /// F_JUMP_IF_FALSE pops the top of the stack and jumps only if the value is false (zero/void).
 /// F_JUMP_IF_FALSE_OR_POP / F_JUMP_IF_TRUE_OR_POP peek the top of the stack: if it is false / true, jump and

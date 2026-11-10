@@ -34,6 +34,8 @@ void run_bytecode(benchmark::State& state, lpcvm::Execution& code,
                 matches = stack.fetch_temp_string(0) == text;
             else if (const auto* result = std::get_if<LpcStringRef>(&stack.top()))
                 matches = *result && (*result)->view() == text;
+            else if (const auto* buffer = std::get_if<LpcBufferRef>(&stack.top()))
+                matches = *buffer && (*buffer)->data == text;
         }
         if (!matches) {
             state.SkipWithError("Unexpected execution result");

@@ -145,7 +145,7 @@ TEST(LpcObjectTest, NameSharesRuntimeStringAndSurvivesObjectDestruction) {
     auto handle = LpcObject::create(runtime, input, nullptr);
     input.assign("changed");
     auto name = runtime->find_object("std/player")->name();
-    EXPECT_EQ(name, lpcvm::make_shared_string(*runtime, "std/player"));
+    EXPECT_EQ(name, runtime->make_shared_string("std/player"));
     const auto bytes = runtime->shared_string_allocation_size();
     EXPECT_GT(bytes, 0u);
 
