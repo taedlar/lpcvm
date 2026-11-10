@@ -46,12 +46,14 @@ add_library(lpcvm_obj OBJECT
     vm_file_utils.hpp
     vm_file_utils.cpp
     lpc_string.cpp
+    lpc_buffer.cpp
     lpc_object.cpp
     code_generator.hpp
     code_generator.cpp
     object_state.hpp
     vm_sandbox.hpp
     vm_sandbox.cpp
+    lpc_buffer.cpp
 )
 
 target_include_directories(lpcvm_obj PUBLIC

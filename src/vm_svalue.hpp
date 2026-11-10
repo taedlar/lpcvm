@@ -59,6 +59,7 @@ using SValue = std::variant<
     double,
     TemporaryString, // stack-owned temporary string
     LpcStringRef,
+    LpcBufferRef,
     LpcMappingRef,
     LpcArrayRef,
     LpcObject::HandleType

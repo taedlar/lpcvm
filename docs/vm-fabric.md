@@ -64,6 +64,19 @@ Both operations take linear time in the table size and run on the owning thread.
 Sweeping retains hash buckets; outstanding weak handles can delay the physical
 release of removed strings' allocations.
 
+`make_buffer(capacity)` acquires an empty mutable `LpcBuffer` (a `std::string`)
+from a pool the runtime creates on first use. Copies of `LpcBufferRef` share
+one buffer. When the last reference is released, the buffer is cleared and
+recycled onto one of two free lists: buffers that fit in `std::string`'s inline
+storage (`BufferPool::small_capacity()`, 15 bytes on libstdc++), and larger
+buffers that keep their heap capacity. Requests up to the small capacity are
+served only from the small list; larger requests take a large buffer and grow
+it if needed. Default limits keep up to 1024 small and 64 large buffers, and
+free buffers larger than 64 KiB rather than recycling them.
+`buffer_pool_stats()` reports live and recycled counts, and `trim_buffer_pool()`
+frees recycled buffers. Live buffers retain the pool and may outlive the
+runtime. Buffers released after the runtime is destroyed are freed directly.
+
 The object table holds strong references to all registered LPC objects and maps
 their unique names to references. `emplace_object()` registers or updates an object
 using its own name, `find_object()` retrieves a registered object by name, and `destruct_object()`

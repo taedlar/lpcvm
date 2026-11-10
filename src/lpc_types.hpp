@@ -16,6 +16,7 @@
 
 struct ManagedRuntime;
 class LpcString;
+class LpcBuffer;
 class LpcArray;
 class LpcMapping;
 class LpcObject;
@@ -34,6 +35,89 @@ namespace lpcvm {
  */
 template <typename T, typename RefType>
 struct Handle;
+
+/**
+ * @brief A strong reference to an object recycled through Pool (no weak handles).
+ *
+ * Like SharedPtr, the object follows a co-allocated prefix control block and
+ * counts are thread-confined. While referenced, the control block points to
+ * the owning pool; when the last reference is released, Pool::recycle()
+ * either links it into a free list or frees it.
+ */
+template <typename T, typename Pool>
+struct PooledPtr {
+    struct ControlBlock {
+        uint32_t ref_count;
+        union {
+            Pool* pool;         // while referenced
+            ControlBlock* next; // while recycled
+        };
+    };
+
+    PooledPtr() noexcept : ptr(nullptr) {}
+    PooledPtr(const PooledPtr& other) noexcept : ptr(other.ptr) {
+        if (ptr) {
+            ++control_block(ptr)->ref_count;
+        }
+    }
+    PooledPtr(PooledPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
+    PooledPtr& operator=(PooledPtr other) noexcept {
+        std::swap(ptr, other.ptr);
+        return *this;
+    }
+    ~PooledPtr() {
+        if (ptr) {
+            release(ptr);
+        }
+    }
+
+    uint32_t use_count() const noexcept {
+        return ptr ? control_block(ptr)->ref_count : 0;
+    }
+
+    bool operator==(const PooledPtr& other) const noexcept {
+        return ptr == other.ptr;
+    }
+
+    operator bool() const noexcept {
+        return ptr != nullptr;
+    }
+
+    T* operator->() const {
+        if (!ptr) {
+            throw std::runtime_error("Dereferencing null PooledPtr");
+        }
+        return ptr;
+    }
+    T& operator*() const {
+        if (!ptr) {
+            throw std::runtime_error("Dereferencing null PooledPtr");
+        }
+        return *ptr;
+    }
+
+private:
+    T* ptr;
+
+    friend Pool;
+
+    struct AdoptRetainedReference {};
+
+    PooledPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {}
+
+    static ControlBlock* control_block(T* obj) noexcept {
+        return reinterpret_cast<ControlBlock*>(obj) - 1;
+    }
+
+    static void release(T* obj) noexcept {
+        ControlBlock* cb = control_block(obj);
+        if (--cb->ref_count == 0) {
+            Pool::recycle(cb);
+        }
+    }
+};
+
+class BufferPool;
 
 /**
  * @brief A shared pointer implementation for LPC compound data types'
@@ -301,6 +385,97 @@ private:
 
     const std::size_t length_;
 };
+
+using LpcBufferRef = lpcvm::PooledPtr<LpcBuffer, lpcvm::BufferPool>;
+
+/** Mutable bytes recycled through the fabric's BufferPool. Acquire one with
+ * ManagedRuntime::make_buffer(); copies of LpcBufferRef share the same bytes.
+ */
+class LpcBuffer {
+public:
+    LpcBuffer(const LpcBuffer&) = delete;
+    LpcBuffer& operator=(const LpcBuffer&) = delete;
+
+    std::string data;
+
+private:
+    friend class lpcvm::BufferPool;
+
+    LpcBuffer() noexcept = default;
+    ~LpcBuffer() = default;
+};
+
+namespace lpcvm {
+
+struct BufferPoolLimits {
+    std::size_t max_small_buffers = 1024;
+    std::size_t max_large_buffers = 64;
+    std::size_t max_large_capacity = 64 * 1024; // larger buffers are freed on release
+};
+
+struct BufferPoolStats {
+    std::size_t live_buffers = 0;
+    std::size_t small_buffers = 0;  // recycled, using std::string's inline storage
+    std::size_t large_buffers = 0;  // recycled, retaining heap capacity
+    std::size_t large_capacity = 0; // retained string capacity of recycled large buffers
+};
+
+/**
+ * @brief Recycles LpcBuffer allocations for one fabric.
+ *
+ * Small buffers fit in std::string's inline (SSO) storage; large buffers keep
+ * their heap capacity in a separate free list. Released buffers are cleared
+ * before recycling. Live buffers retain the pool, so they may outlive the
+ * fabric; after close(), released buffers are freed instead of recycled.
+ * Thread-confined.
+ */
+class BufferPool {
+public:
+    using ControlBlock = LpcBufferRef::ControlBlock;
+
+    BufferPool(const BufferPool&) = delete;
+    BufferPool& operator=(const BufferPool&) = delete;
+
+    /** Capacity of an empty std::string, which needs no heap allocation. */
+    static std::size_t small_capacity() noexcept;
+
+    /** Create a pool holding one owner reference, released by close(). */
+    static BufferPool* create(BufferPoolLimits limits = {});
+
+    /** Acquire an empty buffer with at least `capacity` reserved bytes. */
+    LpcBufferRef acquire(std::size_t capacity = 0);
+
+    /** Free all recycled buffers; return their approximate allocation bytes. */
+    std::size_t trim() noexcept;
+
+    /** Trim, stop recycling, and release the owner reference. Call once. */
+    void close() noexcept;
+
+    BufferPoolStats stats() const noexcept;
+    const BufferPoolLimits& limits() const noexcept { return limits_; }
+
+private:
+    template <typename U, typename P>
+    friend struct PooledPtr;
+
+    explicit BufferPool(BufferPoolLimits limits) noexcept : limits_(limits) {}
+    ~BufferPool();
+
+    static void recycle(ControlBlock* cb) noexcept;
+    static LpcBuffer* buffer_of(ControlBlock* cb) noexcept;
+    static ControlBlock* allocate(std::size_t capacity);
+    static void destroy(ControlBlock* cb) noexcept;
+    void unref() noexcept;
+
+    BufferPoolLimits limits_;
+    std::size_t ref_count_ = 1; // the owner plus each live buffer
+    bool closed_ = false;
+    ControlBlock* small_free_ = nullptr;
+    ControlBlock* large_free_ = nullptr;
+    BufferPoolStats stats_;
+};
+
+} // namespace lpcvm
 
 using LpcArrayRef = lpcvm::SharedPtr<LpcArray>;
 
