@@ -11,6 +11,12 @@
 
 namespace lpcvm {
 
+    struct CodeGenerationOptions {
+        uint64_t use_string_accumulator : 1;
+
+        constexpr CodeGenerationOptions() : use_string_accumulator(true) {}
+    };
+
     /**
      * @brief A helper class for generating bytecode for LPC programs.
      * 
@@ -41,7 +47,7 @@ namespace lpcvm {
         };
         std::vector<LoopContext> loops_;
         std::size_t local_depth_ = 0; // number of block locals currently allocated
-        bool string_accumulator_;
+        CodeGenerationOptions options_;
 
         void grow_bytecode(std::size_t length);
         void set_source_location(const ASTNode& expr) {
@@ -51,10 +57,10 @@ namespace lpcvm {
         }
 
     public:
-                Bytecode(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr,
-                        bool string_accumulator = true)
-                        : bytecode_(bytecode), prog_(prog), context_(STATEMENT),
-                            string_accumulator_(string_accumulator) {}
+        Bytecode(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr,
+                CodeGenerationOptions options = {})
+                : bytecode_(bytecode), prog_(prog), context_(STATEMENT),
+                    options_(options) {}
 
         std::size_t position() const { return bytecode_.size(); }
 

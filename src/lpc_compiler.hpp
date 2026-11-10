@@ -82,7 +82,7 @@ public:
 
     bool parse() noexcept;
     bool parse (const std::string& source) noexcept;
-    std::shared_ptr<ObjectClass> generate_code(bool string_accumulator = true) noexcept;
+    std::shared_ptr<ObjectClass> generate_code(lpcvm::CodeGenerationOptions options = {}) noexcept;
 
     const std::vector<Message>& messages() const { return messages_; }
 

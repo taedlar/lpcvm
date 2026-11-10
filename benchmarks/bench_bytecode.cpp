@@ -172,7 +172,9 @@ void string_local_concat(benchmark::State& state, bool accumulator) {
         state.SkipWithError("Could not parse string benchmark source");
         return;
     }
-    auto program = compiler.generate_code(accumulator);
+    lpcvm::CodeGenerationOptions options;
+    options.use_string_accumulator = accumulator;
+    auto program = compiler.generate_code(options);
     lpcvm::Execution code;
     if (!program || !program->lookup_method("run", &code)) {
         state.SkipWithError("Could not generate string benchmark bytecode");

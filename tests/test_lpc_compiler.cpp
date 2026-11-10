@@ -94,7 +94,10 @@ TEST(CodeGeneratorTest, StringConcatenationEmissionModes) {
             SCOPED_TRACE(::testing::Message() << test.source << " " << mode);
             LpcCompiler compiler;
             ASSERT_TRUE(compiler.parse(test.source));
-            auto program = mode == 2 ? compiler.generate_code() : compiler.generate_code(accumulator);
+            lpcvm::CodeGenerationOptions options;
+            options.use_string_accumulator = accumulator;
+            auto program = mode == 2 ? compiler.generate_code() :
+                compiler.generate_code(options);
             ASSERT_NE(program, nullptr);
             lpcvm::Execution code;
             ASSERT_TRUE(program->lookup_method("f", &code));

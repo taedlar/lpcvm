@@ -226,7 +226,7 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             emit(F_UNARY_OP, unary_op.arg);
         },
         [&](const AST::BinaryOp& bin_op) {
-            if (string_accumulator_ && bin_op.arg == oparg::ADD) {
+            if (options_.use_string_accumulator && bin_op.arg == oparg::ADD) {
                 std::vector<const ASTNode*> terms;
                 if (collect_string_terms(expr, terms)) {
                     emit_expression(*terms.front());
