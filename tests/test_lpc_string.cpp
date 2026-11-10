@@ -37,7 +37,7 @@ TEST(ManagedRuntimeStringTest, SharedStringServicesDispatchVirtually) {
         }
     } runtime;
     ManagedRuntime& base = runtime;
-    auto value = lpcvm::make_shared_string(base, "hello");
+    auto value = base.make_shared_string("hello");
     EXPECT_EQ(runtime.allocations, 1);
     const auto bytes = base.shared_string_allocation_size();
     EXPECT_GT(bytes, 0u);
@@ -48,17 +48,17 @@ TEST(ManagedRuntimeStringTest, SharedStringServicesDispatchVirtually) {
 }
 
 TEST_F(LpcStringTest, ReusesLiveStringsByContent) {
-    auto first = lpcvm::make_shared_string(runtime, "hello");
+    auto first = runtime.make_shared_string("hello");
     std::string input = "hello";
-    auto second = lpcvm::make_shared_string(runtime, input);
+    auto second = runtime.make_shared_string(input);
     EXPECT_EQ(first, second);
     EXPECT_EQ(first.use_count(), 3u);
-    EXPECT_FALSE(first == lpcvm::make_shared_string(runtime, "world"));
+    EXPECT_FALSE(first == runtime.make_shared_string("world"));
 }
 
 TEST_F(LpcStringTest, OwnsInputAndHonorsViewLength) {
     std::string input = "hello world";
-    auto value = lpcvm::make_shared_string(runtime, std::string_view(input.data(), 5));
+    auto value = runtime.make_shared_string(std::string_view(input.data(), 5));
     input.assign("changed");
     EXPECT_EQ(value->view(), "hello");
     EXPECT_EQ(value->size(), 5u);
@@ -66,36 +66,36 @@ TEST_F(LpcStringTest, OwnsInputAndHonorsViewLength) {
 }
 
 TEST_F(LpcStringTest, SupportsEmptyAndEmbeddedNullStrings) {
-    auto empty = lpcvm::make_shared_string(runtime, {});
+    auto empty = runtime.make_shared_string({});
     EXPECT_TRUE(empty->empty());
     EXPECT_EQ(empty->c_str()[0], '\0');
-    EXPECT_EQ(empty, lpcvm::make_shared_string(runtime, ""));
-    auto value = lpcvm::make_shared_string(runtime, std::string_view("a\0b", 3));
+    EXPECT_EQ(empty, runtime.make_shared_string(""));
+    auto value = runtime.make_shared_string(std::string_view("a\0b", 3));
     EXPECT_EQ(value->size(), 3u);
     EXPECT_EQ(value->c_str()[3], '\0');
     EXPECT_EQ(value->view(), std::string_view("a\0b", 3));
-    EXPECT_EQ(value, lpcvm::make_shared_string(runtime, std::string_view("a\0b", 3)));
-    EXPECT_FALSE(value == lpcvm::make_shared_string(runtime, "a"));
+    EXPECT_EQ(value, runtime.make_shared_string(std::string_view("a\0b", 3)));
+    EXPECT_FALSE(value == runtime.make_shared_string("a"));
 }
 
 TEST_F(LpcStringTest, LongStringsOwnTerminatedBytesAndRemainInterned) {
     std::string input(4096, 'x');
-    auto value = lpcvm::make_shared_string(runtime, input);
-    EXPECT_EQ(value, lpcvm::make_shared_string(runtime, input));
+    auto value = runtime.make_shared_string(input);
+    EXPECT_EQ(value, runtime.make_shared_string(input));
     input[0] = 'y';
     EXPECT_EQ(value->view(), std::string(4096, 'x'));
     EXPECT_EQ(value->c_str()[value->size()], '\0');
-    EXPECT_FALSE(value == lpcvm::make_shared_string(runtime, input));
+    EXPECT_FALSE(value == runtime.make_shared_string(input));
 }
 
 TEST_F(LpcStringTest, CountsDistinctAllocationsIncludingEmptyStrings) {
     EXPECT_EQ(runtime.shared_string_allocation_size(), 0u);
     EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
-    auto first = lpcvm::make_shared_string(runtime, "hello");
-    auto duplicate = lpcvm::make_shared_string(runtime, "hello");
+    auto first = runtime.make_shared_string("hello");
+    auto duplicate = runtime.make_shared_string("hello");
     EXPECT_EQ(runtime.shared_string_allocation_size(), overhead + 5);
-    auto empty = lpcvm::make_shared_string(runtime, {});
-    auto binary = lpcvm::make_shared_string(runtime, std::string_view("a\0b", 3));
+    auto empty = runtime.make_shared_string({});
+    auto binary = runtime.make_shared_string(std::string_view("a\0b", 3));
     EXPECT_EQ(runtime.shared_string_allocation_size(), 3 * overhead + 8);
     EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
 }
@@ -103,7 +103,7 @@ TEST_F(LpcStringTest, CountsDistinctAllocationsIncludingEmptyStrings) {
 TEST_F(LpcStringTest, RetainsUnusedStringsUntilSweepAndAllowsRecreation) {
     lpcvm::Handle<LpcString, LpcStringRef> weak;
     {
-        auto value = lpcvm::make_shared_string(runtime, "temporary");
+        auto value = runtime.make_shared_string("temporary");
         weak = decltype(weak)(value);
         EXPECT_EQ(value.use_count(), 2u); // Caller and runtime.
     }
@@ -114,35 +114,35 @@ TEST_F(LpcStringTest, RetainsUnusedStringsUntilSweepAndAllowsRecreation) {
     EXPECT_FALSE(weak.lock().has_value());
     EXPECT_EQ(runtime.shared_string_allocation_size(), 0u);
     EXPECT_EQ(runtime.sweep_shared_strings(), 0u);
-    auto recreated = lpcvm::make_shared_string(runtime, "temporary");
+    auto recreated = runtime.make_shared_string("temporary");
     EXPECT_EQ(recreated->view(), "temporary");
-    EXPECT_EQ(recreated, lpcvm::make_shared_string(runtime, "temporary"));
+    EXPECT_EQ(recreated, runtime.make_shared_string("temporary"));
     EXPECT_EQ(runtime.shared_string_allocation_size(), overhead + 9);
 }
 
 TEST_F(LpcStringTest, SweepPreservesExternallyOwnedStrings) {
-    auto retained = lpcvm::make_shared_string(runtime, "retained");
+    auto retained = runtime.make_shared_string("retained");
     auto copy = retained;
     retained = {};
-    lpcvm::make_shared_string(runtime, "discarded");
-    lpcvm::make_shared_string(runtime, "");
+    runtime.make_shared_string("discarded");
+    runtime.make_shared_string("");
     EXPECT_EQ(runtime.sweep_shared_strings(), 2 * overhead + 9);
     EXPECT_EQ(copy->view(), "retained");
     EXPECT_EQ(runtime.shared_string_allocation_size(), overhead + 8);
-    EXPECT_EQ(copy, lpcvm::make_shared_string(runtime, "retained"));
+    EXPECT_EQ(copy, runtime.make_shared_string("retained"));
     copy = {};
     EXPECT_EQ(runtime.sweep_shared_strings(), overhead + 8);
     EXPECT_EQ(runtime.shared_string_allocation_size(), 0u);
 }
 
 TEST_F(LpcStringTest, InternsPerRuntimeAndOutlivesRuntime) {
-    auto first = lpcvm::make_shared_string(runtime, "shared");
+    auto first = runtime.make_shared_string("shared");
     LpcStringRef retained;
     {
         ManagedRuntime other;
-        retained = lpcvm::make_shared_string(other, "shared");
+        retained = other.make_shared_string("shared");
         EXPECT_FALSE(first == retained);
-        EXPECT_EQ(retained, lpcvm::make_shared_string(other, "shared"));
+        EXPECT_EQ(retained, other.make_shared_string("shared"));
         EXPECT_EQ(other.shared_string_allocation_size(), overhead + 6);
         EXPECT_EQ(other.sweep_shared_strings(), 0u);
     }

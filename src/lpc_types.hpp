@@ -37,89 +37,6 @@ template <typename T, typename RefType>
 struct Handle;
 
 /**
- * @brief A strong reference to an object recycled through Pool (no weak handles).
- *
- * Like SharedPtr, the object follows a co-allocated prefix control block and
- * counts are thread-confined. While referenced, the control block points to
- * the owning pool; when the last reference is released, Pool::recycle()
- * either links it into a free list or frees it.
- */
-template <typename T, typename Pool>
-struct PooledPtr {
-    struct ControlBlock {
-        uint32_t ref_count;
-        union {
-            Pool* pool;         // while referenced
-            ControlBlock* next; // while recycled
-        };
-    };
-
-    PooledPtr() noexcept : ptr(nullptr) {}
-    PooledPtr(const PooledPtr& other) noexcept : ptr(other.ptr) {
-        if (ptr) {
-            ++control_block(ptr)->ref_count;
-        }
-    }
-    PooledPtr(PooledPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
-    PooledPtr& operator=(PooledPtr other) noexcept {
-        std::swap(ptr, other.ptr);
-        return *this;
-    }
-    ~PooledPtr() {
-        if (ptr) {
-            release(ptr);
-        }
-    }
-
-    uint32_t use_count() const noexcept {
-        return ptr ? control_block(ptr)->ref_count : 0;
-    }
-
-    bool operator==(const PooledPtr& other) const noexcept {
-        return ptr == other.ptr;
-    }
-
-    operator bool() const noexcept {
-        return ptr != nullptr;
-    }
-
-    T* operator->() const {
-        if (!ptr) {
-            throw std::runtime_error("Dereferencing null PooledPtr");
-        }
-        return ptr;
-    }
-    T& operator*() const {
-        if (!ptr) {
-            throw std::runtime_error("Dereferencing null PooledPtr");
-        }
-        return *ptr;
-    }
-
-private:
-    T* ptr;
-
-    friend Pool;
-
-    struct AdoptRetainedReference {};
-
-    PooledPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {}
-
-    static ControlBlock* control_block(T* obj) noexcept {
-        return reinterpret_cast<ControlBlock*>(obj) - 1;
-    }
-
-    static void release(T* obj) noexcept {
-        ControlBlock* cb = control_block(obj);
-        if (--cb->ref_count == 0) {
-            Pool::recycle(cb);
-        }
-    }
-};
-
-class BufferPool;
-
-/**
  * @brief A shared pointer implementation for LPC compound data types'
  * reference semantics (strong reference only).
  *
@@ -347,20 +264,92 @@ private:
     }
 };
 
+/**
+ * @brief A strong reference to an object recycled through Pool (no weak handles).
+ *
+ * Like SharedPtr, the object follows a co-allocated prefix control block and
+ * counts are thread-confined. While referenced, the control block points to
+ * the owning pool; when the last reference is released, Pool::recycle()
+ * either links it into a free list or frees it.
+ */
+template <typename T, typename Pool>
+struct PooledPtr {
+    struct ControlBlock {
+        uint32_t ref_count;
+        union {
+            Pool* pool;         // while referenced
+            ControlBlock* next; // while recycled
+        };
+    };
+
+    PooledPtr() noexcept : ptr(nullptr) {}
+    PooledPtr(const PooledPtr& other) noexcept : ptr(other.ptr) {
+        if (ptr) {
+            ++control_block(ptr)->ref_count;
+        }
+    }
+    PooledPtr(PooledPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
+    PooledPtr& operator=(PooledPtr other) noexcept {
+        std::swap(ptr, other.ptr);
+        return *this;
+    }
+    ~PooledPtr() {
+        if (ptr) {
+            release(ptr);
+        }
+    }
+
+    uint32_t use_count() const noexcept {
+        return ptr ? control_block(ptr)->ref_count : 0;
+    }
+
+    bool operator==(const PooledPtr& other) const noexcept {
+        return ptr == other.ptr;
+    }
+
+    operator bool() const noexcept {
+        return ptr != nullptr;
+    }
+
+    T* operator->() const {
+        if (!ptr) {
+            throw std::runtime_error("Dereferencing null PooledPtr");
+        }
+        return ptr;
+    }
+    T& operator*() const {
+        if (!ptr) {
+            throw std::runtime_error("Dereferencing null PooledPtr");
+        }
+        return *ptr;
+    }
+
+private:
+    T* ptr;
+
+    friend Pool;
+
+    struct AdoptRetainedReference {};
+
+    PooledPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {}
+
+    static ControlBlock* control_block(T* obj) noexcept {
+        return reinterpret_cast<ControlBlock*>(obj) - 1;
+    }
+
+    static void release(T* obj) noexcept {
+        ControlBlock* cb = control_block(obj);
+        if (--cb->ref_count == 0) {
+            Pool::recycle(cb);
+        }
+    }
+};
+
+class BufferPool;
+
 } // namespace lpcvm
 
 using LpcStringRef = lpcvm::SharedPtr<LpcString>;
-
-namespace lpcvm {
-
-/** Find or create an immutable owning string, interned within the runtime.
- * Like SharedPtr, the runtime and returned references are thread-confined.
- * The input is copied on creation and may contain embedded NUL bytes.
- * Unused strings are retained until the runtime sweeps them or is destroyed.
- */
-LpcStringRef make_shared_string(ManagedRuntime& runtime, std::string_view value);
-
-} // namespace lpcvm
 
 /** Immutable bytes stored immediately after this object, in the same allocation
  * as the SharedPtr control block. Only ManagedRuntime can construct one.

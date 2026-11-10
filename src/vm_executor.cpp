@@ -216,7 +216,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         if (std::holds_alternative<TemporaryString>(stack.top()) || std::holds_alternative<LpcBufferRef>(stack.top())) {
             if (!fabric_)
                 throw std::runtime_error("Unable to perform string operation without a fabric");
-            (*self_)[var0_ + oparg] = make_shared_string(*fabric_, stack.top_string());
+            (*self_)[var0_ + oparg] = fabric_->make_shared_string(stack.top_string());
         } else {
             (*self_)[var0_ + oparg] = stack.top();
         }

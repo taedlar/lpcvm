@@ -22,6 +22,6 @@ LpcObject::HandleType LpcObject::create(std::shared_ptr<FabricType> sb, std::str
     if (!sb)
         throw std::invalid_argument("Named object requires a valid fabric");
     auto obj_ref = lpcvm::create_shared<LpcObject>(sb, program);
-    obj_ref->name_ = lpcvm::make_shared_string(*sb, name);
+    obj_ref->name_ = sb->make_shared_string(name);
     return sb->emplace_object(obj_ref);
 }

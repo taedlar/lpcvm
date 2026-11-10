@@ -264,7 +264,7 @@ TEST(VMExecutorTest, StringConstantPreservesEmbeddedNullAndExtendedIndex) {
     ASSERT_EQ(stack.size(), 1u);
     ASSERT_TRUE(std::holds_alternative<LpcStringRef>(stack.top()));
     EXPECT_EQ(std::get<LpcStringRef>(stack.top())->view(), text);
-    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), lpcvm::make_shared_string(*fabric, text));
+    EXPECT_EQ(std::get<LpcStringRef>(stack.top()), fabric->make_shared_string(text));
 }
 
 TEST(VMExecutorTest, StringConstantDoesNotRequireExecutionFabric) {
@@ -347,7 +347,7 @@ TEST(VMExecutorTest, StoreGlobalStringRetainsOwnershipAfterExecution) {
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     const auto text = std::string_view("hello\0world", 11);
-    stack.push(lpcvm::make_shared_string(sandbox, text));
+    stack.push(sandbox.make_shared_string(text));
 
     {
         std::vector<uint8_t> bytecode;
@@ -391,7 +391,7 @@ TEST(VMExecutorTest, StoreGlobalStringReassignmentReleasesPreviousValue) {
     bgen.emit(F_STORE_GLOBAL, 0).emit(F_RETURN, 0);
     lpcvm::Execution code(bytecode.data(), bytecode.size());
 
-    stack.push(lpcvm::make_shared_string(sandbox, "first"));
+    stack.push(sandbox.make_shared_string("first"));
     ASSERT_EQ(code.as_with(&this_obj).execute(control, stack, 1), 0);
     ASSERT_TRUE(stack.empty());
     const auto first_bytes = sandbox.shared_string_allocation_size();
@@ -402,7 +402,7 @@ TEST(VMExecutorTest, StoreGlobalStringReassignmentReleasesPreviousValue) {
     EXPECT_EQ(std::get<LpcStringRef>(this_obj[0]).use_count(), 2u);
     EXPECT_EQ(sandbox.sweep_shared_strings(), 0u);
 
-    stack.push(lpcvm::make_shared_string(sandbox, "second"));
+    stack.push(sandbox.make_shared_string("second"));
     ASSERT_EQ(code.execute(control, stack, 1), 0);
     EXPECT_EQ(std::get<LpcStringRef>(this_obj[0])->view(), "second");
     EXPECT_EQ(sandbox.sweep_shared_strings(), first_bytes);

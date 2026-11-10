@@ -45,7 +45,8 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
 
     /**
      * @brief Find or create an immutable owning string. Copies input bytes, including
-     * embedded NULs. Returned strings can outlive this runtime.
+     * embedded NULs. Returned strings can outlive this runtime. Unused strings are
+     * retained until sweep_shared_strings() or destruction.
      */
     virtual LpcStringRef make_shared_string(std::string_view value);
 
