@@ -96,79 +96,28 @@ necessarily at the buffer tail, and replacing a local can require compaction.
 
 ## SValue Variant Assignment Costs
 
-Costs for assigning between the three string representations are qualitative
-end-to-end rankings: Best, Low, Moderate, Worst. They are not measured timings;
-actual speed depends on string length, buffer capacity, sharing patterns, and
-temporary stack position. Assume local buffers and the accumulator are enabled.
-
-Assignments are listed from lowest to highest cost:
+Costs for assigning between the three string representations, ordered from lowest to highest cost. These are qualitative rankings: Best, Low, Moderate, Worst. Actual speed depends on string length, buffer capacity, sharing patterns, and temporary stack position. Assume local buffers enabled (the default).
 
 | Rank | Assignment | Cost | LPC Example | Key Operation |
 |------|-----------|------|---|---|
 | 1 | `LpcStringRef` ← `LpcStringRef` | **Best** | `global1 = global2;` | Reference retain + release; no bytes copied |
 | 2 | `LpcBufferRef` ← `LpcBufferRef` | **Low** | `string x = y;` (both locals) | Reference copy; destination buffer returned to pool if sole owner |
-| 3 | `TemporaryString` ← `TemporaryString` (LHS merged) | **Low** | `func(a + b);` (expression argument) | Binary ADD fast path: left operand extended in-place (just length update), right operand popped; no byte moves for merge |
-| 3b | `TemporaryString` ← `TemporaryString` (copy, ref-released) | **Low~Moderate** (rare) | `void func(string a, string b) { b = a; }` or `{ a = b; }` | Push-copy creates new temporary; cost depends on stack position: tail release O(1), non-tail release O(n) offset repair |
-| 4 | `LpcBufferRef` ← `LpcStringRef` | **Low~Moderate** | `string local_var = global_var;` (with local buffers enabled) | Extract bytes via F_STORE_LOCAL_BUFFER: overwrite unshared buffer in place (Low), else allocate new (Moderate) |
-| 5 | `LpcStringRef` ← `LpcBufferRef` | **Moderate** | `global_var = local_var;` | Extract bytes + intern; query intern table, possible allocation if content not found |
-| 6 | `LpcBufferRef` ← `TemporaryString` | **Moderate** | `string local_var = func();` (func returns string) | Extract bytes from temporary + copy to buffer; release temporary (possible stack scan if non-tail) |
-| 7 | `TemporaryString` ← `LpcStringRef`/`LpcBufferRef` | **Moderate**[^interleaved] | `func("strA"+"strB"); // inside: a = val;` | Assign string value (global or local) to temp parameter; append bytes to `cat_buffer_` (costs ∝ length); cleanup O(1) at tail[^interleaved] |
-| 8 | `LpcStringRef` ← `TemporaryString` | **Moderate–Worst** | `global_var = a + b;` | Extract bytes + intern + release temporary; intern lookup/allocation always required; worst-case cleanup with interleaved temps |
+| 3 | `TemporaryString` ← `TemporaryString` (LHS merged) | **Low** | `func(a + b);` (expression argument) | Binary ADD fast path: left operand extended in-place, right operand popped; no byte moves |
+| 3b | `TemporaryString` ← `TemporaryString` (copy, ref-released) | **Low~Moderate** (rare) | `void func(string a, string b) { b = a; }` | Push-copy creates new temporary; tail release O(1), non-tail release O(n) |
+| 4 | `LpcBufferRef` ← `LpcStringRef` | **Low~Moderate** | `string local = global;` (default mode) | F_STORE_LOCAL_BUFFER: overwrite unshared buffer (Low), or allocate new (Moderate) |
+| 5 | `LpcStringRef` ← `LpcBufferRef` | **Moderate** | `global_var = local_var;` | Extract bytes + intern; query table, possible allocation |
+| 6 | `LpcBufferRef` ← `TemporaryString` | **Moderate** | `string local = func();` | Extract bytes + copy to buffer; release temporary (possible offset repair) |
+| 7 | `TemporaryString` ← `LpcStringRef`/`LpcBufferRef` | **Moderate**[^interleaved] | `func("A"+"B"); // inside: a = val;` | Assign to temp parameter; append bytes to cat_buffer_; cleanup O(1) at tail |
+| 8 | `LpcStringRef` ← `TemporaryString` | **Moderate–Worst** | `global_var = a + b;` | Extract bytes + intern + release temporary; worst-case cleanup if interleaved |
 
-**Copying references is cheap**, but copying or internalizing byte content incurs
-higher cost. Assigning an existing shared value only retains its reference. A
-buffered local copies bytes into a reusable local buffer acquired from the fabric
-pool, without compacting the stack. Modifying a unique local buffer overwrites
-it in place; a shared buffer needs copy-on-write detachment. Creating a shared
-string interns through the runtime, checking the intern table for existing content
-and allocating if a miss occurs. Literal loads and copies of existing shared
-references skip this lookup.
+**Key principles:**
+- Reference-only assignments (Cases 1–2) are cheapest: no byte copies, just reference counting
+- Byte copies (Cases 3–8) scale with string length; actual cost depends on buffer reuse and temporary stack position
+- Case 3 (expression arguments) is most common; temporaries only occur with expressions, not literals/variables
+- By default, `CodeGenerationOptions::use_local_string_buffer = true`, compiling local assignments to `F_STORE_LOCAL_BUFFER`; see [Local String Buffers](#local-string-buffers)
+- Case 4 optimization: could defer buffer allocation for read-only assignments, returning buffers to the pool
 
-**Local string buffer mode:** By default, `CodeGenerationOptions::use_local_string_buffer = true`, 
-which compiles string local variable assignments to `F_STORE_LOCAL_BUFFER` (extracts bytes into 
-a fabric-pooled buffer). If disabled, locals become `LpcStringRef` (reference-only, like Case 1). 
-The table assumes the default mode. See [Local String Buffers](#local-string-buffers) for details.
-
-**Optimization opportunity:** When assigning an `LpcStringRef` to a local with buffer mode enabled, 
-the current implementation always copies bytes into a buffer (Case 4: Low~Moderate cost). A future 
-optimization could detect read-only assignments and instead make the local an `LpcStringRef`, 
-returning the buffer to the pool. On a subsequent write, copy-on-write would allocate a buffer 
-if needed. This would reduce allocation and copy work for locals that are read but not modified.
-
-**When are TemporaryStrings created for function arguments?** Only when the caller
-uses a string **expression** (e.g., `func(a + b)`, `func(a + "suffix")`). Passing
-a literal (e.g., `func("text")`) or variable (e.g., `func(var)`) passes a reference
-without creating a temporary; these are pushed as `LpcStringRef` or `LpcBufferRef`
-directly. This is why Case 3 (expression arguments) is by far the most common.
-
-**Case 3 (LHS operand merged in-place):** String concatenation via binary ADD where operands are contiguous TemporaryStrings at the tail. The fast path merges by **extending the left operand's length in-place** and popping the right operand from the stack. No bytes are copied for the merge itself. This is the most common case: **any expression passed as a function argument** creates a TemporaryString argument via this fast path.
-
-Example: `func(a + b);`
-- Push `a` → TemporaryString at offset 0, length L_a
-- Push `b` → TemporaryString at offset L_a, length L_b (at tail, contiguous)
-- ADD (fast path) → left operand length extended to L_a + L_b, right operand popped from stack
-- Result: Left operand (LHS) now represents combined string, still at original offset 0
-- Push parameter copy → append bytes to tail → new TemporaryString for parameter
-- Both cleanups (parameter, then merged operand) at tail → O(1)
-
-**Case 3b (Temporary copy with reference release, rare):** Assigning a TemporaryString to another TemporaryString parameter inside a function. Both source and destination are temporaries; the operation creates a new destination temporary via `push_copy()`. Cost depends critically on the **stack position of the destination**: releasing at the tail is O(1), but releasing a non-tail temporary requires O(n) offset repair. This case is rare because function arguments are typically passed by reference (literals and variables don't create TemporaryStrings); only expression arguments create temporaries, and reassigning between parameters is uncommon.
-
-Example: `void func(string a, string b) { b = a; }` or `{ a = b; }`
-- Parameters: `a` at stack[0], `b` at stack[1] (newer, at tail)
-- `b = a;` → release old `b` at tail → O(1) truncate; create new `b` via push_copy(a)
-- `a = b;` → release old `a` non-tail → O(n) erase + offset repair; create new `a` via push_copy(b)
-- Result: **Low cost** (tail release) or **Low~Moderate cost** (non-tail release)
-
-**Case 7 (Reassigning function parameters):** When a function parameter (initially a TemporaryString from the argument) is reassigned to any string value. Reading bytes from LpcStringRef or LpcBufferRef has identical O(1) cost.
-
-Example: `void func(string a) { a = "strC"; } func("strA"+"strB");`
-- Argument `"strA"+"strB"` creates TemporaryString for parameter `a`
-- Inside func, reassigning `a = "strC"` (or `a = local_var;`) replaces that temporary
-- Cost: byte copy (proportional to string length) + cleanup (see footnote)
-
-**Case 8 (Complex expressions to globals):** Assigning a temporary result (from `a + b`) to a global requires mandatory intern operation, making it highest cost.
-
-[^interleaved]: **Interleaved temporary strings** (worst-case cleanup) occur when multiple temporaries accumulate before cleanup—typical in complex expressions. Example: `string a = function(b + "str");` creates operand temps (b, "str"), intermediate result (b + "str"), and function return, all stacked before cleanup requires non-tail O(n) offset repairs. **Best-case (O(1) tail cleanup):** simple function calls like `string a = func(global_str);` where parameter and return are LIFO-consecutive; both release at tail position with O(1) truncate.
+[^interleaved]: **Interleaved temporary strings** cause worst-case cleanup (O(n) offset repair). Example: `string a = function(b + "str");` creates multiple temporaries that must be released out-of-order. Best-case (O(1)): simple LIFO sequences like `string a = func(global);` where parameter and return release at tail consecutively.
 
 The [string benchmarks](development.md#benchmarks) measure complete local
 concatenation workloads with ordinary addition or the accumulator, with local
