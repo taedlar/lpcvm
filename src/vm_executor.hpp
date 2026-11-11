@@ -159,32 +159,28 @@ public:
             throw std::runtime_error("Evaluation stack index out of bounds");
         const auto& top = stack_.back();
         
-        // Non-string values: use standard copy semantics
-        if (!std::holds_alternative<TemporaryString>(top) && !std::holds_alternative<LpcStringRef>(top) &&
-            !std::holds_alternative<LpcBufferRef>(top)) {
-            assign_copy(destination, stack_.size() - 1);
-            return;
-        }
-        
-        // For LpcStringRef and LpcBufferRef: store reference directly (value semantics, no allocation)
-        if (std::holds_alternative<LpcStringRef>(top) || std::holds_alternative<LpcBufferRef>(top)) {
-            assign_copy(destination, stack_.size() - 1);
-            return;
-        }
-        
-        // For TemporaryString: extract bytes and create a buffer
-        const auto source = top_string();
-        auto* current = std::get_if<LpcBufferRef>(&stack_[destination]);
-        if (current && *current) {
-            if (current->use_count() == 1) { // the destination buffer is unshared
-                (*current)->data.assign(source);
-                return;
+        if (std::holds_alternative<TemporaryString>(top)) {
+            // For TemporaryString: extract bytes and create a buffer
+            const auto source = top_string();
+            auto* current = std::get_if<LpcBufferRef>(&stack_[destination]);
+            if (current && *current) {
+                if (current->use_count() == 1) { // the destination buffer is unshared
+                    // Reuse the existing buffer in place; no release needed since we're
+                    // modifying the buffer's contents, not replacing the reference.
+                    (*current)->data.assign(source);
+                    return;
+                }
             }
+            auto buffer = fabric.make_buffer(source.size());
+            buffer->data.assign(source);
+            release(destination); // may compact temporaries, so copy the source first
+            stack_[destination] = std::move(buffer);
         }
-        auto buffer = fabric.make_buffer(source.size());
-        buffer->data.assign(source);
-        release(destination); // may compact temporaries, so copy the source first
-        stack_[destination] = std::move(buffer);
+        else {
+            // For non-temporary types, do assign_copy (value semantics)
+            assign_copy(destination, stack_.size() - 1);
+        }
+        
     }
 
     /**
