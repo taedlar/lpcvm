@@ -147,34 +147,40 @@ public:
     }
 
     /**
-     * @brief Copy the stack-top string into an LpcBuffer held by the destination slot.
-     * An unshared destination buffer is overwritten in place; otherwise a new buffer
-     * is acquired from the fabric, so earlier copies of the reference are unchanged.
-     * Non-string values are stored as by assign_copy().
+     * @brief Assign a string value to a local variable slot, handling temporaries efficiently.
+     * 
+     * For LpcStringRef and LpcBufferRef (shared values), stores the reference directly
+     * without allocation (value semantics). For TemporaryString, only then creates an
+     * LpcBuffer from the fabric pool when needed. Non-string values are stored as by
+     * assign_copy().
      */
-    void assign_buffer(std::size_t destination, ManagedRuntime& fabric) {
+    void assign_value(std::size_t destination, ManagedRuntime& fabric) {
         if (destination >= stack_.size())
             throw std::runtime_error("Evaluation stack index out of bounds");
         const auto& top = stack_.back();
-        if (!std::holds_alternative<TemporaryString>(top) && !std::holds_alternative<LpcStringRef>(top) &&
-            !std::holds_alternative<LpcBufferRef>(top)) {
-            assign_copy(destination, stack_.size() - 1);
-            return;
-        }
-        const auto source = top_string();
-        auto* current = std::get_if<LpcBufferRef>(&stack_[destination]);
-        if (current && *current) {
-            if (current->use_count() == 1) { // the source cannot alias an unshared buffer
-                (*current)->data.assign(source);
-                return;
+        
+        if (std::holds_alternative<TemporaryString>(top)) {
+            // For TemporaryString: extract bytes and create a buffer
+            const auto source = top_string();
+            auto* current = std::get_if<LpcBufferRef>(&stack_[destination]);
+            if (current && *current) {
+                if (current->use_count() == 1) { // the destination buffer is unshared
+                    // Reuse the existing buffer in place; no release needed since we're
+                    // modifying the buffer's contents, not replacing the reference.
+                    (*current)->data.assign(source);
+                    return;
+                }
             }
-            if (const auto* shared = std::get_if<LpcBufferRef>(&top); shared && *shared == *current)
-                return;
+            auto buffer = fabric.make_buffer(source.size());
+            buffer->data.assign(source);
+            release(destination); // may compact temporaries, so copy the source first
+            stack_[destination] = std::move(buffer);
         }
-        auto buffer = fabric.make_buffer(source.size());
-        buffer->data.assign(source);
-        release(destination); // may compact temporaries, so copy the source first
-        stack_[destination] = std::move(buffer);
+        else {
+            // For non-temporary types, do assign_copy (value semantics)
+            assign_copy(destination, stack_.size() - 1);
+        }
+        
     }
 
     /**

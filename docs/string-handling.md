@@ -1,6 +1,6 @@
 # String Handling
 
-This document describes the current string representation, ownership, bytecode,
+This document describes the LPCVM string representation, ownership, bytecode,
 and compiler lowering. See [vm-architecture.md](vm-architecture.md) for call
 frames and [development.md](development.md#bytecode) for benchmark workflows.
 
@@ -13,8 +13,8 @@ Unicode normalization.
 | Representation | Owner | Purpose |
 |----------------|-------|---------|
 | `LpcStringRef` | Reference-counted shared storage | Constants, object state, and other retained strings. |
+| `LpcBufferRef` | Reference-counted, fabric-pooled mutable storage with copy-on-write | Scalar `string` locals by default; see [Local String Buffers](#local-string-buffers). |
 | `TemporaryString` | One `DataStack` | Intermediate values, temporary locals, arguments, and returns. |
-| `LpcBufferRef` | Reference-counted, fabric-pooled mutable storage | Scalar `string` locals by default; see [Local String Buffers](#local-string-buffers). |
 | String accumulator | One `Execution::execute()` invocation | Mutable storage for a concatenation chain; not an `SValue`. |
 
 ### Shared Strings
@@ -94,6 +94,37 @@ Stack position and buffer position are not interchangeable. Local assignment
 can put newly appended bytes into an older slot. A stack-top temporary is not
 necessarily at the buffer tail, and replacing a local can require compaction.
 
+## SValue Variant Assignment Costs
+
+Costs for assigning between the three string representations, ordered from lowest to highest cost. These are qualitative rankings: Best, Low, Moderate, Worst. Actual speed depends on string length, buffer capacity, sharing patterns, and temporary stack position. Assume local buffers enabled (the default).
+
+| Rank | Assignment | Cost | LPC Example | Key Operation |
+|------|-----------|------|---|---|
+| 1 | `LpcStringRef` ← `LpcStringRef` | **Best** | `global1 = global2;` | Reference retain + release; no bytes copied |
+| 2 | `LpcBufferRef` ← `LpcBufferRef` | **Low** | `string x = y;` (both locals) | Reference copy; destination buffer returned to pool if sole owner |
+| 3 | `TemporaryString` ← `TemporaryString` (LHS merged) | **Low** | `func(a + b);` (expression argument) | Binary ADD fast path: left operand extended in-place, right operand popped; no byte moves |
+| 3b | `LpcBufferRef` ← `TemporaryString` (parameter upgrade) | **Low~Moderate** | `void func(string a) { a = value; }` called as `func("expr");` | Parameter (initially TemporaryString) upgraded to LpcBufferRef on first assignment; subsequent assignments reuse buffer (Low); temp cleanup O(1)–O(n) |
+| 4 | `LpcBufferRef` ← `LpcStringRef` | **Low~Moderate** | `string local = global;` (default mode) | F_STORE_LOCAL_BUFFER: overwrite unshared buffer (Low), or allocate new (Moderate) |
+| 5 | `LpcStringRef` ← `LpcBufferRef` | **Moderate** | `global_var = local_var;` | Extract bytes + intern; query table, possible allocation |
+| 6 | `LpcBufferRef` ← `TemporaryString` (local initialization) | **Moderate** | `string local = func();` | Extract bytes + copy to buffer; release temporary (possible offset repair) |
+| 7 | `TemporaryString` ← `LpcStringRef`/`LpcBufferRef` | **Moderate**[^interleaved] | `func("A"+"B"); // inside: a = val;` | Assign to temp parameter; append bytes to cat_buffer_; cleanup O(1) at tail |
+| 8 | `LpcStringRef` ← `TemporaryString` | **Moderate–Worst** | `global_var = a + b;` | Extract bytes + intern + release temporary; worst-case cleanup if interleaved |
+
+**Key principles:**
+- Reference-only assignments (Cases 1–2) are cheapest: no byte copies, just reference counting
+- Byte copies (Cases 3–8) scale with string length; actual cost depends on buffer reuse and temporary stack position
+- Case 3 (expression arguments) is most common; temporaries only occur with expressions, not literals/variables
+- Case 3b: Parameter upgrade optimization—assigning a value to a function parameter that started as `TemporaryString` creates an `LpcBufferRef` on first assignment, enabling buffer reuse and eliminating the need to append bytes to the stack buffer on subsequent assignments
+- By default, `CodeGenerationOptions::use_local_string_buffer = true`, compiling local assignments to `F_STORE_LOCAL_BUFFER`; see [Local String Buffers](#local-string-buffers)
+- Case 4 optimization: When assigning an `LpcStringRef`/`LpcBufferRef` to a parameter, the reference is stored directly (no buffer allocation), allowing efficient pass-through of immutable strings
+
+[^interleaved]: **Interleaved temporary strings** cause worst-case cleanup (O(n) offset repair). Example: `string a = function(b + "str");` creates multiple temporaries that must be released out-of-order. Best-case (O(1)): simple LIFO sequences like `string a = func(global);` where parameter and return release at tail consecutively.
+
+The [string benchmarks](development.md#benchmarks) measure complete local
+concatenation workloads with ordinary addition or the accumulator, with local
+buffers enabled or disabled. They include assignment and cleanup costs, but do
+not isolate assignment or release timings.
+
 ## Ordinary Concatenation
 
 `F_BINARY_OP ADD` accepts shared and temporary string operands in any combination
@@ -148,8 +179,11 @@ holding a mutable `std::string`, acquired from the execution fabric's buffer poo
 (see [vm-fabric.md](vm-fabric.md)). Unlike a temporary, it owns its bytes
 independently of the `DataStack`, so replacing a local never compacts the stack
 buffer, and its capacity is reused across assignments and, through the pool,
-across executions. LPC string value semantics are preserved by copy-on-write:
-the VM mutates a buffer only while the local holds its sole reference.
+across executions. Copying an `LpcBufferRef` shares the same buffer; it does not
+copy the bytes. On a write, the VM reuses the destination buffer only when that
+local holds its sole reference. If another value still refers to it, the VM
+writes the new value to a different buffer, leaving the other reference's bytes
+unchanged. This copy-on-write behavior preserves LPC string value semantics.
 
 `CodeGenerationOptions::use_local_string_buffer` (default `true`) lowers stores
 to scalar `string` locals to `F_STORE_LOCAL_BUFFER` instead of `F_STORE_LOCAL`.

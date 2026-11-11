@@ -247,7 +247,7 @@ TEST(VMExecutorTest, LocalBufferStoreReusesUnsharedBuffer) {
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     stack.push_temp_string(std::string(64, 'x'));
-    stack.push(runtime->make_shared_string("short"));
+    stack.push_temp_string("short");
     stack.push_n(1);
     ASSERT_EQ(code.execute(control, stack, 3), 1);
     ASSERT_EQ(stack.size(), 1u);
