@@ -241,7 +241,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         oparg = (extended_arg << 8) | *pc++;
         if (!fabric_)
             throw std::runtime_error("Unable to perform string operation without a fabric");
-        stack.assign_buffer(fp + oparg, *fabric_);
+        stack.assign_value(fp + oparg, *fabric_);
         VM_DISPATCH();
     }
 
