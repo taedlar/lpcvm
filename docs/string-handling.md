@@ -103,10 +103,10 @@ Costs for assigning between the three string representations, ordered from lowes
 | 1 | `LpcStringRef` ← `LpcStringRef` | **Best** | `global1 = global2;` | Reference retain + release; no bytes copied |
 | 2 | `LpcBufferRef` ← `LpcBufferRef` | **Low** | `string x = y;` (both locals) | Reference copy; destination buffer returned to pool if sole owner |
 | 3 | `TemporaryString` ← `TemporaryString` (LHS merged) | **Low** | `func(a + b);` (expression argument) | Binary ADD fast path: left operand extended in-place, right operand popped; no byte moves |
-| 3b | `TemporaryString` ← `TemporaryString` (copy, ref-released) | **Low~Moderate** (rare) | `void func(string a, string b) { b = a; }` | Push-copy creates new temporary; tail release O(1), non-tail release O(n) |
+| 3b | `LpcBufferRef` ← `TemporaryString` (parameter upgrade) | **Low~Moderate** | `void func(string a) { a = value; }` called as `func("expr");` | Parameter (initially TemporaryString) upgraded to LpcBufferRef on first assignment; subsequent assignments reuse buffer (Low); temp cleanup O(1)–O(n) |
 | 4 | `LpcBufferRef` ← `LpcStringRef` | **Low~Moderate** | `string local = global;` (default mode) | F_STORE_LOCAL_BUFFER: overwrite unshared buffer (Low), or allocate new (Moderate) |
 | 5 | `LpcStringRef` ← `LpcBufferRef` | **Moderate** | `global_var = local_var;` | Extract bytes + intern; query table, possible allocation |
-| 6 | `LpcBufferRef` ← `TemporaryString` | **Moderate** | `string local = func();` | Extract bytes + copy to buffer; release temporary (possible offset repair) |
+| 6 | `LpcBufferRef` ← `TemporaryString` (local initialization) | **Moderate** | `string local = func();` | Extract bytes + copy to buffer; release temporary (possible offset repair) |
 | 7 | `TemporaryString` ← `LpcStringRef`/`LpcBufferRef` | **Moderate**[^interleaved] | `func("A"+"B"); // inside: a = val;` | Assign to temp parameter; append bytes to cat_buffer_; cleanup O(1) at tail |
 | 8 | `LpcStringRef` ← `TemporaryString` | **Moderate–Worst** | `global_var = a + b;` | Extract bytes + intern + release temporary; worst-case cleanup if interleaved |
 
@@ -114,8 +114,9 @@ Costs for assigning between the three string representations, ordered from lowes
 - Reference-only assignments (Cases 1–2) are cheapest: no byte copies, just reference counting
 - Byte copies (Cases 3–8) scale with string length; actual cost depends on buffer reuse and temporary stack position
 - Case 3 (expression arguments) is most common; temporaries only occur with expressions, not literals/variables
+- Case 3b: Parameter upgrade optimization—assigning a value to a function parameter that started as `TemporaryString` creates an `LpcBufferRef` on first assignment, enabling buffer reuse and eliminating the need to append bytes to the stack buffer on subsequent assignments
 - By default, `CodeGenerationOptions::use_local_string_buffer = true`, compiling local assignments to `F_STORE_LOCAL_BUFFER`; see [Local String Buffers](#local-string-buffers)
-- Case 4 optimization: could defer buffer allocation for read-only assignments, returning buffers to the pool
+- Case 4 optimization: When assigning an `LpcStringRef`/`LpcBufferRef` to a parameter, the reference is stored directly (no buffer allocation), allowing efficient pass-through of immutable strings
 
 [^interleaved]: **Interleaved temporary strings** cause worst-case cleanup (O(n) offset repair). Example: `string a = function(b + "str");` creates multiple temporaries that must be released out-of-order. Best-case (O(1)): simple LIFO sequences like `string a = func(global);` where parameter and return release at tail consecutively.
 
