@@ -7,6 +7,7 @@
 #include "object_class.hpp"
 #include "object_state.hpp"
 #include "vm_executor.hpp"
+#include "vm_exception.hpp"
 #include "vm_opcodes.hpp"
 #include "vm_sandbox.hpp"
 #include <cstdint>
@@ -185,9 +186,114 @@ TEST(VMExecutorTest, DivisionByZeroIncludesExpressionSourceLocation) {
         code.execute(control, stack);
         FAIL() << "Expected division by zero to throw";
     }
-    catch (const std::runtime_error& error) {
+    catch (const lpcvm::Exception<std::runtime_error>& error) {
+        EXPECT_EQ(error.source_file(), "division.lpc");
+        EXPECT_EQ(error.func_name(), "divide");
+        EXPECT_EQ(error.lineno(), 2);
+        EXPECT_EQ(error.column(), 12);
         EXPECT_STREQ(error.what(), "division.lpc:2:12: In function `divide()': Division by zero");
     }
+}
+
+TEST(VMExecutorTest, StackHelperErrorIncludesSourceLocation) {
+    LpcCompiler compiler;
+    compiler.set_filename("argument.lpc");
+    ASSERT_TRUE(compiler.parse("int read(int value) {\n    return value;\n}"));
+    auto object = compiler.generate_code();
+    ASSERT_NE(object, nullptr);
+    lpcvm::Execution code;
+    ASSERT_TRUE(object->lookup_method("read", &code));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    try {
+        code.execute(control, stack);
+        FAIL() << "Expected missing argument to throw";
+    } catch (const lpcvm::Exception<std::runtime_error>& error) {
+        EXPECT_EQ(error.source_file(), "argument.lpc");
+        EXPECT_EQ(error.func_name(), "read");
+        EXPECT_EQ(error.lineno(), 2);
+        EXPECT_STREQ(error.what(), "argument.lpc:2:12: In function `read()': Evaluation stack index out of bounds");
+    }
+}
+
+TEST(VMExecutorTest, GlobalAccessErrorPreservesTypeAndSourceLocation) {
+    LpcCompiler compiler;
+    compiler.set_filename("global.lpc");
+    ASSERT_TRUE(compiler.parse("int value;\nint read() {\n    return value;\n}"));
+    auto object = compiler.generate_code();
+    ASSERT_NE(object, nullptr);
+    lpcvm::Execution code;
+    ASSERT_TRUE(object->lookup_method("read", &code));
+    ObjectState state(0);
+    code.as_with(&state);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    try {
+        code.execute(control, stack);
+        FAIL() << "Expected invalid global index to throw";
+    } catch (const lpcvm::Exception<std::out_of_range>& error) {
+        EXPECT_EQ(error.source_file(), "global.lpc");
+        EXPECT_EQ(error.func_name(), "read");
+        EXPECT_EQ(error.lineno(), 3);
+        EXPECT_STREQ(error.what(), "global.lpc:3:12: In function `read()': Variable index out of range");
+    }
+}
+
+TEST(VMExecutorTest, ErrorsWithoutSourceLocationsAreWrapped) {
+    const std::vector<std::vector<uint8_t>> cases = {
+        {F_RETURN, 1},
+        {F_POP_N, 1},
+        {F_STR_BEGIN},
+        {F_JUMP, 2},
+        {255, 0},
+    };
+    for (const auto& bytecode : cases) {
+        SCOPED_TRACE(static_cast<int>(bytecode.front()));
+        lpcvm::Execution code(bytecode.data(), bytecode.size());
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        try {
+            code.execute(control, stack);
+            FAIL() << "Expected invalid bytecode to throw";
+        } catch (const lpcvm::Exception<std::runtime_error>& error) {
+            EXPECT_EQ(error.source_file(), "<unknown-file>");
+            EXPECT_EQ(error.lineno(), 0);
+        }
+    }
+}
+
+TEST(VMExecutorTest, ConstantPoolErrorsPreserveTheirTypes) {
+    ManagedRuntime fabric;
+    ConstTable consts(fabric);
+    auto index = consts.find_or_add(int32_t{42});
+    ObjectClass prog(0, &consts);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    const uint8_t wrong_type[] = {F_CONST_STR, static_cast<uint8_t>(index)};
+    lpcvm::Execution string_code(wrong_type, sizeof(wrong_type), &prog);
+    EXPECT_THROW(string_code.execute(control, stack), lpcvm::Exception<std::invalid_argument>);
+    const uint8_t invalid_index[] = {F_CONST_I4, 255};
+    lpcvm::Execution numeric_code(invalid_index, sizeof(invalid_index), &prog);
+    EXPECT_THROW(numeric_code.execute(control, stack), lpcvm::Exception<std::out_of_range>);
+}
+
+TEST(VMExecutorTest, InvalidCallOperandPreservesVariantErrorType) {
+    const uint8_t bytecode[] = {F_CALL, 1};
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push(int32_t{0}); // Function indices must be uint32_t.
+    EXPECT_THROW(code.execute(control, stack), lpcvm::Exception<std::bad_variant_access>);
+}
+
+TEST(VMExecutorTest, EntryErrorsAreWrapped) {
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    lpcvm::Execution empty;
+    EXPECT_THROW(empty.execute(control, stack, 1), lpcvm::Exception<std::runtime_error>);
+    const uint8_t bytecode[] = {F_RETURN, 0};
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    EXPECT_THROW(code.execute(control, stack, 1), lpcvm::Exception<std::runtime_error>);
 }
 
 TEST(VMExecutorTest, ReturnUnderflow) {
