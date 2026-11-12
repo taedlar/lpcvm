@@ -244,6 +244,48 @@ TEST(LpcSharedPtrTest, CopyAndDestroyTrackStrongCount) {
     EXPECT_EQ(a.use_count(), 1u);
 }
 
+TEST(LpcSharedPtrTest, ConstructFromLockResultRetainsObject) {
+    auto owner = lpcvm::create_shared<int>(42);
+    lpcvm::Handle<int, lpcvm::SharedPtr<int>> handle(owner);
+    {
+        lpcvm::SharedPtr<int> locked = handle.lock();
+        EXPECT_EQ(owner.use_count(), 2u);
+        owner = {};
+        EXPECT_FALSE(handle.expired());
+        EXPECT_EQ(locked.use_count(), 1u);
+        EXPECT_EQ(*locked, 42);
+    }
+    EXPECT_TRUE(handle.expired());
+    lpcvm::SharedPtr<int> expired = handle.lock();
+    EXPECT_FALSE(expired);
+    EXPECT_EQ(expired.use_count(), 0u);
+}
+
+TEST(LpcSharedPtrTest, ConstructFromOptionalCopiesOrMovesOwnership) {
+    auto owner = lpcvm::create_shared<int>(42);
+    std::optional<lpcvm::SharedPtr<int>> source(owner);
+    {
+        lpcvm::SharedPtr<int> copied(source);
+        EXPECT_TRUE(*source == owner);
+        EXPECT_TRUE(copied == owner);
+        EXPECT_EQ(owner.use_count(), 3u);
+        lpcvm::SharedPtr<int> moved(std::move(source));
+        ASSERT_TRUE(source.has_value());
+        EXPECT_FALSE(*source);
+        EXPECT_TRUE(moved == owner);
+        EXPECT_EQ(owner.use_count(), 3u);
+    }
+    EXPECT_EQ(owner.use_count(), 1u);
+
+    lpcvm::SharedPtr<int> null_value(source);
+    EXPECT_FALSE(null_value);
+    EXPECT_EQ(null_value.use_count(), 0u);
+    source.reset();
+    lpcvm::SharedPtr<int> empty(source);
+    EXPECT_FALSE(empty);
+    EXPECT_EQ(empty.use_count(), 0u);
+}
+
 TEST(LpcHandleTest, CopyAndDestroyTrackWeakCount) {
     auto owner = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
     auto h = LpcObject::HandleType(owner);

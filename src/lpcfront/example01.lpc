@@ -6,5 +6,6 @@ int g = 123;
 
 int add(x, y, ... argv) {
     int a = x, b = y - g;
+    object obj = self;
     return ADD(a, b);
 }

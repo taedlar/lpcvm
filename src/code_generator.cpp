@@ -182,6 +182,9 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
         [&](const AST::Variable& var) {
             emit_variable_load(var);
         },
+        [&](const AST::Self& self_node) {
+            emit(F_PUSH_SELF);
+        },
         [&](const AST::Assign& assign) {
             if (!assign.lhs != !assign.rhs) { // ++/-- forms have exactly one operand
                 const bool prefix = (assign.arg == oparg::ASSIGN_PREFIX_INC || assign.arg == oparg::ASSIGN_PREFIX_DEC);

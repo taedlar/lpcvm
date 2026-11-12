@@ -70,13 +70,16 @@ private:
     friend class LpcCompiler;
 
     std::shared_ptr<ConstPool> name_pool_;
-    std::vector<Binding> static_bindings_; // used for F_CALL static binding resolution
 
     /**
      * \brief The list of method bindings in the virtual table, sorted by
      * method name. The method name must be interned in the constant pool.
+     * The strong reference name_pool_ ensures that the string_view remains
+     * valid.
      * 
      * Used for inheritance-based method resolution at runtime and F_CALL_OTHER.
      */
     std::vector<std::pair<std::string_view, Binding>> bindings_;
+
+    std::vector<Binding> static_bindings_; // used for F_CALL static binding resolution
 };
