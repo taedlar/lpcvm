@@ -71,7 +71,7 @@ concatenation chains within that invocation, not across invocations. The compile
 emits these instructions by default for eligible string addition chains;
 clearing `CodeGenerationOptions::use_string_accumulator` retains stack-based
 addition for comparison. See
-[string-handling.md](string-handling.md) for storage, ownership, cleanup costs,
+[string-runtime.md](string-runtime.md) for storage, ownership, cleanup costs,
 and compiler eligibility rules.
 
 - `F_STR_BEGIN 0` requires an inactive accumulator, copies the stack-top string

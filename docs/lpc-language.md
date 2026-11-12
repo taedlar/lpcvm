@@ -102,13 +102,15 @@ for addition chains made entirely of string literals and statically declared
 scalar string variables. Parenthesized string chains are flattened in operand
 order. Other expressions retain ordinary lowering, though eligible subchains
 can still be optimized independently. Calls and side-effecting expressions are
-never evaluated with an accumulator active. Scalar `string` locals are stored
-as fabric-pooled buffers by default, and `=`/`+=` chains on them finish directly
-into the local's buffer, so executing such code requires a fabric.
+never evaluated with an accumulator active. Temporary results stored in scalar `string` locals become fabric-pooled buffers
+by default; shared-string and buffer sources retain their references. Eligible
+`=`/`+=` chains finish directly into the local's buffer, so executing such code
+requires a fabric.
 
 The `use_string_accumulator` and `use_local_string_buffer` fields of
 `lpcvm::CodeGenerationOptions` select ordinary lowering for benchmarks and
-comparison. See [string-handling.md](string-handling.md) for the complete string
+comparison. See [string-handling.md](string-handling.md) for assignment costs and LPC
+programming guidance, and [string-runtime.md](string-runtime.md) for the complete
 storage and accumulator design.
 
 ### Compiler Frontend

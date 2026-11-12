@@ -120,6 +120,45 @@ measurements.
 prefixes. `logical_ops/s` excludes prefixes, and `bytes_per_second` reports
 bytecode bytes traversed, not physical memory traffic.
 
+### String assignment and release
+
+~~~bash
+./build/benchmarks/run_bench --benchmark_filter='BM_String(Assign|TempRelease)' \
+    --benchmark_min_time=0.05s --benchmark_repetitions=5 \
+    --benchmark_out=build/string_assignment_release.json --benchmark_out_format=json
+~~~
+
+`BM_StringAssign*` measures the runtime primitives used by string stores, without
+bytecode dispatch or compilation. Payload sizes are 0, 16, 128, and 4096 bytes.
+The cases correspond to the [assignment cost model](string-handling.md#svalue-variant-assignment-costs):
+
+| Suffix | Timed work |
+|--------|------------|
+| `SharedRef`, `BufferRef` | Copy a reference and release the old destination; the old buffer has a sole owner. |
+| `SharedToBuffer` | Replace a sole-owner buffer with a shared-string reference. |
+| `TempInit`, `TempUpgrade` | Copy a temporary into a new buffer, replacing an empty slot or an older temporary. |
+| `TempReuse`, `TempCow` | Copy into an existing sole-owner buffer or allocate another buffer while the old one is retained. |
+| `BufferInternHit/Miss`, `TempInternHit/Miss` | Intern source bytes and replace a shared-string destination. |
+| `TempCopy` | Copy a temporary into an older temporary slot with `assign_copy()`. |
+| `TempMerge` | Merge two contiguous temporary descriptors with `concat_top_strings()`. |
+
+Stores include popping the source expression; merging leaves the combined result
+on the stack. Setup, validation, and fixture destruction are outside timing.
+Each timed iteration processes 32 independent fixtures; **divide reported time
+by 32** for time per operation, or compare `assignments/s` (`items_per_second`
+also counts operations). Each fixture has its own fabric, so misses remain
+misses, and upgrade/COW cases cannot turn into reuse on subsequent iterations.
+Intern hits are prepopulated; misses insert into a table containing only the old
+destination. New-buffer cases use a fresh pool, while `TempReuse` starts with
+sufficient destination capacity. These are controlled small-table measurements,
+not estimates of a large application's intern table or warmed buffer pool.
+
+`BM_StringTempRelease` replaces a temporary with an integer, independently
+varying released bytes, trailing bytes, and unrelated stack slots. Zero released
+bytes exercises empty cleanup; zero trailing bytes exercises tail truncation;
+nonzero values for both exercise byte movement and offset repair. It also batches
+32 operations per iteration and validates the surviving temporary after cleanup.
+
 ### Macro expansion
 
 ~~~bash

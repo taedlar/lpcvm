@@ -1,253 +1,293 @@
 # String Handling
 
-This document describes the LPCVM string representation, ownership, bytecode,
-and compiler lowering. See [vm-architecture.md](vm-architecture.md) for call
-frames and [development.md](development.md#bytecode) for benchmark workflows.
+This guide introduces LPCVM's string storage, compares measured assignment costs,
+and explains how to write LPC string code that uses the available optimizations.
+Bytecode, ownership APIs, and compiler implementation details are in the
+[String Runtime Reference](string-runtime.md).
 
 ## Representations
 
-Strings are byte sequences with explicit lengths. Empty strings and embedded
+LPC strings are byte sequences with explicit lengths. Empty strings and embedded
 NUL bytes are supported; concatenation does not interpret encoding or perform
-Unicode normalization.
+Unicode normalization. LPC code uses the `string` type for all stored
+representations; the runtime manages their ownership and conversion.
 
-| Representation | Owner | Purpose |
-|----------------|-------|---------|
-| `LpcStringRef` | Reference-counted shared storage | Constants, object state, and other retained strings. |
-| `LpcBufferRef` | Reference-counted, fabric-pooled mutable storage with copy-on-write | Scalar `string` locals by default; see [Local String Buffers](#local-string-buffers). |
-| `TemporaryString` | One `DataStack` | Intermediate values, temporary locals, arguments, and returns. |
-| String accumulator | One `Execution::execute()` invocation | Mutable storage for a concatenation chain; not an `SValue`. |
+| Representation | Storage and ownership | Typical use |
+|----------------|-----------------------|-------------|
+| `LpcStringRef` | Reference-counted immutable bytes, interned by the runtime. Copying a reference shares the existing allocation. | Literals, global string values, and locals or parameters holding shared references. |
+| `LpcBufferRef` | Reference-counted mutable buffer from a runtime pool. Writes reuse unshared capacity or use another buffer when the old value is shared. | Computed values stored in scalar `string` locals, with local buffers enabled. |
+| `TemporaryString` | Offset and length into the evaluation stack's byte buffer. Copying a temporary duplicates its bytes; releasing it may move later bytes and repair offsets. | Concatenation results, temporary-valued arguments and returns, and computed locals when local buffers are disabled. |
+| String accumulator | Mutable workspace owned by one execution invocation; not a stored LPC value or an `SValue`. | Building eligible concatenation chains before producing a temporary or finishing into a local buffer. |
 
-### Shared Strings
-
-`LpcStringRef` refers to immutable `LpcString` bytes. `ManagedRuntime` interns
-strings by their full byte sequence, including embedded NULs. Copying a reference
-retains the existing allocation rather than duplicating bytes.
-
-Each shared string uses one allocation for the reference-count control block,
-string metadata, bytes, and trailing NUL. The explicit length, not that trailing
-NUL, determines its contents. The runtime's intern table holds a strong reference;
-`sweep_shared_strings()` removes entries referenced only by the table. Other
-owners, including frozen constant pools and object state, retain strings
-independently of the table's lifetime.
-
-`F_CONST_STR` loads an owning reference from the program's constant pool.
-Shared-string allocation and interning go through the runtime fabric.
-
-### Stack-Owned Temporaries
-
-`DataStack` stores temporary bytes in a contiguous `std::string`, `cat_buffer_`.
-Each `TemporaryString` slot records a `uint32_t` byte offset and length into that
-buffer. It is not an owning pointer and cannot be transferred directly between
-stacks. Raw `push()` and `assign()` reject temporary-string descriptors.
-
-Appending a temporary copies its bytes to the buffer's end and pushes a new
-descriptor. Existing offsets need no repair. Buffer growth can still reallocate
-and copy existing bytes. Temporary length and total buffer size must fit in
-`uint32_t`.
-
-Temporary values are immutable from the VM's perspective. `push_copy()` and
-`assign_copy()` duplicate their bytes; slots do not share temporary ranges.
-`fetch_temp_string()` returns a borrowed view that must not survive buffer
-mutation. Empty temporaries have no meaningful offset and yield an empty view.
-
-## Loads, Stores, and Returns
-
-Local addresses are relative to the frame pointer; object-state addresses use
-the execution's state offset.
-
-| Operation | Shared String | Temporary String |
-|-----------|---------------|------------------|
-| `F_LOAD_LOCAL` | Copy the owning reference. | Append an independent byte copy. |
-| `F_STORE_LOCAL` | Retain the source reference and release the old destination. | Copy bytes, release the old destination, and install the new descriptor. |
-| `F_LOAD_GLOBAL` | Copy the owning reference from object state. | Object state does not store stack-owned descriptors. |
-| `F_STORE_GLOBAL` | Copy the owning reference into object state. | Intern through the execution's fabric and store the resulting owning reference. |
-
-With local string buffers enabled, stores to `string` locals use
-`F_STORE_LOCAL_BUFFER` or `F_STR_FINISH_LOCAL` instead, and loads copy the
-buffer reference; see [Local String Buffers](#local-string-buffers).
-
-Stores leave the expression value on the stack. A temporary global store
-therefore promotes the stored value without replacing the expression's temporary.
-Local loads and stores do not implicitly intern strings.
-
-`F_RETURN` removes the completed frame while preserving its requested return
-slots, repairing temporary offsets as needed. Returned temporaries still belong
-to the supplied `DataStack`. Read their bytes before popping them: `DataStack::pop()`
-releases temporary storage and returns `std::monostate` for a temporary, not a
-descriptor that could outlive its bytes.
-
-## Temporary Release Costs
-
-Releasing a temporary has three paths:
-
-1. An empty string needs neither buffer mutation nor offset repair.
-2. A range at the buffer's end is removed by truncation, with no shifting or
-   stack scan.
-3. A non-tail range is erased from the buffer. Trailing bytes shift, and every
-   stack slot is inspected to repair offsets of nonempty temporaries after it.
-
-The non-tail path costs up to the number of trailing bytes plus the number of
-stack slots. Empty descriptors are ignored during repair. Removing a range of
-stack slots with `pop_i()` can additionally shift the stack's value vector.
-
-Stack position and buffer position are not interchangeable. Local assignment
-can put newly appended bytes into an older slot. A stack-top temporary is not
-necessarily at the buffer tail, and replacing a local can require compaction.
+A declaration alone does not select storage: `string x = "text";` holds a shared
+reference, while storing a temporary result in `x` normally creates or reuses a
+local buffer. Passing or returning a string can preserve a reference or copy a
+temporary, depending on the value. Local buffers and the accumulator are enabled
+by default; their behavior is described in the [programming guide](#string-handling-guide-for-lpc-programmers).
 
 ## SValue Variant Assignment Costs
 
-Costs for assigning between the three string representations, ordered from lowest to highest cost. These are qualitative rankings: Best, Low, Moderate, Worst. Actual speed depends on string length, buffer capacity, sharing patterns, and temporary stack position. Assume local buffers enabled (the default).
+Assignment cost depends on the operation actually performed, not just the
+source and destination's declared LPC types. The measurements below group reference stores, buffer writes,
+and interning by their runtime behavior. Within each group, rows are ordered by measured 4-KiB cost.
 
-| Rank | Assignment | Cost | LPC Example | Key Operation |
-|------|-----------|------|---|---|
-| 1 | `LpcStringRef` ← `LpcStringRef` | **Best** | `global1 = global2;` | Reference retain + release; no bytes copied |
-| 2 | `LpcBufferRef` ← `LpcBufferRef` | **Low** | `string x = y;` (both locals) | Reference copy; destination buffer returned to pool if sole owner |
-| 3 | `TemporaryString` ← `TemporaryString` (LHS merged) | **Low** | `func(a + b);` (expression argument) | Binary ADD fast path: left operand extended in-place, right operand popped; no byte moves |
-| 3b | `LpcBufferRef` ← `TemporaryString` (parameter upgrade) | **Low~Moderate** | `void func(string a) { a = value; }` called as `func("expr");` | Parameter (initially TemporaryString) upgraded to LpcBufferRef on first assignment; subsequent assignments reuse buffer (Low); temp cleanup O(1)–O(n) |
-| 4 | `LpcBufferRef` ← `LpcStringRef` | **Low~Moderate** | `string local = global;` (default mode) | F_STORE_LOCAL_BUFFER: overwrite unshared buffer (Low), or allocate new (Moderate) |
-| 5 | `LpcStringRef` ← `LpcBufferRef` | **Moderate** | `global_var = local_var;` | Extract bytes + intern; query table, possible allocation |
-| 6 | `LpcBufferRef` ← `TemporaryString` (local initialization) | **Moderate** | `string local = func();` | Extract bytes + copy to buffer; release temporary (possible offset repair) |
-| 7 | `TemporaryString` ← `LpcStringRef`/`LpcBufferRef` | **Moderate**[^interleaved] | `func("A"+"B"); // inside: a = val;` | Assign to temp parameter; append bytes to cat_buffer_; cleanup O(1) at tail |
-| 8 | `LpcStringRef` ← `TemporaryString` | **Moderate–Worst** | `global_var = a + b;` | Extract bytes + intern + release temporary; worst-case cleanup if interleaved |
+### Measurement scope
 
-**Key principles:**
-- Reference-only assignments (Cases 1–2) are cheapest: no byte copies, just reference counting
-- Byte copies (Cases 3–8) scale with string length; actual cost depends on buffer reuse and temporary stack position
-- Case 3 (expression arguments) is most common; temporaries only occur with expressions, not literals/variables
-- Case 3b: Parameter upgrade optimization—assigning a value to a function parameter that started as `TemporaryString` creates an `LpcBufferRef` on first assignment, enabling buffer reuse and eliminating the need to append bytes to the stack buffer on subsequent assignments
-- By default, `CodeGenerationOptions::use_local_string_buffer = true`, compiling local assignments to `F_STORE_LOCAL_BUFFER`; see [Local String Buffers](#local-string-buffers)
-- Case 4 optimization: When assigning an `LpcStringRef`/`LpcBufferRef` to a parameter, the reference is stored directly (no buffer allocation), allowing efficient pass-through of immutable strings
+Measured on 2026-11-12 in a CMake `Release` build on an Intel Core i7-13700:
+79 configurations, five randomly interleaved repetitions each, no validation
+errors. Values are **median CPU nanoseconds per operation**, rounded to whole
+nanoseconds (reported batch time divided by 32). The columns denote source byte
+length; for merging, they denote each operand's length. See the
+[benchmark workflow](development.md#string-assignment-and-release) and
+[measurement data](string-assignment-costs.csv) for all sizes and variability.
 
-[^interleaved]: **Interleaved temporary strings** cause worst-case cleanup (O(n) offset repair). Example: `string a = function(b + "str");` creates multiple temporaries that must be released out-of-order. Best-case (O(1)): simple LIFO sequences like `string a = func(global);` where parameter and return release at tail consecutively.
+`BM_StringAssign*` calls runtime primitives directly. Stores include source
+expression cleanup; fixture setup, source production, validation, destruction,
+and bytecode dispatch are excluded. Each fixture has its own fabric and small
+intern table. New-buffer cases start with a fresh pool; reuse starts with enough
+capacity. These timings estimate the selected operation, **not the total cost of
+the LPC snippets**. The median coefficient of variation across cases was 1.4%;
+the 4-KiB temporary-copy case had 30.4% variation and is less precise.
 
-The [string benchmarks](development.md#benchmarks) measure complete local
-concatenation workloads with ordinary addition or the accumulator, with local
-buffers enabled or disabled. They include assignment and cleanup costs, but do
-not isolate assignment or release timings.
+### LPC example conventions
 
-## Ordinary Concatenation
+Unless noted, both local buffers and the string accumulator are enabled. Each
+snippet is independent; `g` is a global `string`. The following helper guarantees
+a temporary return value, unlike a function returning a literal or a reference:
 
-`F_BINARY_OP ADD` accepts shared and temporary string operands in any combination
-and produces one stack-owned temporary. It builds a separate combined string,
-copies that result into `cat_buffer_`, then removes the operands. Appending the
-result before operand removal can make temporary operands non-tail ranges.
-
-This remains the general runtime path for string addition, including dynamically
-typed expressions. Other string binary operations and string/numeric addition
-are unsupported. The runtime path does not require a fabric unless its result
-is subsequently stored in object state.
-
-## String Accumulator
-
-The accumulator is a separate `std::string` plus an active/inactive flag, local
-to `execute()`. It starts inactive, never aliases operand storage, and is not
-accessible through stack slots or object state.
-
-| Instruction | Required State | Effect |
-|-------------|----------------|--------|
-| `F_STR_BEGIN 0` | Inactive | Copy the stack-top string into the accumulator, consume it, and activate. |
-| `F_STR_APPEND 0` | Active | Append the stack-top string and consume it. |
-| `F_STR_FINISH 0` | Active | Push an independent temporary copy, clear the accumulator, and deactivate. |
-
-All three instructions require a zero argument. Begin and append accept shared
-or temporary strings and reject null references, non-string values, and missing
-operands within the current frame. The accumulated length must fit in `uint32_t`;
-finish also enforces the stack buffer's total-size limit.
-
-Validation or allocation failure leaves that instruction's operand and logical
-accumulator contents unchanged. Failure of an execution destroys its accumulator;
-it does not roll back earlier stack operations or stores.
-
-Calls and returns, including implicit returns at bytecode end, require an inactive
-accumulator. There is no save/restore across calls. Finish the current chain before
-starting another or making a call. Ordinary instructions can run while it is
-active, provided bytecode respects these constraints.
-
-Capacity is reused across chains within the same invocation, but not across
-`execute()` invocations. Appends avoid intermediate stack-buffer results and
-repeated prefix copies except when accumulator growth requires reallocation.
-Consuming a shared operand or buffer-tail temporary needs no buffer compaction
-or offset scan; a non-tail temporary still uses normal cleanup. `F_STR_FINISH`
-still copies the complete result, and a later local store still has normal
-replacement costs; `F_STR_FINISH_LOCAL` avoids both by moving the result into a
-local buffer.
-
-## Local String Buffers
-
-A local string buffer is an `LpcBufferRef`: a reference-counted `LpcBuffer`
-holding a mutable `std::string`, acquired from the execution fabric's buffer pool
-(see [vm-fabric.md](vm-fabric.md)). Unlike a temporary, it owns its bytes
-independently of the `DataStack`, so replacing a local never compacts the stack
-buffer, and its capacity is reused across assignments and, through the pool,
-across executions. Copying an `LpcBufferRef` shares the same buffer; it does not
-copy the bytes. On a write, the VM reuses the destination buffer only when that
-local holds its sole reference. If another value still refers to it, the VM
-writes the new value to a different buffer, leaving the other reference's bytes
-unchanged. This copy-on-write behavior preserves LPC string value semantics.
-
-`CodeGenerationOptions::use_local_string_buffer` (default `true`) lowers stores
-to scalar `string` locals to `F_STORE_LOCAL_BUFFER` instead of `F_STORE_LOCAL`.
-Executions of such code require a fabric.
-The handler copies the stack-top string into an `LpcBuffer` from the execution's
-fabric pool. If the local already holds an unshared buffer, its
-bytes are overwritten in place, reusing capacity. Otherwise a new buffer is
-acquired, so loaded copies of the old reference are unchanged (copy-on-write).
-Non-string values are stored as by `F_STORE_LOCAL`. Loads copy the buffer
-reference. Buffers are accepted wherever string operands are, and
-`F_STORE_GLOBAL` interns their bytes.
-
-When the accumulator is also enabled, `local = <eligible chain>` and
-`local += <eligible terms>` end with `F_STR_FINISH_LOCAL slot` instead of
-`F_STR_FINISH` and a store. It swaps the accumulator's storage with the local's
-unshared buffer (or a newly acquired one), so the result is never copied, then
-pushes the local's reference as the expression value. The accumulator inherits
-the buffer's previous capacity.
-
-## Compiler Lowering
-
-Accumulator lowering is enabled by default in both `LpcCompiler::generate_code()`
-and `lpcvm::Bytecode`. Eligible `+` trees contain only string literals and declared
-scalar string variables. The parser preserves variable declaration types so
-the emitter can distinguish strings from `mixed`, numeric, and array values.
-
-The emitter flattens eligible trees, including parenthesized chains, in operand
-order. For `left + right + suffix` using local slots 0, 1, and 2, it emits:
-
-```text
-F_LOAD_LOCAL 0
-F_STR_BEGIN 0
-F_LOAD_LOCAL 1
-F_STR_APPEND 0
-F_LOAD_LOCAL 2
-F_STR_APPEND 0
-F_STR_FINISH 0
+```lpc
+string temp() { return "a" + "b"; }
 ```
 
-Two-term additions use the same path with one append. Numeric and `mixed`
-expressions, calls, and side-effecting expressions retain ordinary lowering;
-eligible subtrees can still be optimized independently. The compiler does not
-evaluate calls or another accumulator chain while an accumulator is active.
-Compound `+=` on a global, or on a local with buffers disabled, uses binary
-addition followed by a store, although an eligible chain on its right-hand side
-can use the accumulator. With buffers enabled, `+=` and `=` on string locals
-finish into the local's buffer as described above.
+Its return expression uses `F_STR_FINISH`, producing a `TemporaryString`.
+A call on the right-hand side of `x = temp()` is stored normally; it does not
+qualify for the accumulator's `F_STR_FINISH_LOCAL` optimization. The helper's
+short payload illustrates representation only; benchmarks use the byte lengths
+shown in the columns.
 
-Setting `use_string_accumulator` or `use_local_string_buffer` to `false` in the
-`CodeGenerationOptions` passed to `generate_code()` or the `Bytecode`
-constructor selects the alternative lowering for comparison. The string
-benchmarks compile identical LPC source in all four combinations, verify the
-selected bytecode, and time execution rather than compilation.
+### Reference stores
 
-## Ownership and Verification
+| Operation | Benchmark suffix | 16 B (ns) | 4 KiB (ns) | LPC example and timed step |
+|-----------|------------------|----------:|-----------:|----------------------------|
+| Shared reference replaces shared reference | `SharedRef` | 23 | 27 | `string x = "old"; x = "new";` — final store retains the source reference and releases the old one. |
+| Buffer reference replaces sole-owner buffer | `BufferRef` | 25 | 31 | `string x = temp(); string y = temp(); x = y;` — final store shares `y` and returns the old `x` buffer to its pool. |
+| Shared reference replaces sole-owner buffer | `SharedToBuffer` | 26 | 32 | `string x = temp(); x = "new";` — final store replaces the buffer with a shared reference; no bytes copied into a buffer. |
 
-Stacks, the accumulator, mutable object state, and reference counts are
-thread-confined. String views borrow their storage; retain an owning shared
-reference or copy bytes when a longer lifetime is needed.
+Reference stores remain cheap as payload size grows. The `SharedToBuffer` name
+refers to the destination **before** assignment; its result is `LpcStringRef`.
+Likewise, assigning a literal to a temporary-valued parameter stores a shared
+reference and releases the old temporary. It does not append another temporary.
+That old temporary's cleanup can add the costs described below.
 
-Implementation lives in [lpc_string.cpp](../src/lpc_string.cpp),
-[vm_executor.hpp](../src/vm_executor.hpp),
-[vm_executor.cpp](../src/vm_executor.cpp), and
-[code_generator.cpp](../src/code_generator.cpp). Regression coverage includes
-[test_vm_data_stack.cpp](../tests/test_vm_data_stack.cpp),
-[test_vm_string_operator.cpp](../tests/test_vm_string_operator.cpp), and
-[test_lpc_compiler.cpp](../tests/test_lpc_compiler.cpp).
+### Temporary sources stored into local buffers
+
+| Operation | Benchmark suffix | 16 B (ns) | 4 KiB (ns) | LPC example and timed step |
+|-----------|------------------|----------:|-----------:|----------------------------|
+| Reuse sole-owner buffer capacity | `TempReuse` | 26 | 86 | `string x = temp(); x = temp();` — second store copies into `x`'s existing buffer. |
+| Copy-on-write with old buffer retained | `TempCow` | 46 | 117 | `string x = temp(); string saved = x; x = temp();` — final store acquires another buffer; `saved` retains the old bytes. |
+| Initialize an empty local slot | `TempInit` | 50 | 125 | `string x = temp();` — store acquires a buffer and copies the returned temporary. |
+| Upgrade a temporary-valued parameter | `TempUpgrade` | 57 | 179 | `void replace(string p) { p = temp(); }`, called as `replace(temp());` — store acquires a buffer and releases the older parameter temporary. |
+
+Reuse is cheaper than first allocation. Parameter upgrade also removes an older,
+non-tail temporary while the source still occupies the buffer. Passing a literal
+as `replace("expr")` would instead start with a shared-string parameter and would
+not exercise that cleanup. Only temporary sources take the allocation/reuse
+branch of `F_STORE_LOCAL_BUFFER`; reference sources are stored by reference.
+
+### Sources interned into shared storage
+
+| Operation | Benchmark suffix | 16 B (ns) | 4 KiB (ns) | LPC example and condition |
+|-----------|------------------|----------:|-----------:|---------------------------|
+| Temporary, intern hit | `TempInternHit` | 21 | 88 | `g = temp();` — identical complete bytes already exist in the intern table. |
+| Buffer, intern hit | `BufferInternHit` | 23 | 93 | `string x = temp(); g = x;` — final store finds identical bytes already interned. |
+| Temporary, intern miss | `TempInternMiss` | 36 | 505 | `g = temp();` — complete result bytes are absent from the intern table. |
+| Buffer, intern miss | `BufferInternMiss` | 43 | 506 | `string x = temp(); g = x;` — final store inserts previously absent bytes. |
+
+A miss costs about 5.5–5.7 times a hit at 4 KiB in these fixtures. Hit/miss status
+is runtime state, not a property of the assignment syntax. For example, repeating
+`g = temp()` will hit after the first store while the intern entry remains alive.
+Temporary cleanup here is at the tail; non-tail cleanup can be much more costly.
+The measurements do not support ranking temporary sources as inherently more
+expensive than buffer sources when interning under equivalent conditions.
+
+### Temporary copying and concatenation
+
+| Operation | Benchmark suffix | 16 B (ns) | 4 KiB (ns) | LPC example and condition |
+|-----------|------------------|----------:|-----------:|---------------------------|
+| Merge contiguous temporary descriptors | `TempMerge` | 15 | 18 | `return temp() + temp();` — outer binary ADD merges nonempty, adjacent temporary operands ending at the buffer tail. |
+| Copy a temporary over an older temporary | `TempCopy` | 34 | 397 | With local buffers **disabled**: `string x = temp(); x = temp();` — second store copies source bytes, then releases the older temporary. |
+
+Merging is concatenation, not assignment, and was the fastest measured operation.
+Calls prevent accumulator lowering of the outer ADD in the example; the fast
+path still requires the actual contiguous buffer layout. `a + b` with declared
+string variables normally uses the accumulator and does not illustrate this
+path. Empty temporary views do not satisfy the contiguous-buffer fast-path check;
+the zero-byte merge benchmark uses the fallback and measured 48 ns.
+
+Temporary copying scales with payload and can include buffer growth and
+compaction. The 397-ns result has high variability, so it should not be used to
+establish a precise ordering against other expensive paths. Eligible local
+concatenations using `F_STR_FINISH_LOCAL` swap storage instead; they are covered
+by `BM_StringLocalConcatAccumulatorBuffer`, not these assignment measurements.
+
+### Cleanup can dominate the store
+
+`BM_StringTempRelease` isolates replacement of a temporary by an integer. For a
+16-byte released value:
+
+| Trailing bytes | Other stack slots | CPU ns/release | Path |
+|---------------:|------------------:|---------------:|------|
+| 0 | 0 | 16 | Tail truncation |
+| 0 | 4096 | 26 | Tail truncation; no offset scan |
+| 16 | 0 | 19 | Small non-tail compaction |
+| 16 | 4096 | 1339 | Non-tail compaction and offset scan |
+| 4096 | 4096 | 1863 | Larger compaction and offset scan |
+
+The worst cases depend on trailing bytes and live stack slots, not just the
+released string's length. LPC syntax alone does not establish that layout:
+assignments and returns change temporary positions. These isolated cleanup
+numbers explain the risk of interleaved temporaries; they are not an additional
+fixed surcharge to add to every assignment row, which already includes its own
+fixture's cleanup.
+
+## String Handling Guide for LPC Programmers
+
+The examples below assume the default compiler options: local string buffers
+and the string accumulator are both enabled. Storage changes are automatic;
+LPC programmers do not allocate, release, or select the internal representations.
+
+### Use declared string locals for string work
+
+Declare values as `string` when that is their intended type. The compiler can
+recognize concatenations of string literals and declared scalar string variables
+and build the chain with its accumulator:
+
+```lpc
+string label(string name, string suffix) {
+    string result;
+    result = "Hello, " + name + suffix;
+    return result;
+}
+```
+
+Here the chain finishes directly into `result`'s local buffer. This avoids
+creating a separate completed temporary and then copying it into the local.
+A chain using `mixed` variables still uses ordinary string addition when its
+runtime operands are strings, but is not eligible for this optimization.
+
+### Express a known concatenation as one chain
+
+When the pieces are already available, write `prefix + name + suffix` as one
+expression. Parentheses do not prevent optimization: `(prefix + name) + suffix`
+is flattened in operand order. A literal or string variable can be a term;
+function calls and assignments inside the expression prevent the whole chain
+from using the accumulator, though eligible subexpressions can still use it.
+
+For example, `return temp() + temp();` from the cost comparison uses ordinary
+addition for the outer `+`. It may benefit from the contiguous-temporary merge,
+but that depends on runtime layout. Do not add function calls just to try to
+obtain this fast path: the merge timing excludes producing its operands.
+
+### Reuse a local, but account for a growing result
+
+Local buffer capacity can be reused across assignments when no other value
+shares the buffer. Typed local `+=` also supports accumulator lowering when its
+right-hand side contains eligible string terms:
+
+```lpc
+string repeat(string piece, int count) {
+    string result = "";
+    for (int i = 0; i < count; i++)
+        result += piece;
+    return result;
+}
+```
+
+This is supported syntax, but repeated append is not guaranteed constant-time.
+Each eligible `+=` starts by copying the current result into the accumulator,
+then appends the new piece and swaps the completed storage into the local.
+As the result grows, repeated prefix copying can make the total work quadratic
+in the number of fixed-size pieces. For a known set of pieces, a single chain
+avoids rebuilding that prefix across multiple statements. Measure workloads
+that build large results in loops; buffer reuse alone does not remove byte-copy
+costs.
+
+### Copies preserve string values
+
+Assigning a buffer-backed local to another local shares its current storage.
+Subsequent writes preserve the other variable's value through copy-on-write:
+
+```lpc
+string snapshot() {
+    string current = "a" + "b";
+    string saved = current;
+    current += "c";
+    return saved; // "ab"; current is "abc"
+}
+```
+
+Keep a copy when you need a snapshot. While that copy remains alive, a write
+cannot reuse the shared buffer in place and may need another buffer. A simple
+reference assignment is inexpensive; the later write is where sharing can add
+cost. Assigning a literal to `current` instead replaces its reference without
+copying the literal into the old buffer.
+
+### Treat function arguments and returns according to their values
+
+A function call does not necessarily produce a temporary string:
+
+```lpc
+string literal_value() { return "ab"; }
+string computed_value() { return "a" + "b"; }
+string identity(string value) { return value; }
+```
+
+`literal_value()` returns a shared reference. `computed_value()` returns a
+stack-owned temporary. `identity()` preserves shared or buffer references, but
+copies temporary bytes as needed for loads and returns. A `string` parameter
+can initially hold any of these stored representations.
+
+Storing `computed_value()` into a typed local normally copies it into a buffer.
+Replacing a temporary-valued parameter with another temporary result creates a
+buffer on the first such assignment; later stores can reuse it if it remains
+unshared. Assigning a literal or another reference instead stores that reference
+directly. Ordinary LPC code needs no manual lifetime management for any of these
+cases.
+
+### Build locally before storing retained state
+
+Global string stores retain shared references. Storing a buffer or temporary
+there looks up its bytes in the runtime's intern table and may allocate a new
+shared string. If only the completed value needs to be visible in object state,
+build it locally and store it once:
+
+```lpc
+string message;
+
+void update_message(string name, string suffix) {
+    string next = "Hello, " + name + suffix;
+    message = next;
+}
+```
+
+The local construction uses the accumulator and local buffer; the final global
+store interns the completed bytes. Assigning an already shared value, such as a
+literal or another global string, copies its reference instead. Identical
+computed bytes can hit the intern table on later stores while that entry remains
+alive; different bytes can miss. The measured hit/miss difference is substantial
+for larger strings. Keep intermediate global stores when program behavior
+requires them to be visible.
+
+### Profile the whole operation before changing code
+
+Use the assignment tables to identify likely costs, then measure representative
+LPC execution. Short strings can make several paths similarly cheap; larger
+strings expose copying and interning costs. Temporary cleanup also depends on
+other live stack values, so a source expression alone cannot establish its cost.
+
+The [string benchmarks](development.md#string-assignment-and-release) isolate
+assignment and release. The [concatenation benchmarks](development.md#bytecode)
+include loads, string construction, stores, and cleanup under all four compiler
+option combinations. They are a better starting point when comparing complete
+concatenation strategies. Compiler options are embedding configuration, not LPC
+syntax; see [Compiler Lowering](string-runtime.md#compiler-lowering) for details.
