@@ -103,6 +103,11 @@ namespace AST {
         std::unique_ptr<ASTNode> lhs;
         std::unique_ptr<ASTNode> rhs;
     };
+    struct TryCatch {
+        std::unique_ptr<ASTNode> try_block;
+        std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
+        std::unique_ptr<ASTNode> catch_block;
+    };
     struct TernaryOp {
         std::unique_ptr<ASTNode> condition;
         std::unique_ptr<ASTNode> true_expr;
@@ -147,6 +152,7 @@ struct ASTNode {
         AST::Return,
         AST::Break,
         AST::Continue,
+        AST::TryCatch,
         AST::Assign,
         AST::UnaryOp,
         AST::BinaryOp,

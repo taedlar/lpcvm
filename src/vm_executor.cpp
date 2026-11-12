@@ -520,27 +520,27 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
     } catch (const std::overflow_error& error) {
         if (dynamic_cast<const lpcvm::Exception<std::overflow_error>*>(&error))
             throw;
-        throw lpcvm::Exception(error, prog_, instruction_pc);
+        throw lpcvm::Exception(error, prog_, instruction_pc, obj_ref_);
     } catch (const std::runtime_error& error) {
         if (dynamic_cast<const lpcvm::Exception<std::runtime_error>*>(&error))
             throw;
-        throw lpcvm::Exception(error, prog_, instruction_pc);
+        throw lpcvm::Exception(error, prog_, instruction_pc, obj_ref_);
     } catch (const std::length_error& error) {
         if (dynamic_cast<const lpcvm::Exception<std::length_error>*>(&error))
             throw;
-        throw lpcvm::Exception(error, prog_, instruction_pc);
+        throw lpcvm::Exception(error, prog_, instruction_pc, obj_ref_);
     } catch (const std::out_of_range& error) {
         if (dynamic_cast<const lpcvm::Exception<std::out_of_range>*>(&error))
             throw;
-        throw lpcvm::Exception(error, prog_, instruction_pc);
+        throw lpcvm::Exception(error, prog_, instruction_pc, obj_ref_);
     } catch (const std::invalid_argument& error) {
         if (dynamic_cast<const lpcvm::Exception<std::invalid_argument>*>(&error))
             throw;
-        throw lpcvm::Exception(error, prog_, instruction_pc);
+        throw lpcvm::Exception(error, prog_, instruction_pc, obj_ref_);
     } catch (const std::bad_variant_access& error) {
         if (dynamic_cast<const lpcvm::Exception<std::bad_variant_access>*>(&error))
             throw;
-        throw lpcvm::Exception(error, prog_, instruction_pc);
+        throw lpcvm::Exception(error, prog_, instruction_pc, obj_ref_);
     }
 
 #undef VM_LOOP_START
