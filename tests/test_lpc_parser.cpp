@@ -28,6 +28,62 @@ TEST(ASTNodeTest, MutableAssignmentTransfersOwnership) {
     EXPECT_EQ(destination.src.column, 5);
 }
 
+TEST(LpcParserTest, SwitchLabels) {
+    for (const auto* source : {
+        "void f(int x) { switch (x) { case 1: break; default: return; } }",
+        "void f(int x) { switch (x) { case 1: case 2: default: break; } }",
+        "void f(string x) { switch (x) { case \"one\": return; } }",
+        "void f(int x) { switch (x) { case 1: switch (x) { case 2: break; } break; } }",
+        "void f(int x) { switch (x) { case 1: switch (x) { default: break; } case 2: break; } }",
+        "void f(int x) { switch (x) { { case 1: break; } default: return; } }",
+        "void f(int x) { switch (x) { return; } return; }"
+    }) {
+        SCOPED_TRACE(source);
+        LpcCompiler compiler;
+        EXPECT_TRUE(compiler.parse(source));
+    }
+}
+
+TEST(LpcParserTest, RejectsMalformedSwitchLabels) {
+    for (const auto* source : {
+        "void f(int x) { switch (x) { case : break; } }",
+        "void f(int x) { switch (x) { case 1 break; } }",
+        "void f(int x) { switch (x) { default break; } }"
+    }) {
+        SCOPED_TRACE(source);
+        LpcCompiler compiler;
+        EXPECT_FALSE(compiler.parse(source));
+    }
+}
+
+TEST(LpcParserTest, RejectsLabelsOutsideSwitch) {
+    for (const auto* source : {
+        "void f() { case 1: return; }",
+        "void f() { default: return; }",
+        "void f() { { case 1: return; } }",
+        "void f(int x) { while (x) { default: break; } }",
+        "void f(int x) { switch (x) { case 1: break; } case 2: return; }",
+        "void f(int x) { switch (x) { default: break; } default: return; }",
+        "void f(int x) { switch (x) { default: break; } } void g() { case 1: return; }"
+    }) {
+        SCOPED_TRACE(source);
+        LpcCompiler compiler;
+        ASSERT_FALSE(compiler.parse(source));
+        ASSERT_FALSE(compiler.messages().empty());
+        EXPECT_NE(compiler.messages().back().text.find("label outside switch"), std::string::npos);
+    }
+}
+
+TEST(LpcParserTest, SwitchLabelErrorLocationAndParserReuse) {
+    LpcCompiler compiler;
+    ASSERT_FALSE(compiler.parse("void f() {\n  case 1: return;\n}"));
+    EXPECT_EQ(compiler.messages().back().lineno, 2);
+    EXPECT_EQ(compiler.messages().back().column, 3);
+    ASSERT_FALSE(compiler.parse("void f(int x) { switch (x) { case : break; } }"));
+    EXPECT_FALSE(compiler.parse("void f() { default: return; }"));
+    EXPECT_TRUE(compiler.parse("void f(int x) { switch (x) { default: return; } }"));
+}
+
 TEST(LpcParserTest, ImplicitBlockAction) {
     LpcCompiler compiler;
     EXPECT_TRUE(compiler.parse("void f() { { return 42; } }"));

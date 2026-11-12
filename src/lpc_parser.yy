@@ -136,8 +136,9 @@
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
-%type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt try_catch_stmt
-%type <ASTNode> comma_expr lvalue expr0 expr4
+%type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt
+%type <ASTNode> switch_stmt try_catch_stmt
+%type <ASTNode> const_expr comma_expr lvalue expr0 expr4
 %type <ASTNode> function_call arg_list
 
 %type <SymbolSignature> storage_or_type typed_storage parameter_decl
@@ -538,7 +539,9 @@ stmt_list
     ;
 
 stmt
-    : comma_expr ';'
+    : label stmt
+        { $$ = $2; }
+    | comma_expr ';'
     | return_stmt
     | local_decl_list
     | do_stmt
@@ -546,12 +549,59 @@ stmt
     | foreach_stmt
     | if_stmt
     | while_stmt
+    | switch_stmt
     | try_catch_stmt
     | block
     | L_BREAK ';'
         { ASSIGN_AST($$, @$, AST::Break{}); }
     | L_CONTINUE ';'
         { ASSIGN_AST($$, @$, AST::Continue{}); }
+    ;
+
+// Each recursive labeled statement must consume a label.
+label
+    : L_CASE const_expr ':'
+        {
+            if (yyget_extra(yyscanner)->switch_depth == 0)
+                throw parse_error("case label outside switch", @1, yyget_extra(yyscanner));
+        }
+    | L_DEFAULT ':'
+        {
+            if (yyget_extra(yyscanner)->switch_depth == 0)
+                throw parse_error("default label outside switch", @1, yyget_extra(yyscanner));
+        }
+    ;
+
+const_expr
+    : L_INTEGER
+        {
+            auto consts = yyget_extra(yyscanner)->consts;
+            if ($1 > 0) {
+                // determine if $1 fits in an unsigned 32-bit integer
+                if ($1 > std::numeric_limits<uint32_t>::min() && $1 < std::numeric_limits<uint32_t>::max()) {
+                    uint32_t u32 = static_cast<uint32_t>($1);
+                    ASSIGN_AST($$, @$, AST::NumericConst{ u32, consts->find_or_add(u32) });
+                }
+                else
+                    ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
+            }
+            else {
+                // determine if $1 fits in a signed 32-bit integer
+                if ($1 > std::numeric_limits<int32_t>::min() && $1 < std::numeric_limits<int32_t>::max()) {
+                    int32_t i32 = static_cast<int32_t>($1);
+                    ASSIGN_AST($$, @$, AST::NumericConst{ i32, consts->find_or_add(i32) });
+                }
+                else
+                        ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
+            }
+        }
+    | L_REAL_NUMBER
+        {
+            auto consts = yyget_extra(yyscanner)->consts;
+            ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
+        }
+    | str_literal
+        { ASSIGN_AST($$, @$, AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts}); }
     ;
 
 comma_expr
@@ -605,36 +655,15 @@ expr0
         { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::BITWISE_NOT, std::make_unique<ASTNode>(std::move($2))}); }
     | '-' expr0 %prec L_NOT
         { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::NEG, std::make_unique<ASTNode>(std::move($2))}); }
-    | expr4
-    | L_INTEGER
+    | L_NEW str_literal '{' arg_list '}'
         {
-            auto consts = yyget_extra(yyscanner)->consts;
-            if ($1 > 0) {
-                // determine if $1 fits in an unsigned 32-bit integer
-                if ($1 > std::numeric_limits<uint32_t>::min() && $1 < std::numeric_limits<uint32_t>::max()) {
-                    uint32_t u32 = static_cast<uint32_t>($1);
-                    ASSIGN_AST($$, @$, AST::NumericConst{ u32, consts->find_or_add(u32) });
-                }
-                else
-                    ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
-            }
-            else {
-                // determine if $1 fits in a signed 32-bit integer
-                if ($1 > std::numeric_limits<int32_t>::min() && $1 < std::numeric_limits<int32_t>::max()) {
-                    int32_t i32 = static_cast<int32_t>($1);
-                    ASSIGN_AST($$, @$, AST::NumericConst{ i32, consts->find_or_add(i32) });
-                }
-                else
-                        ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
-            }
+            ASSIGN_AST($$, @$, AST::New{
+                std::make_unique<ASTNode>(AST::StringLiteral{ $2, *yyget_extra(yyscanner)->consts }),
+                std::make_unique<ASTNode>(std::move($4))
+            });
         }
-    | L_REAL_NUMBER
-        {
-            auto consts = yyget_extra(yyscanner)->consts;
-            ASSIGN_AST($$, @$, AST::NumericConst{ $1, consts->find_or_add($1) });
-        }    
-    | str_literal
-        { ASSIGN_AST($$, @$, AST::StringLiteral{$1, *yyget_extra(yyscanner)->consts}); }
+    | expr4
+    | const_expr
     ;
 
 lvalue
@@ -804,6 +833,19 @@ do_stmt
             ASSIGN_AST($$, @$, AST::PostTestedLoop{
                 std::make_unique<ASTNode>(std::move($body)),
                 std::make_unique<ASTNode>(std::move($cond))
+            });
+        }
+    ;
+
+switch_stmt
+    : L_SWITCH '(' comma_expr[cond] ')'
+        { ++yyget_extra(yyscanner)->switch_depth; }
+      stmt[body]
+        {
+            --yyget_extra(yyscanner)->switch_depth;
+            ASSIGN_AST($$, @$, AST::Switch{
+                std::make_unique<ASTNode>(std::move($cond)),
+                std::make_unique<ASTNode>(std::move($body))
             });
         }
     ;

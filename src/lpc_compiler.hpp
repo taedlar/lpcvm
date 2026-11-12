@@ -52,6 +52,7 @@ public:
         uint32_t next_func_idx; // index for the next function
         uint32_t next_global;
         uint32_t next_local;
+        uint32_t switch_depth{0}; // number of enclosing switch statements
         SymbolSignature variable_signature{};
 
         std::string current_string;

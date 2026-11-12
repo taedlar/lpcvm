@@ -89,6 +89,7 @@ bool LpcCompiler::init() {
     impl_->ctx.pp_location.initialize(&filename_);
     impl_->ctx.pp_eof = false;
     impl_->ctx.current_scope = globals_;
+    impl_->ctx.switch_depth = 0;
     if (!filename_.empty() && filename_ != "<unknown>") {
         impl_->ctx.current_file = consts_->find_or_add(filename_); // make an interned copy of current filename
     }

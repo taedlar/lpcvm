@@ -89,6 +89,15 @@ namespace AST {
     };
     struct Continue {
     };
+    struct Switch {
+        std::unique_ptr<ASTNode> condition;
+        std::unique_ptr<ASTNode> body;
+    };
+    struct TryCatch {
+        std::unique_ptr<ASTNode> try_block;
+        std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
+        std::unique_ptr<ASTNode> catch_block;
+    };
     struct Assign {
         int arg; // namespace oparg::AssignOpArg
         std::unique_ptr<ASTNode> lhs;
@@ -102,11 +111,6 @@ namespace AST {
         int arg; // namespace oparg::BinaryOpArg
         std::unique_ptr<ASTNode> lhs;
         std::unique_ptr<ASTNode> rhs;
-    };
-    struct TryCatch {
-        std::unique_ptr<ASTNode> try_block;
-        std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
-        std::unique_ptr<ASTNode> catch_block;
     };
     struct TernaryOp {
         std::unique_ptr<ASTNode> condition;
@@ -134,6 +138,10 @@ namespace AST {
     };
     struct Self {
     };
+    struct New {
+        std::unique_ptr<ASTNode> class_name; // str_literal
+        std::unique_ptr<ASTNode> arg_list; // List
+    };
 }
 
 struct ASTNode {
@@ -152,6 +160,7 @@ struct ASTNode {
         AST::Return,
         AST::Break,
         AST::Continue,
+        AST::Switch,
         AST::TryCatch,
         AST::Assign,
         AST::UnaryOp,
@@ -162,7 +171,8 @@ struct ASTNode {
         AST::NumericConst,
         AST::StringLiteral,
         AST::Variable,
-        AST::Self
+        AST::Self,
+        AST::New
     >;
 
     ASTNode() = default;
