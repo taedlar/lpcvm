@@ -32,4 +32,5 @@ LPCVM starts from a minimal set of [LPC grammar](src/lpc_parser.yy) and leaves f
 - [docs/development.md](docs/development.md): build, unit-test, and benchmark workflows.
 - [docs/lpc-language.md](docs/lpc-language.md): language grammar and compiler outline (work in progress).
 - [docs/vm-architecture.md](docs/vm-architecture.md): executor, bytecode instruction set, and sandbox architecture.
-- [docs/string-handling.md](docs/string-handling.md): string ownership, temporary storage, accumulator bytecode, and compiler lowering.
+- [docs/string-handling.md](docs/string-handling.md): string representations, measured assignment costs, and LPC programming guidance.
+- [docs/string-runtime.md](docs/string-runtime.md): string ownership, temporary storage, accumulator bytecode, and compiler lowering.
