@@ -270,6 +270,9 @@ static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* global
             std::cout << "index = " << std::get<uint32_t>(*var.entry->value);
             std::cout << ")";
         },
+        [&](const AST::Self& self_node) {
+            std::cout << "AST::Self()";
+        },
         [&](auto& node) {
             std::cout << "<NotImplemented: " << ast->node.index() << ">";
         }

@@ -26,6 +26,7 @@
     X(F_STORE_LOCAL) \
     X(F_UNARY_OP) \
     X(F_BINARY_OP) \
+    X(F_PUSH_SELF) \
     X(F_PUSH_FUNC) \
     X(F_CALL) \
     X(F_JUMP) \

@@ -143,6 +143,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "virtual"       { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 0}}, yyextra->location); }
 "nomask"|"final" { return yy::LpcParser::make_L_TYPE_MODIFIER({.b = {.is_nomask = 1}}, yyextra->location); }
 
+"self"          { return yy::LpcParser::make_L_SELF(yyextra->location); }
 "true"          { return yy::LpcParser::make_L_INTEGER(1, yyextra->location); }
 "false"         { return yy::LpcParser::make_L_INTEGER(0, yyextra->location); }
 "not"           { return yy::LpcParser::make_L_NOT(yyextra->location); }

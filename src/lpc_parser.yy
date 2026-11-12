@@ -98,6 +98,7 @@
 %token L_SWITCH L_CASE L_DEFAULT
 %token L_TRY L_CATCH
 %token L_NEW
+%token L_SELF
 
 %nonassoc LOWER_THAN_ELSE
 %nonassoc L_ELSE
@@ -642,6 +643,8 @@ lvalue
 expr4
     : '(' comma_expr ')'
         { $$ = $2; }
+    | L_SELF
+        { ASSIGN_AST($$, @$, AST::Self{ }); }
     | L_IDENTIFIER
         {
             auto entry = yyget_extra(yyscanner)->current_scope->lookup(std::string($1));

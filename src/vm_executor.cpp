@@ -33,7 +33,8 @@ struct PromotedType {
     using type = decltype(select());
 };
 
-/// @brief LPC truthiness: non-zero numbers and all non-void non-numeric values are true.
+/// @brief LPC truthiness: object handles are true only while their object is alive.
+/// Non-zero numbers and other non-void values are true.
 static bool is_truthy(const SValue& value) {
     return std::visit([](const auto& v) -> bool {
         using T = std::decay_t<decltype(v)>;
@@ -41,6 +42,8 @@ static bool is_truthy(const SValue& value) {
             return v != 0;
         else if constexpr (std::is_same_v<T, std::monostate>)
             return false;
+        else if constexpr (std::is_same_v<T, LpcObject::HandleType>)
+            return !v.expired();
         else
             return true;
     }, value);
@@ -250,6 +253,10 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         auto& value = stack.top();
         result = std::visit([&](const auto& val) -> SValue {
             using ValType = std::decay_t<decltype(val)>;
+            if constexpr (std::is_same_v<ValType, LpcObject::HandleType>) {
+                if (oparg == oparg::NOT)
+                    return SValue(val.expired());
+            }
             if constexpr (std::is_arithmetic_v<ValType>) {
                 // INC/DEC preserve the operand type, so no typed constant is needed
                 if (oparg == oparg::INC)
@@ -342,6 +349,17 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                 }
                 throw std::runtime_error("Invalid binary operation");
             }
+            else if constexpr (std::is_same_v<LhsType, LpcObject::HandleType> &&
+                               std::is_same_v<RhsType, LpcObject::HandleType>) {
+                switch (oparg) {
+                    case oparg::EQUAL:
+                        return SValue(lhs_value == rhs_value);
+                    case oparg::NOT_EQUAL:
+                        return SValue(!(lhs_value == rhs_value));
+                    default:
+                        throw std::runtime_error("Invalid binary operation");
+                }
+            }
             else {
                 throw std::runtime_error("Unsupported binary operand types");
             }
@@ -401,11 +419,17 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         VM_DISPATCH();
     }
 
+    VM_HANDLER(F_PUSH_SELF) {
+        if (pc >= end_)
+            throw std::runtime_error("Missing self argument");
+        oparg = (extended_arg << 8) | *pc++;
+        stack.push(LpcObject::HandleType(obj_ref_)); // non-owning reference to self
+        VM_DISPATCH();
+    }
+
     VM_HANDLER(F_PUSH_FUNC) {
         oparg = (extended_arg << 8) | *pc++;
         stack.push(oparg); // push the function index onto the stack
-        // control.push(nullptr, end_, fp);
-        // fp = stack.size() - oparg;
         VM_DISPATCH();
     }
 
@@ -417,7 +441,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             throw std::runtime_error("Invalid call with no function index on the stack");
         auto func_index = std::get<uint32_t>(stack[stack.size() - oparg]);
         auto binding = prog_->get_method(func_index);
-        control.push(pc, fp, var0_, start_, end_); // save the current execution context on the return stack
+        control.push(pc, fp, var0_, start_, end_, obj_ref_); // save the current execution context on the return stack
         fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
         pc = start_ = prog_->bytecode() + binding.bytecode_offset;
         end_ = start_ + binding.bytecode_length;
@@ -478,6 +502,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         var0_ = control.top().vbp;
         start_ = control.top().start;
         end_ = control.top().end;
+        obj_ref_ = control.top().obj.lock();
         control.pop();
         VM_DISPATCH();
     }

@@ -271,15 +271,16 @@ private:
 class ReturnStack {
 public:
     struct Frame {
-        const uint8_t* pc;      // program counter (address of next instruction)
-        std::size_t fp;         // frame pointer for the current frame (position of first argument in data stack)
-        std::size_t vbp;        // variable base pointer (position of global variable #0 in self_)
-        const uint8_t* start;   // start of the bytecode segment
-        const uint8_t* end;     // end of the bytecode segment
+        const uint8_t* pc;          // program counter (address of next instruction)
+        std::size_t fp;             // frame pointer for the current frame (position of first argument in data stack)
+        std::size_t vbp;            // variable base pointer (position of global variable #0 in self_)
+        const uint8_t* start;       // start of the bytecode segment
+        const uint8_t* end;         // end of the bytecode segment
+        LpcObject::HandleType obj;  // handle to the current object
     };
 
-    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, const uint8_t* start, const uint8_t* end) {
-        stack_.push_back({pc, fp, vbp, start, end});
+    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, const uint8_t* start, const uint8_t* end, LpcObject::HandleType obj) {
+        stack_.push_back({pc, fp, vbp, start, end, obj});
     }
 
     void pop() {

@@ -61,6 +61,12 @@ struct SharedPtr {
 
     SharedPtr() noexcept : ptr(nullptr) {}
 
+    // Deduce the optional's type to avoid recursively checking SharedPtr's
+    // copy constructibility through optional's converting constructors.
+    template <typename U, std::enable_if_t<std::is_same_v<T, U>, int> = 0>
+    SharedPtr(std::optional<SharedPtr<U>> other) noexcept
+        : SharedPtr(other ? std::move(*other) : SharedPtr{}) {}
+
     SharedPtr(const SharedPtr& other) {
         ptr = other.ptr;
         if (ptr) {

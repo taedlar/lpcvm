@@ -127,6 +127,8 @@ namespace AST {
     struct Variable {
         std::shared_ptr<SymbolTable::Entry> entry;
     };
+    struct Self {
+    };
 }
 
 struct ASTNode {
@@ -153,7 +155,8 @@ struct ASTNode {
         AST::FunctionCall,
         AST::NumericConst,
         AST::StringLiteral,
-        AST::Variable
+        AST::Variable,
+        AST::Self
     >;
 
     ASTNode() = default;
