@@ -289,6 +289,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "<<="   { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_LSH), yyextra->location); }
 ">>="   { return yy::LpcParser::make_L_ASSIGN(static_cast<int>(oparg::ASSIGN_RSH), yyextra->location); }
 
+"::"    { return yy::LpcParser::make_L_COLON_COLON(yyextra->location); }
 "..."   { return yy::LpcParser::make_L_ELLIPSIS(yyextra->location); }
 
 ","|";"|"."|"{"|"}"|"("|")"|"?"|":" {

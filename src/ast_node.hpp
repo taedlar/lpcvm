@@ -139,8 +139,8 @@ namespace AST {
     struct Self {
     };
     struct New {
-        std::unique_ptr<ASTNode> class_name; // str_literal
-        std::unique_ptr<ASTNode> arg_list; // List
+        std::unique_ptr<ASTNode> blueprint;
+        std::unique_ptr<ASTNode> arg_list; // globals initializer list
     };
 }
 

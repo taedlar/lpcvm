@@ -129,10 +129,11 @@
 %right L_NOT '~'
 %nonassoc L_INC L_DEC
 
+%token L_COLON_COLON
 %token L_ELLIPSIS
 
 %type <ASTNode> program def inheritance
-%type <ASTNode> formal_parameters parameter_list
+%type <ASTNode> formal_parameters parameter_list class_or_name
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
@@ -144,7 +145,7 @@
 %type <SymbolSignature> storage_or_type typed_storage parameter_decl
 %type <SymbolSignature> type_modifier_list opt_star
 
-%type <std::shared_ptr<SymbolTable::Entry>> function_head
+%type <std::shared_ptr<SymbolTable::Entry>> function_head id
 
 %type <std::string> str_literal opt_as
 
@@ -239,6 +240,7 @@ def
     | storage_or_type var_list ';'
         {
             /* variable declarations */
+            $$ = $2;
         }
     ;
 
@@ -644,13 +646,6 @@ expr0
         { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::BITWISE_NOT, std::make_unique<ASTNode>(std::move($2))}); }
     | '-' expr0 %prec L_NOT
         { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::NEG, std::make_unique<ASTNode>(std::move($2))}); }
-    | L_NEW str_literal '{' arg_list '}'
-        {
-            ASSIGN_AST($$, @$, AST::New{
-                std::make_unique<ASTNode>(AST::StringLiteral{ $2, *yyget_extra(yyscanner)->consts }),
-                std::make_unique<ASTNode>(std::move($4))
-            });
-        }
     | expr4
     | const_expr
     ;
@@ -857,20 +852,34 @@ return_stmt
         { ASSIGN_AST($$, @$, AST::Return{std::make_unique<ASTNode>(std::move($2))}); }
     ;
 
+id
+    : L_IDENTIFIER
+        { $$ = yyget_extra(yyscanner)->current_scope->lookup($1); }
+    | id L_COLON_COLON L_IDENTIFIER
+    ;
+
+class_or_name
+    : id
+        { ASSIGN_AST($$, @$, AST::Variable{ std::move($1) }); }
+    | str_literal
+        { ASSIGN_AST($$, @$, AST::StringLiteral{ $1, *yyget_extra(yyscanner)->consts }); }
+    ;
+
 function_call
-    : L_IDENTIFIER '(' arg_list ')'
+    : id '(' arg_list ')'
         {
             auto lpcc = yyget_extra(yyscanner);
-            auto entry = lpcc->current_scope->lookup($1);
-            if (!entry) {
-                // add forward declaration for the function
-                SymbolSignature sig{};
-                sig.b.is_function = 1; // mark as function
-                entry = std::make_shared<SymbolTable::Entry>($1, sig);
-                lpcc->current_scope->emplace($1, entry);
-            }
-            entry->signature.b.referenced = 1; // mark the function as referenced
-            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move(entry), std::make_unique<ASTNode>(std::move($3)) });
+            if (!$1)
+                throw std::runtime_error("Function not found");
+            $1->signature.b.referenced = 1; // mark the function as referenced
+            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($1), std::make_unique<ASTNode>(std::move($3)) });
+        }
+    | L_NEW class_or_name '{' arg_list '}'
+        {
+            ASSIGN_AST($$, @$, AST::New{
+                std::make_unique<ASTNode>(std::move($2)),
+                std::make_unique<ASTNode>(std::move($4))
+            });
         }
     ;
 
