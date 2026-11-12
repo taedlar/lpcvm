@@ -7,5 +7,10 @@ int g = 123;
 int add(x, y, ... argv) {
     int a = x, b = y - g;
     object obj = self;
+    try {
+        int e = 100 / 0;
+    } catch (mapping e) {
+        // write("Caught exception: " + e["msg"]);
+    }
     return ADD(a, b);
 }

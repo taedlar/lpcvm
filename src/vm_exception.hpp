@@ -7,6 +7,7 @@
 #include <string>
 #include <type_traits>
 #include <spdlog/fmt/fmt.h>
+#include "lpc_types.hpp"
 #include "object_class.hpp"
 
 namespace lpcvm {
@@ -17,19 +18,22 @@ class Exception : public E {
         "lpcvm::Exception requires a standard exception type");
 
 public:
-    Exception(const E& exception, const ObjectClass* prog, const uint8_t* pc)
-        : Exception(exception, prog ? prog->lookup_source_location(pc) : std::nullopt) {}
+    Exception(const E& exception, const ObjectClass* prog, const uint8_t* pc,
+        const LpcObjectRef& party = {})
+        : Exception(exception, prog ? prog->lookup_source_location(pc) : std::nullopt, party) {}
 
     const std::string& source_file() const noexcept { return source_file_; }
     const std::string& func_name() const noexcept { return func_name_; }
     int lineno() const noexcept { return lineno_; }
     int column() const noexcept { return column_; }
+    const LpcObjectRef& party() const noexcept { return party_; }
 
     const char* what() const noexcept override { return message_.c_str(); }
 
 private:
-    Exception(const E& exception, const std::optional<ObjectClass::SourceLocation>& location)
-        : E(exception) {
+    Exception(const E& exception, const std::optional<ObjectClass::SourceLocation>& location,
+        const LpcObjectRef& party)
+        : E(exception), party_(party) {
         if (!location) {
             source_file_ = "<unknown-file>";
             func_name_ = "";
@@ -52,6 +56,7 @@ private:
     int lineno_;
     int column_;
     std::string message_;
+    LpcObjectRef party_; // Retain the raising object while the exception is alive.
 };
 
 } // namespace lpcvm

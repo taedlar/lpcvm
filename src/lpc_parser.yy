@@ -136,7 +136,7 @@
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
-%type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt
+%type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt try_catch_stmt
 %type <ASTNode> comma_expr lvalue expr0 expr4
 %type <ASTNode> function_call arg_list
 
@@ -546,6 +546,7 @@ stmt
     | foreach_stmt
     | if_stmt
     | while_stmt
+    | try_catch_stmt
     | block
     | L_BREAK ';'
         { ASSIGN_AST($$, @$, AST::Break{}); }
@@ -803,6 +804,17 @@ do_stmt
             ASSIGN_AST($$, @$, AST::PostTestedLoop{
                 std::make_unique<ASTNode>(std::move($body)),
                 std::make_unique<ASTNode>(std::move($cond))
+            });
+        }
+    ;
+
+try_catch_stmt
+    : L_TRY stmt[try_block] L_CATCH '(' parameter_list[catch_param] ')' stmt[catch_block]
+        {
+            ASSIGN_AST($$, @$, AST::TryCatch{
+                std::make_unique<ASTNode>(std::move($try_block)),
+                std::make_unique<ASTNode>(std::move($catch_param)),
+                std::make_unique<ASTNode>(std::move($catch_block))
             });
         }
     ;

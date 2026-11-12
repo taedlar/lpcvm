@@ -209,10 +209,42 @@ TEST(VMExecutorTest, StackHelperErrorIncludesSourceLocation) {
         code.execute(control, stack);
         FAIL() << "Expected missing argument to throw";
     } catch (const lpcvm::Exception<std::runtime_error>& error) {
+        EXPECT_FALSE(error.party());
         EXPECT_EQ(error.source_file(), "argument.lpc");
         EXPECT_EQ(error.func_name(), "read");
         EXPECT_EQ(error.lineno(), 2);
         EXPECT_STREQ(error.what(), "argument.lpc:2:12: In function `read()': Evaluation stack index out of bounds");
+    }
+}
+
+TEST(VMExecutorTest, ExceptionRetainsRaisingObjectAfterUnwinding) {
+    LpcCompiler compiler;
+    compiler.set_filename("party.lpc");
+    ASSERT_TRUE(compiler.parse("int divide() {\n    return 12 / 0;\n}\nint call() { return divide(); }"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+
+    for (const auto* method : {"divide", "call"}) {
+        SCOPED_TRACE(method);
+        LpcObject::HandleType handle;
+        try {
+            auto party = lpcvm::create_shared<LpcObject>(nullptr, program);
+            handle = LpcObject::HandleType(party);
+            lpcvm::Execution entry;
+            ASSERT_TRUE(program->lookup_method(method, &entry));
+            lpcvm::Execution code(entry.start_, entry.length(), 0, party);
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            code.execute(control, stack);
+            FAIL() << "Expected division by zero to throw";
+        } catch (const lpcvm::Exception<std::runtime_error>& error) {
+            ASSERT_FALSE(handle.expired());
+            EXPECT_EQ(error.party(), *handle.lock());
+            EXPECT_EQ(error.party()->program(), program);
+            EXPECT_EQ(error.func_name(), "divide");
+            EXPECT_STREQ(error.what(), "party.lpc:2:12: In function `divide()': Division by zero");
+        }
+        EXPECT_TRUE(handle.expired());
     }
 }
 

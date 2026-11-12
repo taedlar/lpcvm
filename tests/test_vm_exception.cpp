@@ -66,10 +66,31 @@ TEST_F(SourceExceptionTest, SourceLocationsRequireValidPoolEntries) {
 TEST_F(SourceExceptionTest, IncludesSourceLocation) {
     lpcvm::Exception error(std::runtime_error("Stack underflow"), object.get(), object->bytecode());
 
+    EXPECT_FALSE(error.party());
     EXPECT_EQ(error.source_file(), "example.lpc");
     EXPECT_EQ(error.lineno(), 42);
     EXPECT_EQ(error.func_name(), "f");
     EXPECT_STREQ(error.what(), "example.lpc:42:1: In function `f()': Stack underflow");
+}
+
+TEST_F(SourceExceptionTest, CopyRetainsRaisingObjectWithoutSourceLocation) {
+    LpcObject::HandleType handle;
+    {
+        const auto copy = [&] {
+            auto party = lpcvm::create_shared<LpcObject>(nullptr, object);
+            handle = LpcObject::HandleType(party);
+            lpcvm::Exception original(std::runtime_error("Failure"), nullptr, nullptr, party);
+            EXPECT_EQ(original.party(), party);
+            auto copied = original;
+            return copied;
+        }();
+
+        ASSERT_FALSE(handle.expired());
+        EXPECT_EQ(copy.party(), *handle.lock());
+        EXPECT_EQ(copy.source_file(), "<unknown-file>");
+        EXPECT_STREQ(copy.what(), "Failure");
+    }
+    EXPECT_TRUE(handle.expired());
 }
 
 TEST_F(SourceExceptionTest, PreservesExceptionType) {
