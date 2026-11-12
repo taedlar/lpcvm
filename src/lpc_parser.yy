@@ -207,18 +207,7 @@ def
             lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::FUNCTION, 0); // enter a new subscope for the function body
             lpcc->next_local = 0; // reset overlay base for the function scope
         }
-      formal_parameters[params] ')'
-        {
-            // add formal parameters to current scope before proceed
-            auto lpcc = yyget_extra(yyscanner);
-            // TODO: number of formal parameters == lpcc->next_local.
-            // When pushing a control frame, actual parameters are expected to be on the data stack in order.
-            // The number of actual parameters should not exceed the number of formal parameters. (in vararg case,
-            // the last formal parameter is an array to catch all actual parameters).
-            // If the caller provides fewer actual parameters than the number of formal parameters, the missing
-            // parameters are considered uninitialized.
-        }
-      block_or_semicolon[body]
+      formal_parameters[params] ')' block_or_semicolon[body]
         {
             auto lpcc = yyget_extra(yyscanner);
             auto func_scope = lpcc->current_scope;
