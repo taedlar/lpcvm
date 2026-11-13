@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include "ast_node.hpp"
 #include "vm_opcodes.hpp"
@@ -156,6 +157,8 @@ namespace lpcvm {
 
         Bytecode& emit_statement(const ASTNode& stmt);
         Bytecode& emit_expression(const ASTNode& expr);
-        Bytecode& emit_block(const AST::Block& block, std::size_t num_formal_params = 0);
+        /// A formal parameter count marks a function body, including when it is zero.
+        Bytecode& emit_block(const AST::Block& block,
+            std::optional<std::size_t> num_formal_params = std::nullopt);
     };
 } // namespace lpcvm

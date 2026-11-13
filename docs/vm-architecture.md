@@ -111,6 +111,11 @@ It resolves the callee's binding, saves the caller's execution state, establishe
 callee's frame, and switches to its bytecode range. Calls are dispatched by the
 VM loop rather than by recursively invoking the C++ executor.
 
+Compiled function bodies begin with `F_ADJUST_ARGS`, whose operand is the formal
+parameter count. It pads missing arguments with void values and discards surplus
+arguments before allocating locals. The instruction is valid only at function
+entry and also applies to host calls through `execute()`.
+
 `F_RETURN` specifies the number of values to preserve at the top of the stack.
 It removes the completed frame's arguments, locals, and temporaries, then restores
 the caller's continuation. Returning from the entry frame transfers control to
@@ -139,7 +144,7 @@ in [vm_opcodes.hpp](../src/vm_opcodes.hpp); execution handlers live in
 | Local buffer | `F_STORE_LOCAL_BUFFER`, `F_STR_FINISH_LOCAL` | Copy the top string, or move the active accumulator, into a fabric-pooled `LpcBuffer` local, reusing an unshared buffer; the stored value is left on the stack. |
 | Operators | `F_UNARY_OP`, `F_BINARY_OP` | Replace one or two operands with an operation result. |
 | String accumulator | `F_STR_BEGIN`, `F_STR_APPEND`, `F_STR_FINISH` | Consume a string to begin/append a chain, or push its completed temporary result. Arguments must be zero. |
-| Calls | `F_PUSH_FUNC`, `F_CALL`, `F_RETURN` | Select a function, enter its frame, or return values to the caller. |
+| Calls | `F_PUSH_FUNC`, `F_CALL`, `F_ADJUST_ARGS`, `F_RETURN` | Select a function, enter and normalize its frame, or return values to the caller. |
 | Branches | `F_JUMP`, `F_JUMP_IF_FALSE`, `F_JUMP_IF_FALSE_OR_POP`, `F_JUMP_IF_TRUE_OR_POP` | Change the program counter, optionally testing or removing the top value. |
 
 ### Operator Semantics
