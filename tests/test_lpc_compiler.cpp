@@ -371,8 +371,8 @@ TEST(LpcCompilerTest, MultipleFunctionBytecodeRanges) {
     lpcvm::Execution second;
     ASSERT_TRUE(prog->lookup_method("first", &first));
     ASSERT_TRUE(prog->lookup_method("second", &second));
-    EXPECT_EQ(first.length(), 4);
-    EXPECT_EQ(second.length(), 4);
+    EXPECT_EQ(first.length(), 6);
+    EXPECT_EQ(second.length(), 6);
     EXPECT_FALSE(prog->lookup_method("missing", nullptr));
 
     lpcvm::ReturnStack control;
@@ -407,6 +407,68 @@ TEST(LpcCompilerTest, NestedFunctionCallsPassArgumentsAndReturnValues) {
     ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 42);
     EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
+    EXPECT_TRUE(control.empty());
+}
+
+TEST(LpcCompilerTest, CallsNormalizeArgumentCountsBeforeAllocatingLocals) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        int inner(int a, int b) {
+            int local;
+            local = 20;
+            if (b) { } else b = 3;
+            return a + b + local;
+        }
+        int no_params() { int local; local = 5; return local; }
+        int outer(int n) {
+            int local;
+            local = 10;
+            return inner(n) + inner(n, 2, 99) + no_params(8) + local;
+        }
+    )"));
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    lpcvm::Execution outer;
+    ASSERT_TRUE(prog->lookup_method("outer", &outer));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push(int32_t{99});
+    stack.push(int32_t{4});
+    stack.push(int32_t{77});
+    ASSERT_EQ(outer.execute(control, stack, 2), 1);
+    ASSERT_EQ(stack.size(), 2u);
+    EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
+    EXPECT_EQ(std::get<int64_t>(stack.top()), 68);
+    EXPECT_TRUE(control.empty());
+}
+
+TEST(LpcCompilerTest, MissingAndSurplusHostArgumentsPreserveStrings) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        string first(string a, string b) { string local; local = a; return local; }
+        int missing(int a) { if (a) return a; return 7; }
+    )"));
+    auto prog = compiler.generate_code();
+    ASSERT_NE(prog, nullptr);
+    lpcvm::Execution first(std::make_shared<ManagedRuntime>());
+    lpcvm::Execution missing;
+    ASSERT_TRUE(prog->lookup_method("first", &first));
+    ASSERT_TRUE(prog->lookup_method("missing", &missing));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_temp_string("caller");
+    stack.push_temp_string("kept");
+    stack.push_temp_string("second");
+    stack.push_temp_string("surplus");
+    ASSERT_EQ(first.execute(control, stack, 3), 1);
+    ASSERT_EQ(stack.size(), 2u);
+    EXPECT_EQ(stack.string_at(0), "caller");
+    EXPECT_EQ(stack.top_string(), "kept");
+    ASSERT_EQ(missing.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 3u);
+    EXPECT_EQ(stack.string_at(0), "caller");
+    EXPECT_EQ(stack.string_at(1), "kept");
+    EXPECT_EQ(std::get<uint32_t>(stack.top()), 7u);
     EXPECT_TRUE(control.empty());
 }
 
@@ -454,12 +516,12 @@ TEST(LpcCompilerTest, BlockLocalAllocation) {
     };
     LpcCompiler compiler;
     for (const auto& test : {
-        TestCase{"void f() { {} }", 0, {}},
+        TestCase{"void f() { {} }", 0, {F_ADJUST_ARGS, 0}},
         TestCase{"void f(int p) { int a; { int b; { int c, d; } } { int e; } int later; }", 1,
-            {F_PUSH_N, 2, F_PUSH_N, 1, F_PUSH_N, 2, F_POP_N, 2, F_POP_N, 1,
+            {F_ADJUST_ARGS, 1, F_PUSH_N, 2, F_PUSH_N, 1, F_PUSH_N, 2, F_POP_N, 2, F_POP_N, 1,
              F_PUSH_N, 1, F_POP_N, 1, F_POP_N, 2}},
         TestCase{"void f(int p) { { int a; } }", 1,
-            {F_PUSH_N, 1, F_POP_N, 1}},
+            {F_ADJUST_ARGS, 1, F_PUSH_N, 1, F_POP_N, 1}},
     }) {
         // parse the test source code
         SCOPED_TRACE(test.source);

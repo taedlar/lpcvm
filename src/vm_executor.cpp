@@ -97,11 +97,16 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                 ALL_OPCODES(AS_LABEL) \
             }; \
             for (int i = Opcode::INVALID_VALUE; i < 256; ++i) { dispatch_table[i] = &&invalid_opcode; } \
-            VM_DISPATCH();
+            VM_DISPATCH_ENTRY();
         #define VM_LOOP_END()
         #define VM_HANDLER(op) do_##op:
         #define VM_DISPATCH() \
             extended_arg = 0; \
+            entry_ready = false; \
+            if (pc < end_) { instruction_pc = pc; goto *dispatch_table[*pc++]; } else { pc = nullptr; goto do_F_RETURN; }
+        #define VM_DISPATCH_ENTRY() \
+            extended_arg = 0; \
+            entry_ready = true; \
             if (pc < end_) { instruction_pc = pc; goto *dispatch_table[*pc++]; } else { pc = nullptr; goto do_F_RETURN; }
         #define VM_DISPATCH_EXTENDED() \
             if (pc < end_) { instruction_pc = pc; goto *dispatch_table[*pc++]; } else { pc = nullptr; goto do_F_RETURN; }
@@ -122,6 +127,11 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         #define VM_HANDLER(op) case op:
         #define VM_DISPATCH() \
             extended_arg = 0; \
+            entry_ready = false; \
+            break;
+        #define VM_DISPATCH_ENTRY() \
+            extended_arg = 0; \
+            entry_ready = true; \
             break;
         #define VM_DISPATCH_EXTENDED() \
             break;
@@ -133,6 +143,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         const uint8_t *pc = start_; // program counter, points to the current instruction in the bytecode
         uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
         uint32_t oparg; // holds the extendable argument for the current opcode
+        bool entry_ready = true;
         SValue result;
         std::string string_accumulator;
         bool string_active = false;
@@ -152,6 +163,20 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         VM_HANDLER(F_POP_N) {
             oparg = (extended_arg << 8) | *pc++; // number of local variables to pop from the VM stack
             stack.pop_n(oparg);
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_ADJUST_ARGS) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing argument count");
+            if (!entry_ready || stack.size() < fp)
+                throw std::runtime_error("Argument adjustment must be at function entry");
+            oparg = (extended_arg << 8) | *pc++;
+            const auto actual = stack.size() - fp;
+            if (actual < oparg)
+                stack.push_n(oparg - actual);
+            else if (actual > oparg)
+                stack.pop_n(actual - oparg);
             VM_DISPATCH();
         }
 
@@ -449,7 +474,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
             pc = start_ = prog_->bytecode() + binding.bytecode_offset;
             end_ = start_ + binding.bytecode_length;
-            VM_DISPATCH();
+            VM_DISPATCH_ENTRY();
         }
 
         VM_HANDLER(F_JUMP) {

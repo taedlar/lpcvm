@@ -299,15 +299,18 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
     return *this;
 }
 
-Bytecode& Bytecode::emit_block(const AST::Block& block, std::size_t num_formal_params) {
+Bytecode& Bytecode::emit_block(const AST::Block& block, std::optional<std::size_t> num_formal_params) {
     if (!block.stmts || !std::holds_alternative<AST::List>(block.stmts->node))
         return *this;
 
     // when entering the block, allocate space for local variables (excluding formal parameters)
     uint32_t num_locals = block.num_locals;
-    if (num_formal_params > num_locals)
+    if (num_formal_params && *num_formal_params > num_locals)
         throw std::runtime_error("Number of formal parameters exceeds number of local variables");
-    num_locals -= num_formal_params; // arguments are pushed by the caller
+    if (num_formal_params) {
+        emit(F_ADJUST_ARGS, static_cast<uint32_t>(*num_formal_params));
+        num_locals -= *num_formal_params;
+    }
     if (num_locals > 0)
         emit(F_PUSH_N, num_locals);
     local_depth_ += num_locals;

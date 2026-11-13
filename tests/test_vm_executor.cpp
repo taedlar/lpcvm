@@ -201,13 +201,15 @@ TEST(VMExecutorTest, StackHelperErrorIncludesSourceLocation) {
     ASSERT_TRUE(compiler.parse("int read(int value) {\n    return value;\n}"));
     auto object = compiler.generate_code();
     ASSERT_NE(object, nullptr);
-    lpcvm::Execution code;
-    ASSERT_TRUE(object->lookup_method("read", &code));
+    lpcvm::Execution entry;
+    ASSERT_TRUE(object->lookup_method("read", &entry));
+    // Skip the function prologue to exercise an invalid local access.
+    lpcvm::Execution code(entry.start_ + 2, entry.length() - 2, object.get());
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;
     try {
         code.execute(control, stack);
-        FAIL() << "Expected missing argument to throw";
+        FAIL() << "Expected invalid local access to throw";
     } catch (const lpcvm::Exception<std::runtime_error>& error) {
         EXPECT_FALSE(error.party());
         EXPECT_EQ(error.source_file(), "argument.lpc");
@@ -326,6 +328,49 @@ TEST(VMExecutorTest, EntryErrorsAreWrapped) {
     const uint8_t bytecode[] = {F_RETURN, 0};
     lpcvm::Execution code(bytecode, sizeof(bytecode));
     EXPECT_THROW(code.execute(control, stack, 1), lpcvm::Exception<std::runtime_error>);
+}
+
+TEST(VMExecutorTest, ArgumentAdjustmentValidatesPlacementAndOperand) {
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    const uint8_t missing_operand[] = {F_ADJUST_ARGS};
+    lpcvm::Execution truncated(missing_operand, sizeof(missing_operand));
+    EXPECT_THROW(truncated.execute(control, stack), lpcvm::Exception<std::runtime_error>);
+    const uint8_t misplaced[] = {F_PUSH_N, 1, F_ADJUST_ARGS, 0};
+    lpcvm::Execution invalid(misplaced, sizeof(misplaced));
+    EXPECT_THROW(invalid.execute(control, stack), lpcvm::Exception<std::runtime_error>);
+    std::vector<uint8_t> loop;
+    lpcvm::Bytecode generator(loop);
+    generator.emit(F_ADJUST_ARGS, 0).emit(F_PUSH_N, 1).emit_jump_to(F_JUMP, 0);
+    lpcvm::Execution repeated(loop.data(), loop.size());
+    EXPECT_THROW(repeated.execute(control, stack), lpcvm::Exception<std::runtime_error>);
+}
+
+TEST(VMExecutorTest, ArgumentAdjustmentSupportsExtendedCounts) {
+    const uint8_t bytecode[] = {
+        F_EXTENDED_ARG, 1, F_ADJUST_ARGS, 0,
+        F_LOAD_LOCAL, 0, F_RETURN, 1
+    };
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push(int32_t{99});
+    stack.push(int32_t{42});
+    ASSERT_EQ(code.execute(control, stack, 1), 1);
+    ASSERT_EQ(stack.size(), 2u);
+    EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 42);
+}
+
+TEST(VMExecutorTest, MissingArgumentIsVoid) {
+    const uint8_t bytecode[] = {F_ADJUST_ARGS, 2, F_LOAD_LOCAL, 1, F_RETURN, 1};
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push(int32_t{42});
+    ASSERT_EQ(code.execute(control, stack, 1), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(stack.top()));
 }
 
 TEST(VMExecutorTest, ReturnUnderflow) {
