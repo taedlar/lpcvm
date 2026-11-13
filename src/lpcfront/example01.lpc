@@ -4,6 +4,8 @@
 #define ARMOR "/path/to/armor"
 
 int g = 123;
+string *words = ({ "a", "b", "c" });
+mapping dict = ([ "key1": "value1", "key2": "value2" ]);
 
 int add(x, y, ... argv) {
     int a = x, b = y - g;

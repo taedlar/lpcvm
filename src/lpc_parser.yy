@@ -5,6 +5,7 @@
 %define api.value.type variant
 %define api.parser.class {LpcParser}
 %locations
+%expect 0
 %lex-param { yyscan_t yyscanner }
 %parse-param { yyscan_t yyscanner }
 
@@ -115,7 +116,9 @@
 %token <SymbolSignature> L_TYPE_MODIFIER
 
 // Operator precedence and associativity
-%right L_ASSIGN
+// In an argument list, bare name = value is a keyword argument.
+%precedence POSITIONAL_IDENTIFIER
+%right L_ASSIGN '='
 %right '?'
 %left L_LOR
 %left L_LAND
@@ -129,6 +132,8 @@
 %right L_NOT '~'
 %nonassoc L_INC L_DEC
 
+%token L_ARRAY_OPEN L_MAPPING_OPEN
+%token L_ARROW
 %token L_COLON_COLON
 %token L_ELLIPSIS
 
@@ -140,12 +145,13 @@
 %type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt
 %type <ASTNode> switch_stmt try_catch_stmt
 %type <ASTNode> const_expr comma_expr lvalue expr0 expr4
-%type <ASTNode> function_call arg_list
+%type <ASTNode> aggregation expr_list assoc_list
+%type <ASTNode> function_call arg_list arguments argument kwarg
 
-%type <SymbolSignature> storage_or_type typed_storage parameter_decl
+%type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
 
-%type <std::shared_ptr<SymbolTable::Entry>> function_head id
+%type <std::shared_ptr<SymbolTable::Entry>> function_head new_param id
 
 %type <std::string> str_literal opt_as
 
@@ -335,7 +341,7 @@ new_var
             if (!$1.b.is_array)
                 @$.begin = @2.begin;
         }
-    | opt_star L_IDENTIFIER L_ASSIGN expr0
+    | opt_star L_IDENTIFIER '=' expr0
         {
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->lookup($2))
@@ -412,24 +418,21 @@ formal_parameters
     ;
 
 parameter_list
-    : parameter_decl
-        {
-            ASSIGN_AST($$, @$, AST::ParameterList{});
-            std::get<AST::ParameterList>($$.node).parameters.push_back(std::move($1));
-        }
-    | parameter_list ',' parameter_decl
+    : new_param
+        { ASSIGN_AST($$, @$, AST::ParameterList{ std::vector<std::shared_ptr<SymbolTable::Entry>>{std::move($1)} }); }
+    | parameter_list ',' new_param
         {
             auto& params = std::get<AST::ParameterList>($1.node).parameters;
-            if(params.back().b.data_type == LpcDataType::T_VOID)
+            if(params.back()->signature.b.data_type == LpcDataType::T_VOID)
                 throw parse_error("Cannot have parameters after a void parameter", yyscanner);
-            if(params.back().b.data_type == LpcDataType::T_VARARG)
+            if(params.back()->signature.b.data_type == LpcDataType::T_VARARG)
                 throw parse_error("Cannot have parameters after a vararg parameter", yyscanner);
             params.push_back(std::move($3));
             $$ = $1;
         }
     ;
 
-parameter_decl
+new_param
     : L_TYPE opt_star L_IDENTIFIER
         {
             SymbolSignature s = $2;
@@ -441,19 +444,19 @@ parameter_decl
             entry->signature.b.is_local = 1;
             entry->value = uint32_t{lpcc->next_local++};
             lpcc->current_scope->emplace($3, entry);
-            $$ = s;
+            $$ = entry;
         }
     | L_TYPE opt_star
         {
             SymbolSignature s = $2;
             s.b.data_type = $1;
             auto lpcc = yyget_extra(yyscanner);
-            lpcc->next_local++; // increment local variable counter for unnamed parameter
-            $$ = s;
+            lpcc->next_local++; // increment local variable counter for anonymous parameter
+            $$ = std::make_shared<SymbolTable::Entry>("", s);
         }
     | L_IDENTIFIER
         {
-            SymbolSignature s{LpcDataType::T_INT};
+            SymbolSignature s{LpcDataType::T_INT}; // default type for untyped parameter
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->lookup($1))
                 throw parse_error("Parameter name already defined: " + std::string($1), yyscanner);
@@ -461,7 +464,7 @@ parameter_decl
             entry->signature.b.is_local = 1;
             entry->value = uint32_t{lpcc->next_local++};
             lpcc->current_scope->emplace($1, entry);
-            $$ = s;
+            $$ = entry;
         }
     | L_ELLIPSIS L_IDENTIFIER
         {
@@ -473,7 +476,7 @@ parameter_decl
             entry->signature.b.is_local = 1;
             entry->value = uint32_t{lpcc->next_local++};
             lpcc->current_scope->emplace($2, entry);
-            $$ = s;
+            $$ = entry;
         }
     ;
 
@@ -604,8 +607,24 @@ comma_expr
 expr0
     : lvalue L_ASSIGN expr0
         { ASSIGN_AST($$, @$, AST::Assign{$2, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+    | lvalue '=' expr0
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+    | L_INC lvalue %prec L_NOT
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_PREFIX_INC, nullptr, std::make_unique<ASTNode>(std::move($2))}); }
+    | L_DEC lvalue %prec L_NOT
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_PREFIX_DEC, nullptr, std::make_unique<ASTNode>(std::move($2))}); }
+    | lvalue L_INC
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_SUFFIX_INC, std::make_unique<ASTNode>(std::move($1)), nullptr}); }
+    | lvalue L_DEC
+        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_SUFFIX_DEC, std::make_unique<ASTNode>(std::move($1)), nullptr}); }
     | expr0 '?' expr0 ':' expr0 %prec '?'
-        { ASSIGN_AST($$, @$, AST::TernaryOp{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3)), std::make_unique<ASTNode>(std::move($5))}); }
+        {
+            ASSIGN_AST($$, @$, AST::TernaryOp{
+                std::make_unique<ASTNode>(std::move($1)),
+                std::make_unique<ASTNode>(std::move($3)),
+                std::make_unique<ASTNode>(std::move($5))}
+            );
+        }
     | expr0 L_LOR expr0
         { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::LOGICAL_OR, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_LAND expr0
@@ -632,14 +651,6 @@ expr0
         { ASSIGN_AST($$, @$, AST::BinaryOp{oparg::MOD, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     | expr0 L_ORDER expr0
         { ASSIGN_AST($$, @$, AST::BinaryOp{$2, std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
-    | L_INC lvalue %prec L_NOT
-        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_PREFIX_INC, nullptr, std::make_unique<ASTNode>(std::move($2))}); }
-    | L_DEC lvalue %prec L_NOT
-        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_PREFIX_DEC, nullptr, std::make_unique<ASTNode>(std::move($2))}); }
-    | lvalue L_INC
-        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_SUFFIX_INC, std::make_unique<ASTNode>(std::move($1)), nullptr}); }
-    | lvalue L_DEC
-        { ASSIGN_AST($$, @$, AST::Assign{oparg::ASSIGN_SUFFIX_DEC, std::make_unique<ASTNode>(std::move($1)), nullptr}); }
     | L_NOT expr0
         { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::NOT, std::make_unique<ASTNode>(std::move($2))}); }
     | '~' expr0
@@ -650,6 +661,7 @@ expr0
     | const_expr
     ;
 
+// Assignment targets are primary expressions; assignments themselves are expressions.
 lvalue
     : expr4
     ;
@@ -659,7 +671,7 @@ expr4
         { $$ = $2; }
     | L_SELF
         { ASSIGN_AST($$, @$, AST::Self{ }); }
-    | L_IDENTIFIER
+    | L_IDENTIFIER %prec POSITIONAL_IDENTIFIER
         {
             auto entry = yyget_extra(yyscanner)->current_scope->lookup(std::string($1));
             if (!entry) {
@@ -669,6 +681,7 @@ expr4
             ASSIGN_AST($$, @$, AST::Variable{ entry });
         }
     | function_call
+    | aggregation
     | expr4 '[' comma_expr ']'
     ;
 
@@ -852,6 +865,44 @@ return_stmt
         { ASSIGN_AST($$, @$, AST::Return{std::make_unique<ASTNode>(std::move($2))}); }
     ;
 
+expr_list
+    : expr0
+        {
+            ASSIGN_AST($$, @$, AST::List{});
+            std::get<AST::List>($$.node).elts.push_back(std::move($1));
+        }
+    | expr_list ',' expr0
+        {
+            auto &elts = std::get<AST::List>($1.node).elts;
+            elts.push_back(std::move($3));
+            $$ = $1;
+        }
+    ;
+
+assoc_list
+    : expr0 ':' expr0
+        {
+            ASSIGN_AST($$, @$, AST::List{});
+            auto& elts = std::get<AST::List>($$.node).elts;
+            elts.push_back(std::move($1));
+            elts.push_back(std::move($3));
+        }
+    | assoc_list ',' expr0 ':' expr0
+        {
+            auto &elts = std::get<AST::List>($1.node).elts;
+            elts.push_back(std::move($3));
+            elts.push_back(std::move($5));
+            $$ = $1;
+        }
+    ;
+
+aggregation
+    : L_ARRAY_OPEN expr_list '}' ')'
+        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
+    | L_MAPPING_OPEN assoc_list ']' ')'
+        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
+    ;
+
 id
     : L_IDENTIFIER
         { $$ = yyget_extra(yyscanner)->current_scope->lookup($1); }
@@ -881,21 +932,50 @@ function_call
                 std::make_unique<ASTNode>(std::move($4))
             });
         }
+    | expr4 L_ARROW L_IDENTIFIER '(' arg_list ')'
+        {
+            ASSIGN_AST($$, @$, AST::CallOther{
+                std::make_unique<ASTNode>(std::move($1)),
+                yyget_extra(yyscanner)->consts->find_or_add($3),
+                std::make_unique<ASTNode>(std::move($5))
+            });
+        }
+    ;
+
+kwarg
+    : L_IDENTIFIER '=' expr0
+        {
+            ASSIGN_AST($$, @$, AST::KeywordArgument{ $1, *yyget_extra(yyscanner)->consts });
+            std::get<AST::KeywordArgument>($$.node).value = std::make_unique<ASTNode>(std::move($3));
+        }
+    ;
+
+argument
+    : expr0
+    | kwarg
+    ;
+
+arguments
+    : argument
+        {
+            ASSIGN_AST($$, @$, AST::List{});
+            std::get<AST::List>($$.node).elts.push_back(std::move($1));
+        }
+    | arguments ',' argument
+        {
+            auto& args = std::get<AST::List>($1.node).elts;
+            if (std::holds_alternative<AST::KeywordArgument>(args.back().node)
+                && !std::holds_alternative<AST::KeywordArgument>($3.node))
+                throw parse_error("Positional argument after keyword argument", @3, yyget_extra(yyscanner));
+            args.push_back(std::move($3));
+            $$ = $1;
+        }
     ;
 
 arg_list
     : %empty
         { ASSIGN_AST($$, @$, AST::List{}); }
-    | expr0
-        {
-            ASSIGN_AST($$, @$, AST::List{});
-            std::get<AST::List>($$.node).elts.push_back(std::move($1));
-        }
-    | arg_list ',' expr0
-        {
-            $$ = $1;
-            std::get<AST::List>($$.node).elts.push_back(std::move($3));
-        }
+    | arguments
     ;
 
 %%
