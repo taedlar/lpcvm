@@ -28,7 +28,6 @@ public:
         int32_t inheriting;
         int32_t bytecode_offset;
         uint32_t bytecode_length;
-        // we don't need to store number of local variables, as it is created via opcode F_PUSH_N at runtime.
     };
 
     using Binding = binding_s;
@@ -63,7 +62,7 @@ public:
      * \param name_index The index of the method name in the constant pool.
      * \param binding The binding information for the method.
      */
-    void emplace (ConstPool::IndexType name_index, const Binding& binding);
+    void emplace (ConstPool::IndexType name_index, std::size_t index);
 
 private:
     friend class SymbolTable;
@@ -77,9 +76,9 @@ private:
      * The strong reference name_pool_ ensures that the string_view remains
      * valid.
      * 
-     * Used for inheritance-based method resolution at runtime and F_CALL_OTHER.
+     * Used for name-based method resolution at runtime.
      */
-    std::vector<std::pair<std::string_view, Binding>> bindings_;
+    std::vector<std::pair<std::string_view, std::size_t>> bindings_;
 
     std::vector<Binding> static_bindings_; // used for F_CALL static binding resolution
 };
