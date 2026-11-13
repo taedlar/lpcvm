@@ -12,7 +12,7 @@ bool VirtualTable::lookup (const std::string_view name, Binding& out_binding) co
         [](const auto& lhs, const auto& rhs) { return lhs.first < rhs; }
     );
     if (it != bindings_.end() && it->first == name) {
-        out_binding = it->second;
+        out_binding = static_bindings_.at(it->second);
         return true;
     }
     return false;
@@ -27,7 +27,7 @@ bool VirtualTable::bind (std::size_t index, const Binding& binding) {
     return true;
 }
 
-void VirtualTable::emplace (ConstPool::IndexType name_index, const Binding& binding) {
+void VirtualTable::emplace (ConstPool::IndexType name_index, std::size_t index) {
     auto name = name_pool_->fetch_string(name_index)->view();
     auto it = std::lower_bound(
         bindings_.begin(),
@@ -36,8 +36,8 @@ void VirtualTable::emplace (ConstPool::IndexType name_index, const Binding& bind
         [](const auto& lhs, const auto& rhs) { return lhs.first < rhs; }
     );
     if (it == bindings_.end() || it->first != name) {
-        bindings_.insert(it, {name, binding});
+        bindings_.insert(it, {name, index});
     } else {
-        it->second = binding;
+        it->second = index;
     }
 }

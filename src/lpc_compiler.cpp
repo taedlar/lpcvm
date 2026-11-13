@@ -303,6 +303,6 @@ void LpcCompiler::FunctionBuilder::build(const AST::FunctionDef& func_def) {
     vtable_.bind(func_idx, func_binding);
     if (name_idx != ConstPool::INVALID_INDEX) {
         // TODO: Handle the case where the function has a name and should be added to the virtual table by name
-        vtable_.emplace(name_idx, func_binding);
+        vtable_.emplace(name_idx, func_idx);
     }
 }
