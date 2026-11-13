@@ -322,6 +322,26 @@ TEST(LpcParserTest, ErrorsIncludeCurrentSourceLine) {
     expect_error_line ("int string x;", 1);
 }
 
+TEST(LpcParserTest, OptionalFunctionCallPrefixes) {
+    for (const auto* prefix : {"", ".", "->", "::"}) {
+        SCOPED_TRACE(prefix);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(std::string("int f(); void g(int x) { ")
+            + prefix + "f(x, key = 2); }"));
+        const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+        const auto& body = *std::get<AST::FunctionDef>(defs.back().node).body;
+        const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;
+        ASSERT_EQ(statements.size(), 1);
+        const auto& call = std::get<AST::FunctionCall>(statements.front().node);
+        ASSERT_NE(call.entry, nullptr);
+        EXPECT_EQ(call.entry->name, "f");
+        const auto& arguments = std::get<AST::List>(call.arguments->node).elts;
+        ASSERT_EQ(arguments.size(), 2);
+        EXPECT_EQ(std::get<AST::Variable>(arguments[0].node).entry->name, "x");
+        EXPECT_TRUE(std::holds_alternative<AST::KeywordArgument>(arguments[1].node));
+    }
+}
+
 TEST(LpcParserTest, PositionalAndKeywordArguments) {
     for (const auto* arguments : {
         "", "1", "1, 2", "key = 1", "key = 1, other = 2",

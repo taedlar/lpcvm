@@ -151,7 +151,7 @@
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
 
-%type <std::shared_ptr<SymbolTable::Entry>> function_head new_param id
+%type <std::shared_ptr<SymbolTable::Entry>> function_head new_param id call_id
 
 %type <std::string> str_literal opt_as
 
@@ -934,7 +934,7 @@ aggregation
         { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
     ;
 
-opt_prefix
+call_prefix
     : '.'
     | L_ARROW
     | L_COLON_COLON
@@ -954,14 +954,22 @@ class_or_name
         { ASSIGN_AST($$, @$, AST::StringLiteral{ $1, *yyget_extra(yyscanner)->consts }); }
     ;
 
+// Factor the optional prefix into the call name so an unprefixed identifier
+// can be distinguished from a variable or keyword argument by its next token.
+call_id
+    : id
+    | call_prefix id
+        { $$ = std::move($2); }
+    ;
+
 function_call
-    : opt_prefix id '(' arg_list ')'
+    : call_id '(' arg_list ')'
         {
             auto lpcc = yyget_extra(yyscanner);
-            if (!$2)
+            if (!$1)
                 throw std::runtime_error("Function not found");
-            $2->signature.b.referenced = 1; // mark the function as referenced
-            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($2), std::make_unique<ASTNode>(std::move($4)) });
+            $1->signature.b.referenced = 1; // mark the function as referenced
+            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($1), std::make_unique<ASTNode>(std::move($3)) });
         }
     | L_NEW class_or_name '{' arg_list '}'
         {
