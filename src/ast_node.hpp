@@ -45,6 +45,9 @@ namespace AST {
     struct Program {
         std::vector<ASTNode> defs; // *(FunctionDecl | FunctionDef | Inheritance)
     };
+    struct Mount {
+        std::shared_ptr<SymbolTable::Entry> entry; // a descriptor for the mounted object
+    };
     struct Inheritance {
         std::shared_ptr<SymbolTable::Entry> entry; // a pseudo entry mangled from the file path
     };
@@ -97,6 +100,9 @@ namespace AST {
         std::unique_ptr<ASTNode> try_block;
         std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
         std::unique_ptr<ASTNode> catch_block;
+    };
+    struct Destruct {
+        std::unique_ptr<ASTNode> target;
     };
     struct Assign {
         int arg; // namespace oparg::AssignOpArg
@@ -159,6 +165,7 @@ struct ASTNode {
     using Storage = std::variant<
         std::monostate,
         AST::Program,
+        AST::Mount,
         AST::Inheritance,
         AST::FunctionDef,
         AST::FunctionDecl,
@@ -173,6 +180,7 @@ struct ASTNode {
         AST::Continue,
         AST::Switch,
         AST::TryCatch,
+        AST::Destruct,
         AST::Assign,
         AST::UnaryOp,
         AST::BinaryOp,

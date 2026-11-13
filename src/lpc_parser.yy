@@ -91,14 +91,14 @@
     } // namespace yy
 }
 
-%token L_INHERIT L_AS
+%token L_MOUNT L_INHERIT L_AS L_USING
 %token L_IF L_ELSE
 %token L_WHILE L_DO L_FOR L_FOREACH L_IN
 %token L_BREAK L_CONTINUE
 %token L_RETURN
 %token L_SWITCH L_CASE L_DEFAULT
 %token L_TRY L_CATCH
-%token L_NEW
+%token L_NEW L_DESTRUCT
 %token L_SELF
 
 %nonassoc LOWER_THAN_ELSE
@@ -137,13 +137,13 @@
 %token L_COLON_COLON
 %token L_ELLIPSIS
 
-%type <ASTNode> program def inheritance
+%type <ASTNode> program def mount inheritance
 %type <ASTNode> formal_parameters parameter_list class_or_name
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
 %type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt
-%type <ASTNode> switch_stmt try_catch_stmt
+%type <ASTNode> switch_stmt try_catch_stmt destruct_stmt
 %type <ASTNode> const_expr comma_expr lvalue expr0 expr4
 %type <ASTNode> aggregation expr_list assoc_list
 %type <ASTNode> function_call arg_list arguments argument kwarg
@@ -184,6 +184,7 @@ all:
 
 program
     : %empty { ASSIGN_AST($$, @$, AST::Program{}); }
+    | program mount
     | program inheritance
         {
             $$ = $1;
@@ -373,6 +374,23 @@ opt_as
         { $$ = $2; }
     ;
 
+mount
+    : L_MOUNT str_literal opt_as ';'
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            std::string alias{$3.empty() ? $2 : $3};
+            if (!lpcc->current_scope->lookup(alias)) {
+                auto entry = std::make_shared<SymbolTable::Entry>(alias, SymbolSignature{0}); // alias symbol
+                entry->value = lpcc->current_scope->new_token($2, SymbolTable::TokenType::STRING_LITERAL);
+                lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
+                ASSIGN_AST($$, @$, AST::Mount{ entry });
+            }
+            else if (!$3.empty()) {
+                throw parse_error("Mount descriptor already defined: " + alias, yyscanner);
+            }
+        }
+    ;
+
 inheritance
     : L_INHERIT str_literal opt_as ';'
         {
@@ -385,7 +403,7 @@ inheritance
                 ASSIGN_AST($$, @$, AST::Inheritance{ entry });
             }
             else if (!$3.empty()) {
-                throw parse_error("Alias already defined: " + alias, yyscanner);
+                throw parse_error("Inheritance descriptor already defined: " + alias, yyscanner);
             }
         }
     | type_modifier_list L_INHERIT str_literal opt_as ';'
@@ -536,8 +554,12 @@ stmt
     : label stmt
         { $$ = $2; }
     | comma_expr ';'
+    | L_USING '(' expr4 ')' stmt[body]
+        { $$ = $body; }
+    | mount
     | return_stmt
     | local_decl_list
+    | destruct_stmt
     | do_stmt
     | for_stmt
     | foreach_stmt
@@ -659,6 +681,7 @@ expr0
         { ASSIGN_AST($$, @$, AST::UnaryOp{oparg::NEG, std::make_unique<ASTNode>(std::move($2))}); }
     | expr4
     | const_expr
+    | aggregation
     ;
 
 // Assignment targets are primary expressions; assignments themselves are expressions.
@@ -681,7 +704,6 @@ expr4
             ASSIGN_AST($$, @$, AST::Variable{ entry });
         }
     | function_call
-    | aggregation
     | expr4 '[' comma_expr ']'
     ;
 
@@ -858,6 +880,15 @@ try_catch_stmt
         }
     ;
 
+destruct_stmt
+    : L_DESTRUCT lvalue ';'
+        {
+            ASSIGN_AST($$, @$, AST::Destruct{
+                std::make_unique<ASTNode>(std::move($2))
+            });
+        }
+    ;
+
 return_stmt
     : L_RETURN ';'
         { ASSIGN_AST($$, @$, AST::Return{nullptr}); }
@@ -903,10 +934,17 @@ aggregation
         { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
     ;
 
+opt_prefix
+    : '.'
+    | L_ARROW
+    | L_COLON_COLON
+    ;
+
 id
     : L_IDENTIFIER
         { $$ = yyget_extra(yyscanner)->current_scope->lookup($1); }
     | id L_COLON_COLON L_IDENTIFIER
+    | id '.' L_IDENTIFIER
     ;
 
 class_or_name
@@ -917,19 +955,19 @@ class_or_name
     ;
 
 function_call
-    : id '(' arg_list ')'
+    : opt_prefix id '(' arg_list ')'
         {
             auto lpcc = yyget_extra(yyscanner);
-            if (!$1)
+            if (!$2)
                 throw std::runtime_error("Function not found");
-            $1->signature.b.referenced = 1; // mark the function as referenced
-            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($1), std::make_unique<ASTNode>(std::move($3)) });
+            $2->signature.b.referenced = 1; // mark the function as referenced
+            ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($2), std::make_unique<ASTNode>(std::move($4)) });
         }
     | L_NEW class_or_name '{' arg_list '}'
         {
             ASSIGN_AST($$, @$, AST::New{
-                std::make_unique<ASTNode>(std::move($2)),
-                std::make_unique<ASTNode>(std::move($4))
+                std::make_unique<ASTNode>(std::move($2)), // for clone_object
+                std::make_unique<ASTNode>(std::move($4))  // initialization list for globals
             });
         }
     | expr4 L_ARROW L_IDENTIFIER '(' arg_list ')'

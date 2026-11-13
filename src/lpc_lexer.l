@@ -108,7 +108,9 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 }
 
 "inherit"       { return yy::LpcParser::make_L_INHERIT(yyextra->location); }
+"mount"         { return yy::LpcParser::make_L_MOUNT(yyextra->location); }
 "as"            { return yy::LpcParser::make_L_AS(yyextra->location); }
+"using"         { return yy::LpcParser::make_L_USING(yyextra->location); }
 "if"            { return yy::LpcParser::make_L_IF(yyextra->location); }
 "else"          { return yy::LpcParser::make_L_ELSE(yyextra->location); }
 "while"         { return yy::LpcParser::make_L_WHILE(yyextra->location); }
@@ -125,6 +127,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "try"           { return yy::LpcParser::make_L_TRY(yyextra->location); }
 "catch"         { return yy::LpcParser::make_L_CATCH(yyextra->location); }
 "new"           { return yy::LpcParser::make_L_NEW(yyextra->location); }
+"destruct"      { return yy::LpcParser::make_L_DESTRUCT(yyextra->location); }
 
 "void"          { return yy::LpcParser::make_L_TYPE(LpcDataType::T_VOID, yyextra->location); }
 "double"        { return yy::LpcParser::make_L_TYPE(LpcDataType::T_DOUBLE, yyextra->location); }
