@@ -147,6 +147,7 @@
 %type <ASTNode> const_expr comma_expr lvalue expr0 expr4
 %type <ASTNode> aggregation expr_list assoc_list
 %type <ASTNode> function_call arg_list arguments argument kwarg
+%type <ASTNode> opt_init_list
 
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
@@ -958,8 +959,15 @@ class_or_name
 // can be distinguished from a variable or keyword argument by its next token.
 call_id
     : id
-    | call_prefix id
-        { $$ = std::move($2); }
+    | call_prefix L_IDENTIFIER
+        { $$ = yyget_extra(yyscanner)->current_scope->lookup($2); }
+    ;
+
+opt_init_list
+    : %empty
+        { ASSIGN_AST($$, @$, AST::List{}); }
+    | '{' arg_list '}'
+        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
     ;
 
 function_call
@@ -967,15 +975,15 @@ function_call
         {
             auto lpcc = yyget_extra(yyscanner);
             if (!$1)
-                throw std::runtime_error("Function not found");
+                throw parse_error("Function not found", @$, yyget_extra(yyscanner));
             $1->signature.b.referenced = 1; // mark the function as referenced
             ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($1), std::make_unique<ASTNode>(std::move($3)) });
         }
-    | L_NEW class_or_name '{' arg_list '}'
+    | L_NEW class_or_name opt_init_list
         {
             ASSIGN_AST($$, @$, AST::New{
                 std::make_unique<ASTNode>(std::move($2)), // for clone_object
-                std::make_unique<ASTNode>(std::move($4))  // initialization list for globals
+                std::make_unique<ASTNode>(std::move($3))  // initialization list for globals
             });
         }
     | expr4 L_ARROW L_IDENTIFIER '(' arg_list ')'
