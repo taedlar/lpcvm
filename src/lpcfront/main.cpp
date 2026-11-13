@@ -161,7 +161,7 @@ static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* global
             for (auto& param : param_list.parameters) {
                 std::cout << sep;
                 //ast_dump(&param, true, globals);
-                std::cout << std::string(indent_level * 2, ' ') << "data_type = " << static_cast<int>(param.b.data_type);
+                std::cout << std::string(indent_level * 2, ' ') << "data_type = " << static_cast<int>(param->signature.b.data_type);
                 sep = comma_sep;
             }
             indent_level--;

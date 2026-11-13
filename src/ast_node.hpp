@@ -45,6 +45,9 @@ namespace AST {
     struct Program {
         std::vector<ASTNode> defs; // *(FunctionDecl | FunctionDef | Inheritance)
     };
+    struct Mount {
+        std::shared_ptr<SymbolTable::Entry> entry; // a descriptor for the mounted object
+    };
     struct Inheritance {
         std::shared_ptr<SymbolTable::Entry> entry; // a pseudo entry mangled from the file path
     };
@@ -53,7 +56,7 @@ namespace AST {
         std::unique_ptr<ASTNode> param_list; // ParameterList
     };
     struct ParameterList {
-        std::vector<SymbolSignature> parameters;
+        std::vector<std::shared_ptr<SymbolTable::Entry>> parameters;
     };
     struct FunctionDef {
         std::unique_ptr<ASTNode> decl; // FunctionDecl
@@ -89,6 +92,18 @@ namespace AST {
     };
     struct Continue {
     };
+    struct Switch {
+        std::unique_ptr<ASTNode> condition;
+        std::unique_ptr<ASTNode> body;
+    };
+    struct TryCatch {
+        std::unique_ptr<ASTNode> try_block;
+        std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
+        std::unique_ptr<ASTNode> catch_block;
+    };
+    struct Destruct {
+        std::unique_ptr<ASTNode> target;
+    };
     struct Assign {
         int arg; // namespace oparg::AssignOpArg
         std::unique_ptr<ASTNode> lhs;
@@ -103,11 +118,6 @@ namespace AST {
         std::unique_ptr<ASTNode> lhs;
         std::unique_ptr<ASTNode> rhs;
     };
-    struct TryCatch {
-        std::unique_ptr<ASTNode> try_block;
-        std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
-        std::unique_ptr<ASTNode> catch_block;
-    };
     struct TernaryOp {
         std::unique_ptr<ASTNode> condition;
         std::unique_ptr<ASTNode> true_expr;
@@ -119,6 +129,17 @@ namespace AST {
     struct FunctionCall {
         std::shared_ptr<SymbolTable::Entry> entry; // the function being called
         std::unique_ptr<ASTNode> arguments; // List
+    };
+    struct CallOther {
+        std::unique_ptr<ASTNode> object; // Expression
+        ConstPool::IndexType method_name_idx;
+        std::unique_ptr<ASTNode> arguments; // List
+    };
+    struct KeywordArgument {
+        ConstPool::IndexType idx;
+        std::unique_ptr<ASTNode> value; // expr0
+        KeywordArgument(const std::string& name, ConstTable& const_table)
+            : idx(const_table.find_or_add(name)) {}
     };
     struct NumericConst {
         ConstTable::NumericType value;
@@ -134,12 +155,17 @@ namespace AST {
     };
     struct Self {
     };
+    struct New {
+        std::unique_ptr<ASTNode> blueprint;
+        std::unique_ptr<ASTNode> arg_list; // globals initializer list
+    };
 }
 
 struct ASTNode {
     using Storage = std::variant<
         std::monostate,
         AST::Program,
+        AST::Mount,
         AST::Inheritance,
         AST::FunctionDef,
         AST::FunctionDecl,
@@ -152,17 +178,22 @@ struct ASTNode {
         AST::Return,
         AST::Break,
         AST::Continue,
+        AST::Switch,
         AST::TryCatch,
+        AST::Destruct,
         AST::Assign,
         AST::UnaryOp,
         AST::BinaryOp,
         AST::TernaryOp,
         AST::List,
         AST::FunctionCall,
+        AST::CallOther,
+        AST::KeywordArgument,
         AST::NumericConst,
         AST::StringLiteral,
         AST::Variable,
-        AST::Self
+        AST::Self,
+        AST::New
     >;
 
     ASTNode() = default;

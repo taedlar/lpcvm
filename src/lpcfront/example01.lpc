@@ -1,16 +1,40 @@
 // Example LPC source file for testing the parser
 
-#define ADD(first, second) ((first) + (second))
+#define ARMOR "/path/to/armor"
+
+inherit "/std/player" as base;
 
 int g = 123;
+string *words = ({ "a", "b", "c" }); // aggregate array
+mapping dict = ([ "key1": "value1", "key2": "value2" ]); // aggregate mapping (associative array)
 
-int add(x, y, ... argv) {
-    int a = x, b = y - g;
+#define ADD(first, second) ((first) + (second))
+
+void write(string s) {}
+
+int add (int x, int y, string, ... argv) {
+    mount "/daemon/weather" as weather_d; // mount LPC object
+    mount "/area/village/weapon" as weapons; // mount filesystem directory
+    int a = argv[3], b = y - g;
     object obj = self;
+    object armor = new ARMOR;
+    object sword = new weapons::broadsword{damage=10};
+
+    using (base) {
+        // .set_max_hp (100);
+    }
+    using (weather_d) {
+        // ::show_weather();
+    }
+    using (armor) {
+        // ->set_name("leather armor");
+    }
+
+    // exception handling example
     try {
         int e = 100 / 0;
     } catch (mapping e) {
-        // write("Caught exception: " + e["msg"]);
+        write(s="Caught exception: " + e["msg"]);
     }
     return ADD(a, b);
 }
