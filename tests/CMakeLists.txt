@@ -17,6 +17,7 @@ add_executable(test_lpcvm
     test_vm_exception.cpp
     test_vm_data_stack.cpp
     test_vm_string_operator.cpp
+    test_lpc_array.cpp
 )
 
 target_link_libraries(test_lpcvm PRIVATE lpcvm spdlog GTest::gtest_main)

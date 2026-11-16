@@ -15,6 +15,7 @@
 #include <vector>
 
 struct ManagedRuntime;
+
 class LpcString;
 class LpcBuffer;
 class LpcArray;
@@ -25,6 +26,8 @@ class LpcObject;
  * @brief The lpcvm namespace contains all core components of the LPC virtual machine.
  */
 namespace lpcvm {
+
+struct svalue_t; // forward declaration of struct wrapper for SValue (stack value)
 
 /**
  * @brief A weak reference to an LPC compound data type managed by SharedPtr.
@@ -117,6 +120,13 @@ struct SharedPtr {
             throw std::runtime_error("Dereferencing null SharedPtr");
         }
         return *ptr;
+    }
+
+    void reset() noexcept {
+        if (ptr) {
+            release_strong(ptr);
+            ptr = nullptr;
+        }
     }
 
 private:
@@ -472,15 +482,36 @@ private:
 
 } // namespace lpcvm
 
+class LpcContainer {
+private:
+    LpcContainer* gc_prev = nullptr; // previous container in the garbage collection list
+    LpcContainer* gc_next = nullptr; // next container in the garbage collection list
+};
+
 using LpcArrayRef = lpcvm::SharedPtr<LpcArray>;
 
-class LpcArray {
-    // TODO: Implement the internal storage and methods for LpcArray
+class LpcArray: public LpcContainer {
+public:
+    LpcArray() = default;
+    LpcArray(std::size_t size);
+    ~LpcArray();
+
+    std::size_t size() const noexcept { return size_; }
+
+    void resize(std::size_t new_size);
+    void clear() noexcept;
+    lpcvm::svalue_t& operator[](std::size_t index) noexcept;
+    const lpcvm::svalue_t& operator[](std::size_t index) const noexcept;
+
+private:
+    std::size_t size_ = 0; // number of elements in the array
+    std::size_t capacity_ = 0; // allocated capacity of the array
+    lpcvm::svalue_t* values_ = nullptr; // pointer to the array elements
 };
 
 using LpcMappingRef = lpcvm::SharedPtr<LpcMapping>;
 
-class LpcMapping {
+class LpcMapping: public LpcContainer {
     // TODO: Implement the internal storage and methods for LpcMapping
 };
 

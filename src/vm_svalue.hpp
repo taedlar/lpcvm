@@ -64,3 +64,9 @@ using SValue = std::variant<
     LpcArrayRef,
     LpcObject::HandleType
 >;
+
+namespace lpcvm {
+struct svalue_t {
+    SValue value;
+};
+} // namespace lpcvm
