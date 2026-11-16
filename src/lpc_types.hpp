@@ -56,6 +56,7 @@ struct Handle;
  */
 template <typename T>
 struct SharedPtr {
+    using element_type = T;
 
     struct ControlBlock { // the size of control block must be aligned to avoid undefined behavior
         uint32_t ref_count;
@@ -483,7 +484,25 @@ private:
 } // namespace lpcvm
 
 class LpcContainer {
+protected:
+    LpcContainer() = default;
+    LpcContainer(const LpcContainer&) = delete;
+    LpcContainer& operator=(const LpcContainer&) = delete;
+    virtual ~LpcContainer();
+
+    using EdgeVisitor = void (*)(LpcContainer*, void*);
+    // Visit each owning container reference exactly once, including duplicates.
+    // These hooks must not allocate, throw, or invoke collection recursively.
+    virtual void visit_edges(EdgeVisitor visitor, void* context) const noexcept = 0;
+    virtual void clear_edges() noexcept = 0;
+
 private:
+    friend struct ManagedRuntime;
+    ManagedRuntime* gc_owner_ = nullptr;
+    uint32_t* gc_ref_count_ = nullptr;
+    void (*gc_release_)(LpcContainer*) noexcept = nullptr;
+    uint32_t gc_external_refs_ = 0;
+    bool gc_marked_ = false;
     LpcContainer* gc_prev = nullptr; // previous container in the garbage collection list
     LpcContainer* gc_next = nullptr; // next container in the garbage collection list
 };
@@ -492,6 +511,10 @@ using LpcArrayRef = lpcvm::SharedPtr<LpcArray>;
 
 class LpcArray: public LpcContainer {
 public:
+    using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC arrays
+
+    static LpcArrayRef create(std::shared_ptr<FabricType> sb, std::size_t size = 0);
+
     LpcArray() = default;
     LpcArray(std::size_t size);
     ~LpcArray();
@@ -504,6 +527,9 @@ public:
     const lpcvm::svalue_t& operator[](std::size_t index) const noexcept;
 
 private:
+    void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
+    void clear_edges() noexcept override { clear(); }
+
     std::size_t size_ = 0; // number of elements in the array
     std::size_t capacity_ = 0; // allocated capacity of the array
     lpcvm::svalue_t* values_ = nullptr; // pointer to the array elements
@@ -513,6 +539,8 @@ using LpcMappingRef = lpcvm::SharedPtr<LpcMapping>;
 
 class LpcMapping: public LpcContainer {
     // TODO: Implement the internal storage and methods for LpcMapping
+    void visit_edges(EdgeVisitor, void*) const noexcept override {}
+    void clear_edges() noexcept override {}
 };
 
 using LpcObjectRef = lpcvm::SharedPtr<LpcObject>; // strong reference to LpcObject instances

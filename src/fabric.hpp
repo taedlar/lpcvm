@@ -80,6 +80,36 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
     /** @brief Free recycled buffers; return their approximate allocation bytes. */
     std::size_t trim_buffer_pool() noexcept;
 
+    /** Create a shared container and track it without retaining ownership. */
+    template <typename RefType, typename... Args>
+    RefType make_container(Args&&... args) {
+        using ContainerType = typename RefType::element_type;
+        static_assert(std::is_base_of_v<LpcContainer, ContainerType>,
+                      "make_container requires an LpcContainer type");
+        auto ref = lpcvm::create_shared<ContainerType>(std::forward<Args>(args)...);
+        auto* container = static_cast<LpcContainer*>(&*ref);
+        container->gc_ref_count_ = &RefType::control_block(&*ref)->ref_count;
+        container->gc_release_ = [](LpcContainer* value) noexcept {
+            RefType::release_strong(static_cast<ContainerType*>(value));
+        };
+        container->gc_owner_ = this;
+        container->gc_next = gc_head_;
+        if (gc_head_)
+            gc_head_->gc_prev = container;
+        gc_head_ = container;
+        return ref;
+    }
+
+    /** Reclaim unreachable containers allocated by this runtime; return their
+     * count. External strong references are roots; weak handles are not.
+     * Call explicitly on the owning thread while the graph is not being mutated.
+     * References from untracked containers or other runtimes remain roots, so
+     * cycles crossing runtime boundaries are not collected. Scratch allocation
+     * failure leaves the graph unchanged. Surviving containers are detached on
+     * runtime destruction and are no longer eligible for collection.
+     */
+    std::size_t collect_garbage();
+
     /**
      * @brief The immutable object table provides a view of all named objects
      * managed by this runtime. The table maps unique object names to their
@@ -145,8 +175,10 @@ protected:
     static LpcStringRef allocate_shared_string(std::string_view value);
 
 private:
+    friend class LpcContainer;
     ObjectTable named_collection_; // named references to LpcObject instances
     std::unordered_map<std::string_view, LpcStringRef> strings_;
     lpcvm::BufferPool* buffer_pool_ = nullptr; // created on first use, closed on destruction
 
+    LpcContainer* gc_head_ = nullptr; // head of the garbage collection list for containers
 };

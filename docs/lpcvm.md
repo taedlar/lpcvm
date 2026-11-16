@@ -86,9 +86,28 @@ semantics rather than copying the referenced object.
 
 Arrays, mappings, and closures are intended to use **strong reference** semantics:
 copies share a value, and releasing the last strong reference destroys it.
-Array and mapping reference types currently use `lpcvm::SharedPtr`, but their
-container implementations are placeholders. Closures are not yet represented in
-`SValue`.
+Array and mapping reference types use `lpcvm::SharedPtr`. Arrays store mutable
+values; mapping storage remains a placeholder. Closures are not yet represented
+in `SValue`.
+
+Containers allocated through `ManagedRuntime::make_container` (including
+`LpcArray::create`) participate in explicit cycle collection. Call
+`runtime.collect_garbage()` on the owning thread at a point where the graph is
+not being mutated; it returns the number of containers reclaimed. The collector
+subtracts internal owning edges from reference counts, marks containers reachable
+from external strong references, then clears and releases unreachable containers.
+Weak handles do not keep containers alive. Unreachable containers are temporarily
+retained while their edges are cleared, preserving normal reference-counted
+destruction and weak-handle expiration.
+
+Each container subtype must implement edge traversal and clearing; traversal
+reports every owning container reference, including duplicates. Collection takes
+linear time in tracked containers and their edges, with linear scratch space.
+Allocation failure before collection leaves the graph intact. References from
+untracked containers or another runtime count as external roots; cycles spanning
+runtimes are not reclaimed. Collection is explicit, not triggered at allocation
+or runtime destruction. Containers surviving runtime destruction are detached and
+remain reference-counted, but can no longer be cycle-collected by that runtime.
 
 Strings use `LpcStringRef`, an owning `lpcvm::SharedPtr` to immutable shared bytes.
 The runtime's intern table also retains a strong reference until the entry is

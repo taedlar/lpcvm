@@ -139,6 +139,14 @@ void BufferPool::unref() noexcept {
 } // namespace lpcvm
 
 ManagedRuntime::~ManagedRuntime() {
+    // External container references can outlive the runtime.
+    while (gc_head_) {
+        auto* container = gc_head_;
+        gc_head_ = container->gc_next;
+        container->gc_owner_ = nullptr;
+        container->gc_prev = nullptr;
+        container->gc_next = nullptr;
+    }
     if (buffer_pool_)
         buffer_pool_->close();
 }
