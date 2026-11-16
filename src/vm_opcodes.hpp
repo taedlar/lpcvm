@@ -40,6 +40,7 @@
     X(F_STORE_LOCAL_BUFFER) \
     X(F_STR_FINISH_LOCAL) \
     X(F_ADJUST_ARGS) \
+    X(F_AGGREGATE_ARRAY) \
 
 /// F_STORE_LOCAL_BUFFER copies the stack-top string into an LpcBuffer local, reusing it when unshared.
 /// F_STR_FINISH_LOCAL moves the accumulator into an LpcBuffer local and pushes the local's reference.

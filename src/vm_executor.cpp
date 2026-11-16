@@ -536,6 +536,12 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             VM_DISPATCH();
         }
 
+        VM_HANDLER(F_AGGREGATE_ARRAY) {
+            oparg = (extended_arg << 8) | *pc++;
+            // TODO: oparg is number of elements on the stack. Create an LpcArray and populate it with the top `oparg` elements from the stack.
+            VM_DISPATCH();
+        }
+
         VM_LOOP_END()
         return 0;
 

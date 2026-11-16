@@ -54,6 +54,7 @@ add_library(lpcvm_obj OBJECT
     vm_sandbox.hpp
     vm_sandbox.cpp
     lpc_buffer.cpp
+    lpc_array.cpp
 )
 
 target_include_directories(lpcvm_obj PUBLIC

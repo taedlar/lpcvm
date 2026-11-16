@@ -43,6 +43,9 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
         const PathType& name,
         const std::vector<PathType>& search_paths);
 
+    /** @brief Find an existing shared string, if any. Returns nullopt if not found. */
+    virtual std::optional<LpcStringRef> find_shared_string(std::string_view value);
+
     /**
      * @brief Find or create an immutable owning string. Copies input bytes, including
      * embedded NULs. Returned strings can outlive this runtime. Unused strings are
