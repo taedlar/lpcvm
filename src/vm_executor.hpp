@@ -3,6 +3,7 @@
 
 #pragma once
 #include <cstdint>
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include "lpc_types.hpp"
@@ -23,6 +24,18 @@ public:
             throw std::runtime_error("Evaluation stack index out of bounds");
         }
         return stack_[index];
+    }
+
+    void rotate_top(std::size_t count) {
+        if (count < 2 || count > stack_.size())
+            throw std::runtime_error("Invalid stack rotation");
+        std::rotate(stack_.end() - count, stack_.end() - count + 1, stack_.end());
+    }
+
+    void swap_top() {
+        if (stack_.size() < 2)
+            throw std::runtime_error("Evaluation stack underflow");
+        std::swap(stack_[stack_.size() - 1], stack_[stack_.size() - 2]);
     }
 
     const std::size_t CHUNK_SIZE = 16;

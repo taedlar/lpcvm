@@ -225,6 +225,18 @@ static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* global
             }
             std::cout << ")";
         },
+        [&](const AST::ArrayLiteral& array) {
+            std::cout << "AST::ArrayLiteral(" << std::endl;
+            for (const auto& element : array.elts)
+                ast_dump(&element, false, globals);
+            std::cout << ")";
+        },
+        [&](const AST::Index& index) {
+            std::cout << "AST::Index(" << std::endl;
+            ast_dump(index.container.get(), false, globals);
+            ast_dump(index.index.get(), false, globals);
+            std::cout << ")";
+        },
         [&](const AST::Assign& assign) {
             std::cout << "AST::Assign(" << std::endl;
             indent_level++;

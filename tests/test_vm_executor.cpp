@@ -277,6 +277,24 @@ TEST(VMExecutorTest, ErrorsWithoutSourceLocationsAreWrapped) {
     const std::vector<std::vector<uint8_t>> cases = {
         {F_RETURN, 1},
         {F_POP_N, 1},
+        {F_SWAP, 0},
+        {F_SWAP},
+        {F_SWAP, 1},
+        {F_COPY},
+        {F_COPY, 0},
+        {F_ROTATE},
+        {F_ROTATE, 0},
+        {F_ROTATE, 2},
+        {F_LOAD_INDEX},
+        {F_LOAD_INDEX, 2},
+        {F_LOAD_INDEX, 0},
+        {F_STORE_INDEX},
+        {F_STORE_INDEX, 1},
+        {F_STORE_INDEX, 0},
+        {F_AGGREGATE_ARRAY},
+        {F_AGGREGATE_ARRAY, 1},
+        {F_AGGREGATE_ARRAY, 0},
+        {F_PUSH_N, 1, F_SWAP, 0},
         {F_STR_BEGIN},
         {F_JUMP, 2},
         {255, 0},
@@ -756,4 +774,50 @@ TEST(VMExecutorTest, BackwardJump) {
     EXPECT_NO_THROW(code.execute(control, stack));
     ASSERT_EQ(stack.size(), 1);
     EXPECT_EQ(std::get<int32_t>(stack.pop()), 0);
+}
+
+TEST(VMExecutorTest, SwapTemporaryStringsPreservesOwnership) {
+    const uint8_t bytecode[] = {F_SWAP, 0, F_RETURN, 1};
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_temp_string("left");
+    stack.push_temp_string("right");
+    ASSERT_EQ(code.execute(control, stack, 2), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    EXPECT_EQ(stack.top_string(), "left");
+    stack.pop();
+    EXPECT_TRUE(stack.empty());
+}
+
+TEST(VMExecutorTest, ArrayIndexValidation) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto array = runtime->make_container<LpcArrayRef>(1);
+    for (const auto opcode : {F_LOAD_INDEX, F_STORE_INDEX}) {
+        for (const SValue& index : {SValue(int32_t{-1}), SValue(uint64_t{1}),
+                                  SValue(std::numeric_limits<uint64_t>::max())}) {
+            const uint8_t bytecode[] = {opcode, 0, F_RETURN, 1};
+            lpcvm::Execution code(runtime);
+            code.binding(runtime, bytecode, sizeof(bytecode));
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            stack.push(array);
+            stack.push(index);
+            if (opcode == F_STORE_INDEX)
+                stack.push(int32_t{42});
+            EXPECT_THROW(code.execute(control, stack, stack.size()), std::out_of_range);
+        }
+        for (const SValue& target : {SValue(array), SValue(LpcArrayRef{}), SValue(int32_t{7})}) {
+            const uint8_t bytecode[] = {opcode, 0, F_RETURN, 1};
+            lpcvm::Execution code(runtime);
+            code.binding(runtime, bytecode, sizeof(bytecode));
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            stack.push(target);
+            stack.push(0.0); // floating-point indexes are rejected, even when integral
+            if (opcode == F_STORE_INDEX)
+                stack.push(int32_t{42});
+            EXPECT_THROW(code.execute(control, stack, stack.size()), std::runtime_error);
+        }
+    }
 }

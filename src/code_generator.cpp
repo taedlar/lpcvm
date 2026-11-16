@@ -185,12 +185,42 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
         [&](const AST::Self& self_node) {
             emit(F_PUSH_SELF);
         },
+        [&](const AST::ArrayLiteral& array) {
+            for (const auto& element : array.elts)
+                emit_expression(element);
+            set_source_location(expr);
+            emit(F_AGGREGATE_ARRAY, array.elts.size());
+        },
+        [&](const AST::Index& index) {
+            emit_expression(*index.container);
+            emit_expression(*index.index);
+            set_source_location(expr);
+            emit(F_LOAD_INDEX);
+        },
         [&](const AST::Assign& assign) {
             if (!assign.lhs != !assign.rhs) { // ++/-- forms have exactly one operand
                 const bool prefix = (assign.arg == oparg::ASSIGN_PREFIX_INC || assign.arg == oparg::ASSIGN_PREFIX_DEC);
                 const bool increment = (assign.arg == oparg::ASSIGN_PREFIX_INC || assign.arg == oparg::ASSIGN_SUFFIX_INC);
                 const auto& operand = prefix ? *assign.rhs : *assign.lhs;
                 const auto* var = std::get_if<AST::Variable>(&operand.node);
+                if (const auto* index = std::get_if<AST::Index>(&operand.node)) {
+                    emit_expression(*index->container);
+                    emit_expression(*index->index);
+                    set_source_location(expr);
+                    emit(F_LOAD_INDEX, 1);
+                    if (!prefix) {
+                        emit(F_COPY, 0);
+                        // [array, index, old, old] -> [old, array, index, old]
+                        emit(F_ROTATE, 4);
+                        emit(F_ROTATE, 4);
+                        emit(F_ROTATE, 4);
+                    }
+                    emit(F_UNARY_OP, increment ? oparg::INC : oparg::DEC);
+                    emit(F_STORE_INDEX);
+                    if (!prefix)
+                        emit(F_POP_N, 1);
+                    return;
+                }
                 if (!var)
                     throw std::runtime_error("Unsupported assignment target");
                 if (!prefix)
@@ -206,18 +236,25 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             if (!assign.lhs)
                 return;
             const auto* var = std::get_if<AST::Variable>(&assign.lhs->node);
-            if (!var)
+            const auto* index = std::get_if<AST::Index>(&assign.lhs->node);
+            if (!var && !index)
                 throw std::runtime_error("Unsupported assignment target");
-            if (options_.use_string_accumulator && options_.use_local_string_buffer && assign.rhs &&
+            if (var && options_.use_string_accumulator && options_.use_local_string_buffer && assign.rhs &&
                 var->entry && var->entry->value && std::holds_alternative<uint32_t>(*var->entry->value) &&
                 var->entry->signature.b.is_local && is_scalar_string(*var) &&
                 (assign.arg == oparg::ASSIGN_ADD || (assign.arg == oparg::ASSIGN &&
                     std::holds_alternative<AST::BinaryOp>(assign.rhs->node)))) {
                 std::vector<const ASTNode*> terms;
-                if (assign.arg == oparg::ASSIGN_ADD)
-                    terms.push_back(assign.lhs.get());
                 if (collect_string_terms(*assign.rhs, terms)) {
-                    emit_string_terms(terms, expr);
+                    if (assign.arg == oparg::ASSIGN_ADD) {
+                        emit_expression(*assign.rhs);
+                        emit_variable_load(*var);
+                        set_source_location(expr);
+                        emit(F_STR_BEGIN);
+                        emit(F_STR_APPEND);
+                    } else {
+                        emit_string_terms(terms, expr);
+                    }
                     emit(F_STR_FINISH_LOCAL, std::get<uint32_t>(*var->entry->value));
                     return;
                 }
@@ -237,12 +274,30 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
                 case oparg::ASSIGN_RSH: binary_arg = oparg::RSH; break;
                 default: throw std::runtime_error("Unsupported assignment operator");
             }
-            if (binary_arg >= 0) // compound assignment: var = var <op> rhs
-                emit_variable_load(*var);
             emit_expression(*assign.rhs);
-            set_source_location(expr);
+            if (index) {
+                emit_expression(*index->container);
+                emit_expression(*index->index);
+                set_source_location(expr);
+                if (binary_arg >= 0) {
+                    emit(F_LOAD_INDEX, 1);
+                    // [rhs, array, index, lhs] -> [array, index, lhs, rhs]
+                    emit(F_ROTATE, 4);
+                    emit(F_BINARY_OP, binary_arg);
+                } else {
+                    emit(F_ROTATE, 3);
+                }
+                emit(F_STORE_INDEX);
+                return;
+            }
             if (binary_arg >= 0)
+                emit_variable_load(*var);
+            set_source_location(expr);
+            if (binary_arg >= 0) {
+                // Evaluate RHS first, then restore the binary opcode's [lhs, rhs] order.
+                emit(F_SWAP);
                 emit(F_BINARY_OP, binary_arg);
+            }
             emit_variable_store(*var); // the assigned value remains on the stack as the expression result
         },
         [&](const AST::TernaryOp& ternary) {
