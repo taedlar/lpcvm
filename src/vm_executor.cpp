@@ -346,6 +346,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             oparg = (extended_arg << 8) | *pc++;
             if (oparg != 0)
                 throw std::runtime_error("Invalid swap argument");
+            if (stack.size() < fp || stack.size() - fp < 2)
+                throw std::runtime_error("Evaluation stack underflow");
             stack.swap_top();
             VM_DISPATCH();
         }
