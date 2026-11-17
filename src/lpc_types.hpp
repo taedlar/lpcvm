@@ -593,8 +593,8 @@ public:
     void erase(const lpcvm::svalue_t& key);
 
 private:
-    void visit_edges(EdgeVisitor, void*) const noexcept override {}
-    void clear_edges() noexcept override {}
+    void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
+    void clear_edges() noexcept override { clear(); }
     void release_gc_reference() noexcept override { release_container_reference(this); }
 
     bool need_grow() const noexcept {

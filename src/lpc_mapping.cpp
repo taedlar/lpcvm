@@ -68,17 +68,35 @@ LpcMapping::LpcMapping(std::size_t size) {
 }
 
 LpcMapping::~LpcMapping() {
-    // Clean up hash table and the mapping entries
-    if (entries_) {
-        delete[] entries_;
-        entries_ = nullptr;
-    }
-    if (std::holds_alternative<int8_t*>(indices_)) {
-        delete[] std::get<int8_t*>(indices_);
-    } else if (std::holds_alternative<int16_t*>(indices_)) {
-        delete[] std::get<int16_t*>(indices_);
-    } else if (std::holds_alternative<int32_t*>(indices_)) {
-        delete[] std::get<int32_t*>(indices_);
+    clear();
+}
+
+void LpcMapping::clear() noexcept {
+    // Detach storage before releasing references that can destroy other containers.
+    auto* entries = std::exchange(entries_, nullptr);
+    auto indices = std::exchange(indices_, std::monostate{});
+    size_ = 0;
+    capacity_ = 0;
+    erased_ = 0;
+    bucket_bits_ = 0;
+    std::visit([](auto buckets) {
+        if constexpr (!std::is_same_v<decltype(buckets), std::monostate>)
+            delete[] buckets;
+    }, indices);
+    delete[] entries;
+}
+
+void LpcMapping::visit_edges(EdgeVisitor visitor, void* context) const noexcept {
+    const auto visit = [&](const SValue& value) {
+        if (const auto* array = std::get_if<LpcArrayRef>(&value); array && *array)
+            visitor(&**array, context);
+        else if (const auto* mapping = std::get_if<LpcMappingRef>(&value); mapping && *mapping)
+            visitor(&**mapping, context);
+    };
+    for (uint32_t i = 0; i < size_; ++i) {
+        // Each key/value slot owns a separate reference, even when targets repeat.
+        visit(entries_[i].first);
+        visit(entries_[i].second.value);
     }
 }
 
