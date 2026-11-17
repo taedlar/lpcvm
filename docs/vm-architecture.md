@@ -61,6 +61,10 @@ argument `1` retains the array and index beneath the loaded value.
 Stores and array construction promote temporary strings and local string buffers
 to owned strings before putting them in the array.
 
+`F_AGGREGATE_MAPPING n` similarly consumes `n` key/value pairs and pushes a
+fabric-managed mapping. Keys and values are promoted to owned strings when
+needed; duplicate keys are applied in source order, so the final value wins.
+
 `F_COPY depth` duplicates a stack value (`0` selects the top), copying temporary
 string storage as needed. `F_ROTATE n` rotates the top `n` slots one place left.
 These let the compiler retain an indexed target while applying ordinary binary

@@ -645,6 +645,28 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             VM_DISPATCH();
         }
 
+        VM_HANDLER(F_AGGREGATE_MAPPING) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing mapping size argument");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg > (stack.size() - fp) / 2)
+                throw std::runtime_error("Evaluation stack underflow");
+            if (!fabric_)
+                throw std::runtime_error("Mapping creation requires a fabric");
+            { // Release the construction reference before dispatch.
+                auto mapping = fabric_->make_container<LpcMappingRef>(oparg);
+                const auto base = stack.size() - static_cast<std::size_t>(oparg) * 2;
+                for (std::size_t i = 0; i < oparg; ++i) {
+                    const auto key = container_value(stack, base + i * 2, fabric_);
+                    mapping->find_or_insert({key}).value =
+                        container_value(stack, base + i * 2 + 1, fabric_);
+                }
+                stack.pop_n(static_cast<std::size_t>(oparg) * 2);
+                stack.push(mapping);
+            }
+            VM_DISPATCH();
+        }
+
         VM_LOOP_END()
         return 0;
 

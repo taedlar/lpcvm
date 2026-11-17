@@ -107,6 +107,10 @@ namespace AST {
     struct ArrayLiteral {
         std::vector<ASTNode> elts;
     };
+    struct MappingLiteral {
+        // Alternating key/value expressions in source order.
+        std::vector<ASTNode> elts;
+    };
     struct Index {
         std::unique_ptr<ASTNode> container;
         std::unique_ptr<ASTNode> index;
@@ -189,6 +193,7 @@ struct ASTNode {
         AST::TryCatch,
         AST::Destruct,
         AST::ArrayLiteral,
+        AST::MappingLiteral,
         AST::Index,
         AST::Assign,
         AST::UnaryOp,

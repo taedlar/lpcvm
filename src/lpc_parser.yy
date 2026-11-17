@@ -935,7 +935,9 @@ aggregation
     | L_ARRAY_OPEN expr_list '}' ')'
         { ASSIGN_AST($$, @$, AST::ArrayLiteral{ std::move(std::get<AST::List>($2.node).elts) }); }
     | L_MAPPING_OPEN assoc_list ']' ')'
-        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
+        { ASSIGN_AST($$, @$, AST::MappingLiteral{ std::move(std::get<AST::List>($2.node).elts) }); }
+    | L_MAPPING_OPEN ']' ')'
+        { ASSIGN_AST($$, @$, AST::MappingLiteral{}); }
     ;
 
 call_prefix
