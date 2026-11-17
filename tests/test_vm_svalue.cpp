@@ -11,6 +11,96 @@ static_assert(std::is_constructible_v<SValue, LpcStringRef>);
 static_assert(sizeof(void*) != 8 || sizeof(SValue) == 16,
               "SValue must remain 16 bytes on 64-bit architectures");
 
+TEST(SValueTest, MappingHashUsesNumericValues) {
+    for (const SValue& value : {SValue{}, SValue{int32_t{-7}}, SValue{uint32_t{7}},
+                              SValue{int64_t{-7}}, SValue{uint64_t{7}},
+                              SValue{1.25f}, SValue{1.25}}) {
+        lpcvm::svalue_t first{value};
+        lpcvm::svalue_t copy{value};
+        EXPECT_EQ(LpcMapping::hash(first), LpcMapping::hash(copy));
+    }
+    EXPECT_EQ(LpcMapping::hash({0.0f}), LpcMapping::hash({-0.0f}));
+    EXPECT_EQ(LpcMapping::hash({0.0}), LpcMapping::hash({-0.0}));
+    EXPECT_NE(LpcMapping::hash({int32_t{1}}), LpcMapping::hash({int32_t{2}}));
+}
+
+TEST(SValueTest, MappingHashUsesStringBytesAcrossRuntimes) {
+    ManagedRuntime first_runtime;
+    ManagedRuntime second_runtime;
+    const std::string_view bytes{"a\0b", 3};
+    auto first = first_runtime.make_shared_string(bytes);
+    auto second = second_runtime.make_shared_string(bytes);
+    ASSERT_FALSE(first == second);
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+    EXPECT_NE(LpcMapping::hash({first}),
+              LpcMapping::hash({first_runtime.make_shared_string("a")}));
+}
+
+TEST(SValueTest, MappingHashPreservesMutableReferenceIdentity) {
+    auto array = lpcvm::create_shared<LpcArray>();
+    auto mapping = lpcvm::create_shared<LpcMapping>();
+    for (const SValue& value : {SValue{array}, SValue{mapping},
+                              SValue{LpcStringRef{}}, SValue{LpcBufferRef{}},
+                              SValue{LpcArrayRef{}}, SValue{LpcMappingRef{}}}) {
+        lpcvm::svalue_t first{value};
+        lpcvm::svalue_t copy{value};
+        EXPECT_EQ(LpcMapping::hash(first), LpcMapping::hash(copy));
+    }
+    const auto array_hash = LpcMapping::hash({array});
+    array->resize(3);
+    EXPECT_EQ(array_hash, LpcMapping::hash({array}));
+}
+
+TEST(SValueTest, MappingHashUsesBufferBytes) {
+    ManagedRuntime runtime;
+    auto first = runtime.make_buffer();
+    auto second = runtime.make_buffer();
+    ASSERT_FALSE(first == second);
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+
+    first->data.assign("a\0b", 3);
+    second->data = first->data;
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+    const auto hash = LpcMapping::hash({first});
+    first->data = "a";
+    EXPECT_NE(hash, LpcMapping::hash({first}));
+    second->data = "a";
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+}
+
+TEST(SValueTest, MappingStringHashSupportsTemporaryStrings) {
+    ManagedRuntime runtime;
+    lpcvm::DataStack stack;
+    for (const auto bytes : {std::string_view{}, std::string_view{"a\0b", 3}}) {
+        stack.push_temp_string(bytes);
+        ASSERT_TRUE(std::holds_alternative<TemporaryString>(stack.top()));
+        auto shared = runtime.make_shared_string(bytes);
+        auto buffer = runtime.make_buffer();
+        buffer->data = bytes;
+        const auto hash = LpcMapping::string_hash(stack.top_string());
+        EXPECT_EQ(hash, LpcMapping::hash({shared}));
+        EXPECT_EQ(hash, LpcMapping::hash({buffer}));
+        stack.pop();
+    }
+}
+
+TEST(SValueTest, MappingHashPreservesExpiredObjectIdentity) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    auto program = std::make_shared<ObjectClass>();
+    auto object = lpcvm::create_shared<LpcObject>(fabric, program);
+    LpcObject::HandleType handle{object};
+    lpcvm::svalue_t first{handle};
+    lpcvm::svalue_t copy{handle};
+    const auto hash = LpcMapping::hash(first);
+    EXPECT_EQ(hash, LpcMapping::hash(copy));
+    object.reset();
+    ASSERT_TRUE(handle.expired());
+    EXPECT_EQ(hash, LpcMapping::hash(first));
+    EXPECT_EQ(hash, LpcMapping::hash(copy));
+    EXPECT_EQ(LpcMapping::hash({LpcObject::HandleType{}}),
+              LpcMapping::hash({LpcObject::HandleType{}}));
+}
+
 TEST(SValueTest, ObjectHandleNullAndExpiredChecks) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse(R"(

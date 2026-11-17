@@ -69,4 +69,8 @@ namespace lpcvm {
 struct svalue_t {
     SValue value;
 };
+struct svalue_pair_t {
+    SValue first;
+    SValue second;
+};
 } // namespace lpcvm

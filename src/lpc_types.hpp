@@ -12,6 +12,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 struct ManagedRuntime;
@@ -28,6 +29,7 @@ class LpcObject;
 namespace lpcvm {
 
 struct svalue_t; // forward declaration of struct wrapper for SValue (stack value)
+struct svalue_pair_t; // forward declaration of struct wrapper for a pair of SValues
 
 /**
  * @brief A weak reference to an LPC compound data type managed by SharedPtr.
@@ -203,6 +205,8 @@ SharedPtr<T> create_shared(Args&&... args) {
  */
 template <typename T, typename RefType>
 struct Handle {
+    friend class ::LpcMapping;
+
     using ControlBlock = typename RefType::ControlBlock;
 
     Handle() noexcept : ptr(nullptr) {}
@@ -538,9 +542,33 @@ private:
 using LpcMappingRef = lpcvm::SharedPtr<LpcMapping>;
 
 class LpcMapping: public LpcContainer {
-    // TODO: Implement the internal storage and methods for LpcMapping
+public:
+    using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC mappings
+
+    static LpcMappingRef create(std::shared_ptr<FabricType> sb, std::size_t size = 0);
+    // Strings/buffers hash by bytes; numbers retain their type; other references use identity.
+    // For TemporaryString, resolve the stack-owned bytes and call string_hash instead.
+    static std::size_t hash(const lpcvm::svalue_t& key) noexcept;
+    static std::size_t string_hash(std::string_view value) noexcept;
+
+    LpcMapping() = default;
+    LpcMapping(std::size_t size);
+    ~LpcMapping();
+
+    std::size_t size() const noexcept { return size_; }
+    void clear() noexcept;
+    lpcvm::svalue_pair_t* find(const lpcvm::svalue_t& key) const noexcept; // find the entry for the given key, or return nullptr if not found
+    lpcvm::svalue_pair_t& operator[](const lpcvm::svalue_t& key); // find or insert the entry for the given key
+    void erase(const lpcvm::svalue_t& key); // remove the entry for the given key if it exists
+
+private:
     void visit_edges(EdgeVisitor, void*) const noexcept override {}
     void clear_edges() noexcept override {}
+
+    std::size_t size_ = 0; // number of entries in the mapping
+    std::size_t capacity_ = 0; // size of hash table in power of two (e.g. 3 means 8 buckets)
+    std::variant<std::monostate, uint8_t*, uint16_t*, uint32_t*> indices_; // hash table buckets for the mapping
+    lpcvm::svalue_pair_t* entries_ = nullptr; // pointer to the mapping entries
 };
 
 using LpcObjectRef = lpcvm::SharedPtr<LpcObject>; // strong reference to LpcObject instances

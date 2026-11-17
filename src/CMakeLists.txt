@@ -56,6 +56,7 @@ add_library(lpcvm_obj OBJECT
     lpc_buffer.cpp
     lpc_array.cpp
     lpc_container.cpp
+    lpc_mapping.cpp
 )
 
 target_include_directories(lpcvm_obj PUBLIC
