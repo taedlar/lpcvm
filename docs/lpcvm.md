@@ -87,7 +87,7 @@ semantics rather than copying the referenced object.
 Arrays, mappings, and closures are intended to use **strong reference** semantics:
 copies share a value, and releasing the last strong reference destroys it.
 Array and mapping reference types use `lpcvm::SharedPtr`. Arrays store mutable
-values; mapping storage remains a placeholder. Closures are not yet represented
+values; mappings store immutable keys and mutable values. Closures are not yet represented
 in `SValue`.
 
 Containers allocated through `ManagedRuntime::make_container` (including
@@ -108,6 +108,10 @@ untracked containers or another runtime count as external roots; cycles spanning
 runtimes are not reclaimed. Collection is explicit, not triggered at allocation
 or runtime destruction. Containers surviving runtime destruction are detached and
 remain reference-counted, but can no longer be cycle-collected by that runtime.
+
+Mapping traversal includes array and mapping references in both keys and values.
+Object handles are weak and do not contribute owning edges. Clearing a mapping
+releases its keys, values, and bucket storage, leaving it empty and reusable.
 
 `LpcContainer::fabric()` exposes the borrowed runtime pointer installed by
 `ManagedRuntime::make_container`. It returns null for untracked containers and

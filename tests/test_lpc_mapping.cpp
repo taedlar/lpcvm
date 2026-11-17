@@ -6,6 +6,127 @@
 #include "vm_executor.hpp"
 #include "vm_svalue.hpp"
 
+using MappingHandle = lpcvm::Handle<LpcMapping, LpcMappingRef>;
+
+TEST(LpcMappingGarbageCollectionTest, CollectsSelfKeyAndValueAndReleasesPayload) {
+    ManagedRuntime runtime;
+    auto mapping = runtime.make_container<LpcMappingRef>();
+    MappingHandle weak(mapping);
+    mapping->find_or_insert({mapping}).value = mapping;
+    mapping->find_or_insert({int32_t{1}}).value = runtime.make_shared_string("payload");
+    mapping->find_or_insert({int32_t{2}}).value = runtime.make_buffer();
+    EXPECT_EQ(mapping.use_count(), 3u);
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+    mapping.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 1u);
+    EXPECT_TRUE(weak.expired());
+    EXPECT_FALSE(weak.lock().has_value());
+    EXPECT_EQ(runtime.buffer_pool_stats().live_buffers, 0u);
+    EXPECT_GT(runtime.sweep_shared_strings(), 0u);
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+}
+
+TEST(LpcMappingGarbageCollectionTest, CollectsMixedCycleWithDuplicateEdges) {
+    ManagedRuntime runtime;
+    auto first = runtime.make_container<LpcMappingRef>();
+    auto second = runtime.make_container<LpcMappingRef>();
+    auto array = runtime.make_container<LpcArrayRef>(1);
+    MappingHandle weak_first(first), weak_second(second);
+    lpcvm::Handle<LpcArray, LpcArrayRef> weak_array(array);
+    first->find_or_insert({array}).value = array;
+    first->find_or_insert({int32_t{1}}).value = array;
+    (*array)[0].value = second;
+    second->find_or_insert({first}); // cycle returns through a mapping key
+    first.reset();
+    second.reset();
+    array.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 3u);
+    EXPECT_TRUE(weak_first.expired());
+    EXPECT_TRUE(weak_second.expired());
+    EXPECT_TRUE(weak_array.expired());
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+}
+
+TEST(LpcMappingGarbageCollectionTest, MarksReachableKeysAndValues) {
+    ManagedRuntime runtime;
+    auto root = runtime.make_container<LpcMappingRef>();
+    auto key = runtime.make_container<LpcArrayRef>(1);
+    auto value = runtime.make_container<LpcMappingRef>();
+    lpcvm::Handle<LpcArray, LpcArrayRef> weak_key(key);
+    MappingHandle weak_value(value);
+    (*key)[0].value = key;
+    value->find_or_insert({int32_t{0}}).value = value;
+    root->find_or_insert({key}).value = value;
+    key.reset();
+    value.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+    EXPECT_FALSE(weak_key.expired());
+    EXPECT_FALSE(weak_value.expired());
+    root->clear();
+    EXPECT_EQ(runtime.collect_garbage(), 2u);
+    EXPECT_TRUE(weak_key.expired());
+    EXPECT_TRUE(weak_value.expired());
+    EXPECT_EQ(root->size(), 0u);
+}
+
+TEST(LpcMappingGarbageCollectionTest, ClearingGarbagePreservesExternalReferences) {
+    ManagedRuntime runtime;
+    auto live = runtime.make_container<LpcMappingRef>();
+    live->find_or_insert({int32_t{7}}).value = int32_t{42};
+    auto garbage = runtime.make_container<LpcMappingRef>();
+    garbage->find_or_insert({garbage}).value = live;
+    garbage->find_or_insert({live}).value = live;
+    garbage.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 1u);
+    EXPECT_EQ(live.use_count(), 1u);
+    ASSERT_NE(live->find({int32_t{7}}), nullptr);
+    EXPECT_EQ(std::get<int32_t>(live->find({int32_t{7}})->value), 42);
+}
+
+TEST(LpcMappingGarbageCollectionTest, UntrackedAndForeignReferencesRemainRoots) {
+    ManagedRuntime runtime, other;
+    LpcMapping untracked;
+    auto mapping = runtime.make_container<LpcMappingRef>();
+    auto foreign = other.make_container<LpcMappingRef>();
+    MappingHandle weak(mapping);
+    mapping->find_or_insert({mapping});
+    foreign->find_or_insert({mapping});
+    untracked.find_or_insert({int32_t{0}}).value = mapping;
+    mapping.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+    EXPECT_EQ(other.collect_garbage(), 0u);
+    foreign->clear();
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+    untracked.clear();
+    EXPECT_EQ(runtime.collect_garbage(), 1u);
+    EXPECT_TRUE(weak.expired());
+}
+
+TEST(LpcMappingGarbageCollectionTest, ClearResetsGrownAndErasedStorageForReuse) {
+    ManagedRuntime runtime;
+    auto mapping = runtime.make_container<LpcMappingRef>();
+    auto payload = runtime.make_container<LpcArrayRef>();
+    lpcvm::Handle<LpcArray, LpcArrayRef> weak(payload);
+    for (int32_t i = 0; i < 200; ++i)
+        mapping->find_or_insert({i}).value = payload;
+    for (int32_t i = 0; i < 200; i += 2)
+        mapping->erase({i});
+    payload.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+    mapping->clear();
+    EXPECT_EQ(mapping->fabric(), &runtime);
+    EXPECT_EQ(mapping->size(), 0u);
+    EXPECT_TRUE(weak.expired());
+    EXPECT_EQ(mapping->find({int32_t{1}}), nullptr);
+    mapping->clear(); // idempotent
+    mapping->find_or_insert({int32_t{1}}).value = mapping;
+    mapping->find_or_insert({LpcArrayRef{}}).value = LpcMappingRef{};
+    mapping->find_or_insert({LpcObject::HandleType{}});
+    mapping.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 1u);
+    EXPECT_EQ(runtime.collect_garbage(), 0u);
+}
+
 // Public accessors expose only values, and const mappings cannot replace them.
 static_assert(std::is_same_v<decltype(std::declval<LpcMapping&>().find(
     std::declval<const lpcvm::svalue_t&>())), lpcvm::svalue_t*>);
