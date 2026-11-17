@@ -64,6 +64,6 @@ std::size_t ManagedRuntime::collect_garbage() {
     for (auto* container : containers)
         container->clear_edges();
     for (auto* container : containers)
-        container->gc_release_(container);
+        container->release_gc_reference();
     return containers.size();
 }

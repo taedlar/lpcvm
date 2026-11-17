@@ -69,4 +69,28 @@ namespace lpcvm {
 struct svalue_t {
     SValue value;
 };
+struct svalue_pair_t {
+    SValue first;
+    svalue_t second;
+};
+
+/**
+ * @brief Compare two SValue instances.
+ *
+ * Returns 0 if the values are equal, a negative value if a < b, and a positive value if a > b.
+ * The comparison logic should handle all types stored in SValue appropriately.
+ *
+ * Different types are ordered by variant index, except string representations.
+ * Numeric values of the same type use natural ordering; signed zeros are equal.
+ * NaNs sort after other values of their type and are ordered by representation.
+ * String types (LpcStringRef and LpcBufferRef) are compared by their content.
+ * Reference types (LpcMappingRef, LpcArrayRef, and LpcObject::HandleType) are compared by their identity.
+ * Null string references compare equal across representations and before non-null strings.
+ * Expired object handles retain their identity. Valueless variants compare equal
+ * to each other and sort after supported values.
+ *
+ * TemporaryString comparison is not supported (always returns -1) and should be handled separately.
+ */
+int compare_svalues(const SValue& a, const SValue& b);
+
 } // namespace lpcvm

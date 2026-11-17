@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
 #include <gtest/gtest.h>
+#include <limits>
 #include "lpc_compiler.hpp"
 #include "object_class.hpp"
 #include "vm_executor.hpp"
@@ -10,6 +11,184 @@
 static_assert(std::is_constructible_v<SValue, LpcStringRef>);
 static_assert(sizeof(void*) != 8 || sizeof(SValue) == 16,
               "SValue must remain 16 bytes on 64-bit architectures");
+
+TEST(SValueTest, CompareNumericValuesAndTypes) {
+    const auto check = [](const SValue& low, const SValue& high) {
+        EXPECT_LT(lpcvm::compare_svalues(low, high), 0);
+        EXPECT_GT(lpcvm::compare_svalues(high, low), 0);
+        EXPECT_EQ(lpcvm::compare_svalues(low, low), 0);
+        EXPECT_EQ(lpcvm::compare_svalues(high, high), 0);
+    };
+    check(int32_t{-1}, int32_t{1});
+    check(uint32_t{0}, std::numeric_limits<uint32_t>::max());
+    check(std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max());
+    check(std::numeric_limits<uint64_t>::max() - 1, std::numeric_limits<uint64_t>::max());
+    check(-1.5f, 1.5f);
+    check(-1.5, 1.5);
+    check(std::monostate{}, int32_t{0});
+    check(int32_t{1}, uint32_t{1});
+    check(int64_t{1}, uint64_t{1});
+    check(1.0f, 1.0);
+    EXPECT_EQ(lpcvm::compare_svalues(SValue{}, SValue{}), 0);
+    EXPECT_EQ(lpcvm::compare_svalues(0.0f, -0.0f), 0);
+    EXPECT_EQ(lpcvm::compare_svalues(0.0, -0.0), 0);
+    for (const SValue& nan : {SValue{std::numeric_limits<float>::quiet_NaN()},
+                              SValue{std::numeric_limits<double>::quiet_NaN()}}) {
+        const SValue infinity = nan.index() == variant_index<SValue, float>()
+            ? SValue{std::numeric_limits<float>::infinity()}
+            : SValue{std::numeric_limits<double>::infinity()};
+        check(infinity, nan);
+        EXPECT_EQ(LpcMapping::hash({nan}), LpcMapping::hash({SValue{nan}}));
+    }
+}
+
+TEST(SValueTest, CompareStringRepresentationsByBytes) {
+    ManagedRuntime first_runtime;
+    ManagedRuntime second_runtime;
+    const std::string_view bytes{"a\0b", 3};
+    auto buffer = first_runtime.make_buffer();
+    buffer->data = bytes;
+    const SValue values[] = {first_runtime.make_shared_string(bytes),
+                            second_runtime.make_shared_string(bytes), buffer};
+    for (const auto& lhs : values) {
+        for (const auto& rhs : values) {
+            EXPECT_EQ(lpcvm::compare_svalues(lhs, rhs), 0);
+            EXPECT_EQ(LpcMapping::hash({lhs}), LpcMapping::hash({rhs}));
+        }
+        EXPECT_GT(lpcvm::compare_svalues(lhs, first_runtime.make_shared_string("a")), 0);
+        EXPECT_LT(lpcvm::compare_svalues(first_runtime.make_shared_string("a"), lhs), 0);
+        EXPECT_GT(lpcvm::compare_svalues(lhs, LpcStringRef{}), 0);
+        EXPECT_LT(lpcvm::compare_svalues(LpcBufferRef{}, lhs), 0);
+    }
+    EXPECT_EQ(lpcvm::compare_svalues(LpcStringRef{}, LpcBufferRef{}), 0);
+    EXPECT_LT(lpcvm::compare_svalues(LpcStringRef{}, first_runtime.make_shared_string("")), 0);
+    buffer->data = "a";
+    EXPECT_LT(lpcvm::compare_svalues(buffer, values[0]), 0);
+}
+
+TEST(SValueTest, CompareReferenceIdentityIncludingExpiredHandles) {
+    const auto check = [](const SValue& lhs, const SValue& rhs) {
+        EXPECT_EQ(lpcvm::compare_svalues(lhs, SValue{lhs}), 0);
+        EXPECT_NE(lpcvm::compare_svalues(lhs, rhs), 0);
+        EXPECT_EQ(lpcvm::compare_svalues(lhs, rhs), -lpcvm::compare_svalues(rhs, lhs));
+    };
+    check(lpcvm::create_shared<LpcArray>(), lpcvm::create_shared<LpcArray>());
+    check(lpcvm::create_shared<LpcMapping>(), lpcvm::create_shared<LpcMapping>());
+    check(LpcArrayRef{}, lpcvm::create_shared<LpcArray>());
+    check(LpcMappingRef{}, lpcvm::create_shared<LpcMapping>());
+    auto fabric = std::make_shared<ManagedRuntime>();
+    auto program = std::make_shared<ObjectClass>();
+    auto first = lpcvm::create_shared<LpcObject>(fabric, program);
+    auto second = lpcvm::create_shared<LpcObject>(fabric, program);
+    const SValue lhs = LpcObject::HandleType{first};
+    const SValue rhs = LpcObject::HandleType{second};
+    const int order = lpcvm::compare_svalues(lhs, rhs);
+    check(lhs, rhs);
+    first.reset();
+    second.reset();
+    check(lhs, rhs);
+    check(lhs, LpcObject::HandleType{});
+    EXPECT_EQ(lpcvm::compare_svalues(lhs, rhs), order);
+    EXPECT_EQ(lpcvm::compare_svalues(LpcObject::HandleType{}, LpcObject::HandleType{}), 0);
+}
+
+TEST(SValueTest, CompareTemporaryStringsIsUnsupported) {
+    lpcvm::DataStack stack;
+    stack.push_temp_string("value");
+    EXPECT_EQ(lpcvm::compare_svalues(stack.top(), stack.top()), -1);
+    EXPECT_EQ(lpcvm::compare_svalues(stack.top(), int32_t{0}), -1);
+    EXPECT_EQ(lpcvm::compare_svalues(int32_t{0}, stack.top()), -1);
+}
+
+TEST(SValueTest, MappingHashUsesNumericValues) {
+    for (const SValue& value : {SValue{}, SValue{int32_t{-7}}, SValue{uint32_t{7}},
+                              SValue{int64_t{-7}}, SValue{uint64_t{7}},
+                              SValue{1.25f}, SValue{1.25}}) {
+        lpcvm::svalue_t first{value};
+        lpcvm::svalue_t copy{value};
+        EXPECT_EQ(LpcMapping::hash(first), LpcMapping::hash(copy));
+    }
+    EXPECT_EQ(LpcMapping::hash({0.0f}), LpcMapping::hash({-0.0f}));
+    EXPECT_EQ(LpcMapping::hash({0.0}), LpcMapping::hash({-0.0}));
+    EXPECT_NE(LpcMapping::hash({int32_t{1}}), LpcMapping::hash({int32_t{2}}));
+}
+
+TEST(SValueTest, MappingHashUsesStringBytesAcrossRuntimes) {
+    ManagedRuntime first_runtime;
+    ManagedRuntime second_runtime;
+    const std::string_view bytes{"a\0b", 3};
+    auto first = first_runtime.make_shared_string(bytes);
+    auto second = second_runtime.make_shared_string(bytes);
+    ASSERT_FALSE(first == second);
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+    EXPECT_NE(LpcMapping::hash({first}),
+              LpcMapping::hash({first_runtime.make_shared_string("a")}));
+}
+
+TEST(SValueTest, MappingHashPreservesMutableReferenceIdentity) {
+    auto array = lpcvm::create_shared<LpcArray>();
+    auto mapping = lpcvm::create_shared<LpcMapping>();
+    for (const SValue& value : {SValue{array}, SValue{mapping},
+                              SValue{LpcStringRef{}}, SValue{LpcBufferRef{}},
+                              SValue{LpcArrayRef{}}, SValue{LpcMappingRef{}}}) {
+        lpcvm::svalue_t first{value};
+        lpcvm::svalue_t copy{value};
+        EXPECT_EQ(LpcMapping::hash(first), LpcMapping::hash(copy));
+    }
+    const auto array_hash = LpcMapping::hash({array});
+    array->resize(3);
+    EXPECT_EQ(array_hash, LpcMapping::hash({array}));
+}
+
+TEST(SValueTest, MappingHashUsesBufferBytes) {
+    ManagedRuntime runtime;
+    auto first = runtime.make_buffer();
+    auto second = runtime.make_buffer();
+    ASSERT_FALSE(first == second);
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+
+    first->data.assign("a\0b", 3);
+    second->data = first->data;
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+    const auto hash = LpcMapping::hash({first});
+    first->data = "a";
+    EXPECT_NE(hash, LpcMapping::hash({first}));
+    second->data = "a";
+    EXPECT_EQ(LpcMapping::hash({first}), LpcMapping::hash({second}));
+}
+
+TEST(SValueTest, MappingStringHashSupportsTemporaryStrings) {
+    ManagedRuntime runtime;
+    lpcvm::DataStack stack;
+    for (const auto bytes : {std::string_view{}, std::string_view{"a\0b", 3}}) {
+        stack.push_temp_string(bytes);
+        ASSERT_TRUE(std::holds_alternative<TemporaryString>(stack.top()));
+        auto shared = runtime.make_shared_string(bytes);
+        auto buffer = runtime.make_buffer();
+        buffer->data = bytes;
+        const auto hash = LpcMapping::string_hash(stack.top_string());
+        EXPECT_EQ(hash, LpcMapping::hash({shared}));
+        EXPECT_EQ(hash, LpcMapping::hash({buffer}));
+        stack.pop();
+    }
+}
+
+TEST(SValueTest, MappingHashPreservesExpiredObjectIdentity) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    auto program = std::make_shared<ObjectClass>();
+    auto object = lpcvm::create_shared<LpcObject>(fabric, program);
+    LpcObject::HandleType handle{object};
+    lpcvm::svalue_t first{handle};
+    lpcvm::svalue_t copy{handle};
+    const auto hash = LpcMapping::hash(first);
+    EXPECT_EQ(hash, LpcMapping::hash(copy));
+    object.reset();
+    ASSERT_TRUE(handle.expired());
+    EXPECT_EQ(hash, LpcMapping::hash(first));
+    EXPECT_EQ(hash, LpcMapping::hash(copy));
+    EXPECT_EQ(LpcMapping::hash({LpcObject::HandleType{}}),
+              LpcMapping::hash({LpcObject::HandleType{}}));
+}
 
 TEST(SValueTest, ObjectHandleNullAndExpiredChecks) {
     LpcCompiler compiler;

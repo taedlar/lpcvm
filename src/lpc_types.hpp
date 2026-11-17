@@ -3,6 +3,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -12,12 +13,14 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 struct ManagedRuntime;
 
 class LpcString;
 class LpcBuffer;
+class LpcContainer;
 class LpcArray;
 class LpcMapping;
 class LpcObject;
@@ -28,6 +31,7 @@ class LpcObject;
 namespace lpcvm {
 
 struct svalue_t; // forward declaration of struct wrapper for SValue (stack value)
+struct svalue_pair_t; // forward declaration of struct wrapper for a pair of SValues
 
 /**
  * @brief A weak reference to an LPC compound data type managed by SharedPtr.
@@ -140,6 +144,7 @@ private:
     friend SharedPtr<U> create_shared(Args&&... args);
 
     friend struct ::ManagedRuntime;
+    friend class ::LpcContainer;
 
     struct AdoptRetainedReference {};
 
@@ -203,6 +208,8 @@ SharedPtr<T> create_shared(Args&&... args) {
  */
 template <typename T, typename RefType>
 struct Handle {
+    friend class ::LpcMapping;
+
     using ControlBlock = typename RefType::ControlBlock;
 
     Handle() noexcept : ptr(nullptr) {}
@@ -248,6 +255,10 @@ struct Handle {
 
     bool operator==(const Handle& other) const noexcept {
         return ptr == other.ptr;
+    }
+
+    bool operator<(const Handle& other) const noexcept {
+        return std::less<T*>{}(ptr, other.ptr);
     }
 
     operator bool() const noexcept {
@@ -484,6 +495,11 @@ private:
 } // namespace lpcvm
 
 class LpcContainer {
+public:
+    // Borrowed, thread-confined owner; nullptr for untracked containers or after
+    // runtime destruction. The returned pointer does not extend runtime lifetime.
+    ManagedRuntime* fabric() const noexcept { return gc_owner_; }
+
 protected:
     LpcContainer() = default;
     LpcContainer(const LpcContainer&) = delete;
@@ -495,12 +511,19 @@ protected:
     // These hooks must not allocate, throw, or invoke collection recursively.
     virtual void visit_edges(EdgeVisitor visitor, void* context) const noexcept = 0;
     virtual void clear_edges() noexcept = 0;
+    // Release the collector's temporary strong reference. This may destroy this.
+    virtual void release_gc_reference() noexcept = 0;
+
+    template <typename T>
+    static void release_container_reference(T* container) noexcept {
+        static_assert(std::is_base_of_v<LpcContainer, T>);
+        lpcvm::SharedPtr<T>::release_strong(container);
+    }
 
 private:
     friend struct ManagedRuntime;
     ManagedRuntime* gc_owner_ = nullptr;
     uint32_t* gc_ref_count_ = nullptr;
-    void (*gc_release_)(LpcContainer*) noexcept = nullptr;
     uint32_t gc_external_refs_ = 0;
     bool gc_marked_ = false;
     LpcContainer* gc_prev = nullptr; // previous container in the garbage collection list
@@ -529,18 +552,70 @@ public:
 private:
     void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
     void clear_edges() noexcept override { clear(); }
+    void release_gc_reference() noexcept override { release_container_reference(this); }
 
-    std::size_t size_ = 0; // number of elements in the array
-    std::size_t capacity_ = 0; // allocated capacity of the array
+    uint32_t size_ = 0; // number of elements in the array
+    uint32_t capacity_ = 0; // allocated capacity of the array
     lpcvm::svalue_t* values_ = nullptr; // pointer to the array elements
 };
 
 using LpcMappingRef = lpcvm::SharedPtr<LpcMapping>;
 
 class LpcMapping: public LpcContainer {
-    // TODO: Implement the internal storage and methods for LpcMapping
+public:
+    using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC mappings
+
+    static LpcMappingRef create(std::shared_ptr<FabricType> sb, std::size_t size = 0);
+    // Strings/buffers hash by bytes; numbers retain their type; other references use identity.
+    // For TemporaryString, resolve the stack-owned bytes and call string_hash instead.
+    static std::size_t hash(const lpcvm::svalue_t& key) noexcept;
+    static std::size_t string_hash(std::string_view value) noexcept;
+
+    LpcMapping() = default;
+    explicit LpcMapping(std::size_t size); // reserve capacity; use a factory to attach a fabric
+    ~LpcMapping();
+
+    std::size_t size() const noexcept { return size_; }
+    void clear() noexcept;
+
+    // Expose only mapped values; stored keys remain private. Missing keys return nullptr.
+    // Inserting a new key may invalidate all returned pointers and references.
+    lpcvm::svalue_t* find(const lpcvm::svalue_t& key) noexcept;
+    const lpcvm::svalue_t* find(const lpcvm::svalue_t& key) const noexcept;
+    // Return an existing value or insert a monostate value; failures throw.
+    // Buffer keys are interned through the fabric to preserve immutable key bytes.
+    lpcvm::svalue_t& find_or_insert(const lpcvm::svalue_t& key);
+    lpcvm::svalue_t& operator[](const lpcvm::svalue_t& key) {
+        return find_or_insert(key);
+    }
+    // Missing keys are a no-op. Erasure invalidates references to the erased value
+    // and the last entry, which may move into its slot. Temporary keys are rejected.
+    void erase(const lpcvm::svalue_t& key);
+
+private:
     void visit_edges(EdgeVisitor, void*) const noexcept override {}
     void clear_edges() noexcept override {}
+    void release_gc_reference() noexcept override { release_container_reference(this); }
+
+    bool need_grow() const noexcept {
+        return bucket_bits_ == 0 || size_ >= (uint32_t{1} << (bucket_bits_ - 1));
+    }
+    uint32_t append(const lpcvm::svalue_pair_t& entry); // append a new entry to the mapping
+    std::optional<uint32_t> find_index(const lpcvm::svalue_t& key) const noexcept;
+    void grow(); // rebuild the bucket table, widening indices as needed
+    void rehash(uint32_t bucket_bits);
+
+    constexpr static std::size_t ENTRY_CHUNK_SIZE = 8; // number of entries to allocate at a time in chunks
+    constexpr static int IX_EMPTY = -1;
+    constexpr static int IX_ERASED = -2;
+    constexpr static uint32_t MAX_ENTRIES = uint32_t{1} << 30;
+
+    uint32_t size_ = 0; // number of entries in the mapping
+    uint32_t capacity_ = 0; // allocated entry slots
+    uint32_t erased_ = 0; // deleted buckets, reused by insertion or removed by rehashing
+    uint32_t bucket_bits_ = 0; // number of bits used for the hash table buckets (2^bucket_bits_ = number of buckets)
+    std::variant<std::monostate, int8_t*, int16_t*, int32_t*> indices_; // hash table buckets for the mapping
+    lpcvm::svalue_pair_t* entries_ = nullptr; // pointer to the mapping entries
 };
 
 using LpcObjectRef = lpcvm::SharedPtr<LpcObject>; // strong reference to LpcObject instances
