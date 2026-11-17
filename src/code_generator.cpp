@@ -185,6 +185,9 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
         [&](const AST::Self& self_node) {
             emit(F_PUSH_SELF);
         },
+        [&](const AST::List&) {
+            throw std::runtime_error("Mapping literals are not supported");
+        },
         [&](const AST::ArrayLiteral& array) {
             for (const auto& element : array.elts)
                 emit_expression(element);
