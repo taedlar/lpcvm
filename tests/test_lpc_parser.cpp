@@ -398,7 +398,7 @@ TEST(LpcParserTest, AggregateListsPreserveElementOrder) {
         const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;
         const auto& result = *std::get<AST::Return>(statements.front().node).expr;
         const auto& elements = std::holds_alternative<AST::ArrayLiteral>(result.node)
-            ? std::get<AST::ArrayLiteral>(result.node).elts : std::get<AST::List>(result.node).elts;
+            ? std::get<AST::ArrayLiteral>(result.node).elts : std::get<AST::MappingLiteral>(result.node).elts;
         ASSERT_EQ(elements.size(), 4);
         for (size_t i = 0; i < elements.size(); ++i) {
             EXPECT_EQ(std::get<AST::Variable>(elements[i].node).entry->name,
@@ -418,7 +418,7 @@ TEST(LpcParserTest, AggregateListsPreserveNestedExpressions) {
     const auto& result = *std::get<AST::Return>(statements.front().node).expr;
     const auto& elements = std::get<AST::ArrayLiteral>(result.node).elts;
     ASSERT_EQ(elements.size(), 1);
-    const auto& pair = std::get<AST::List>(elements[0].node).elts;
+    const auto& pair = std::get<AST::MappingLiteral>(elements[0].node).elts;
     ASSERT_EQ(pair.size(), 2);
     EXPECT_EQ(std::get<AST::Variable>(pair[0].node).entry->name, "a");
     const auto& addition = std::get<AST::BinaryOp>(pair[1].node);

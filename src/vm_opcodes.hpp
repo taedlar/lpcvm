@@ -46,11 +46,13 @@
     X(F_ROTATE) \
     X(F_LOAD_INDEX) \
     X(F_STORE_INDEX) \
+    X(F_AGGREGATE_MAPPING) \
 
 /// F_COPY duplicates the value at the given depth (zero is the top).
 /// F_ROTATE rotates the top argument values one position left.
 /// F_LOAD_INDEX: [array, index] -> [value] (0), or [array, index, value] (1).
 /// F_STORE_INDEX: [array, index, value] -> [value]; argument must be zero.
+/// F_AGGREGATE_MAPPING n consumes n key/value pairs in source order and pushes a mapping.
 /// F_SWAP exchanges the top two stack values; its argument must be zero.
 /// F_STORE_LOCAL_BUFFER copies the stack-top string into an LpcBuffer local, reusing it when unshared.
 /// F_STR_FINISH_LOCAL moves the accumulator into an LpcBuffer local and pushes the local's reference.

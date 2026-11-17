@@ -192,6 +192,43 @@ TEST(LpcCompilerTest, BytecodeGeneration) {
     EXPECT_EQ(std::get<uint32_t>(stack.top()), 579);
 }
 
+TEST(LpcCompilerTest, MappingAggregation) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    LpcCompiler compiler;
+    compiler.use_fabric(runtime);
+    ASSERT_TRUE(compiler.parse(R"(
+        mapping f() {
+            return ([ "left": 1 + 2, "right": 4, "left": 5 ]);
+        }
+        mapping empty() { return ([]); }
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+
+    for (const auto* method : {"f", "empty"}) {
+        SCOPED_TRACE(method);
+        lpcvm::Execution entry(runtime);
+        ASSERT_TRUE(program->lookup_method(method, &entry));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        ASSERT_EQ(entry.execute(control, stack), 1);
+        ASSERT_TRUE(std::holds_alternative<LpcMappingRef>(stack.top()));
+        const auto& mapping = std::get<LpcMappingRef>(stack.top());
+        ASSERT_TRUE(mapping);
+        if (std::string_view(method) == "f") {
+            EXPECT_EQ(mapping->size(), 2u);
+            const auto* left = mapping->find({runtime->make_shared_string("left")});
+            const auto* right = mapping->find({runtime->make_shared_string("right")});
+            ASSERT_NE(left, nullptr);
+            ASSERT_NE(right, nullptr);
+            EXPECT_EQ(std::get<uint32_t>(left->value), 5u);
+            EXPECT_EQ(std::get<uint32_t>(right->value), 4u);
+        } else {
+            EXPECT_EQ(mapping->size(), 0u);
+        }
+    }
+}
+
 TEST(LpcCompilerTest, ReturnsTemporaryStringArgument) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse(R"(
