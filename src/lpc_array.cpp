@@ -14,7 +14,7 @@ LpcArrayRef LpcArray::create(std::shared_ptr<FabricType> sb, std::size_t size) {
 }
 
 LpcArray::LpcArray(std::size_t size) : size_(size), capacity_(size) {
-    if (size_ > std::numeric_limits<std::size_t>::max() / sizeof(svalue_t))
+    if (size > std::numeric_limits<std::size_t>::max() / sizeof(svalue_t))
         throw std::bad_array_new_length();
     values_ = static_cast<svalue_t*>(std::malloc(sizeof(svalue_t) * size_));
     if (size_ && !values_)
