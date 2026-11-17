@@ -89,9 +89,6 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
         auto ref = lpcvm::create_shared<ContainerType>(std::forward<Args>(args)...);
         auto* container = static_cast<LpcContainer*>(&*ref);
         container->gc_ref_count_ = &RefType::control_block(&*ref)->ref_count;
-        container->gc_release_ = [](LpcContainer* value) noexcept {
-            RefType::release_strong(static_cast<ContainerType*>(value));
-        };
         container->gc_owner_ = this;
         container->gc_next = gc_head_;
         if (gc_head_)

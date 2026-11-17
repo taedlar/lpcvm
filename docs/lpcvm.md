@@ -109,6 +109,14 @@ runtimes are not reclaimed. Collection is explicit, not triggered at allocation
 or runtime destruction. Containers surviving runtime destruction are detached and
 remain reference-counted, but can no longer be cycle-collected by that runtime.
 
+`LpcContainer::fabric()` exposes the borrowed runtime pointer installed by
+`ManagedRuntime::make_container`. It returns null for untracked containers and
+after runtime destruction, and does not retain the runtime. Use it only on the
+owning worker thread. `LpcMapping` uses this base-class pointer to intern buffer
+keys; create attached mappings with `runtime.make_container<LpcMappingRef>(capacity)`
+or `LpcMapping::create(runtime_shared_ptr, capacity)`. Direct construction reserves
+capacity without attaching a runtime.
+
 Strings use `LpcStringRef`, an owning `lpcvm::SharedPtr` to immutable shared bytes.
 The runtime's intern table also retains a strong reference until the entry is
 swept or the runtime is destroyed. Other owning references keep the string alive
