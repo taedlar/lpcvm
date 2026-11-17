@@ -617,10 +617,10 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                     (*array)[index].value = container_value(stack, base + 2, fabric_);
                     stack.pop_i(base, 2); // leave the assignment result, including temporary strings
                 } else {
-                    result = (*array)[index].value;
+                    const auto value = (*array)[index].value;
                     if (oparg == 0)
                         stack.pop_n(2);
-                    stack.push(result);
+                    stack.push(value);
                 }
             }
             VM_DISPATCH();
