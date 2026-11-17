@@ -54,6 +54,34 @@ static bool is_string(const SValue& value) {
         std::holds_alternative<LpcBufferRef>(value);
 }
 
+static std::size_t array_index(const SValue& value, std::size_t size) {
+    return std::visit([size](const auto& index) -> std::size_t {
+        using T = std::decay_t<decltype(index)>;
+        if constexpr (std::is_integral_v<T>) {
+            if constexpr (std::is_signed_v<T>) {
+                if (index < 0)
+                    throw std::out_of_range("Array index out of range");
+            }
+            if (static_cast<uint64_t>(index) >= size)
+                throw std::out_of_range("Array index out of range");
+            return static_cast<std::size_t>(index);
+        } else {
+            throw std::runtime_error("Array index must be an integer");
+        }
+    }, value);
+}
+
+static SValue container_value(const lpcvm::DataStack& stack, std::size_t slot,
+                             const std::shared_ptr<ManagedRuntime>& fabric) {
+    const auto& value = stack[slot];
+    if (std::holds_alternative<TemporaryString>(value) || std::holds_alternative<LpcBufferRef>(value)) {
+        if (!fabric)
+            throw std::runtime_error("Unable to store a string without a fabric");
+        return fabric->make_shared_string(stack.string_at(slot));
+    }
+    return value;
+}
+
 lpcvm::Execution& lpcvm::Execution::as_with(ObjectState* self, std::size_t offset) {
     self_ = self;
     var0_ = offset;
@@ -312,6 +340,17 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             VM_DISPATCH();
         }
 
+        VM_HANDLER(F_SWAP) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing swap argument");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg != 0)
+                throw std::runtime_error("Invalid swap argument");
+            if (stack.size() < fp || stack.size() - fp < 2)
+                throw std::runtime_error("Evaluation stack underflow");
+            stack.swap_top();
+            VM_DISPATCH();
+        }
         VM_HANDLER(F_BINARY_OP) {
             oparg = (extended_arg << 8) | *pc++; // fetch the binary operation code
             auto sp = stack.size();
@@ -536,9 +575,73 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             VM_DISPATCH();
         }
 
-        VM_HANDLER(F_AGGREGATE_ARRAY) {
+        VM_HANDLER(F_COPY) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing copy argument");
             oparg = (extended_arg << 8) | *pc++;
-            // TODO: oparg is number of elements on the stack. Create an LpcArray and populate it with the top `oparg` elements from the stack.
+            if (oparg >= stack.size() - fp)
+                throw std::runtime_error("Evaluation stack underflow");
+            stack.push_copy(stack.size() - 1 - oparg);
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_ROTATE) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing rotation argument");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg > stack.size() - fp)
+                throw std::runtime_error("Evaluation stack underflow");
+            stack.rotate_top(oparg);
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_LOAD_INDEX)
+        VM_HANDLER(F_STORE_INDEX) {
+            const bool store = pc[-1] == F_STORE_INDEX;
+            if (pc >= end_)
+                throw std::runtime_error("Missing array index argument");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg > (store ? 0u : 1u))
+                throw std::runtime_error("Invalid array index argument");
+            const std::size_t count = store ? 3 : 2;
+            if (stack.size() - fp < count)
+                throw std::runtime_error("Evaluation stack underflow");
+            const auto base = stack.size() - count;
+            const auto* ref = std::get_if<LpcArrayRef>(&stack[base]);
+            if (!ref || !*ref)
+                throw std::runtime_error("Indexing requires an array");
+            { // Release owning references before computed-goto dispatch.
+                const auto array = *ref; // retain across stack removal and self-replacement
+                const auto index = array_index(stack[base + 1], array->size());
+                if (store) {
+                    (*array)[index].value = container_value(stack, base + 2, fabric_);
+                    stack.pop_i(base, 2); // leave the assignment result, including temporary strings
+                } else {
+                    const auto value = (*array)[index].value;
+                    if (oparg == 0)
+                        stack.pop_n(2);
+                    stack.push(value);
+                }
+            }
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_AGGREGATE_ARRAY) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing array size argument");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg > stack.size() - fp)
+                throw std::runtime_error("Evaluation stack underflow");
+            if (!fabric_)
+                throw std::runtime_error("Array creation requires a fabric");
+            { // Release the construction reference before dispatch.
+                auto array = fabric_->make_container<LpcArrayRef>(oparg);
+                const auto base = stack.size() - oparg;
+                for (std::size_t i = 0; i < oparg; ++i)
+                    (*array)[i].value = container_value(stack, base + i, fabric_);
+                stack.pop_n(oparg);
+                stack.push(array);
+            }
             VM_DISPATCH();
         }
 

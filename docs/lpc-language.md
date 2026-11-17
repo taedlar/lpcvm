@@ -25,12 +25,27 @@ The current expression set covers arithmetic, bitwise and comparison operators,
 unary operators, assignment and compound assignment, increment and decrement,
 conditional expressions, and short-circuit logical operators.
 
+- Assignments evaluate the RHS before the LHS. Compound assignments read the
+  target value after evaluating the RHS. Other binary operators evaluate the
+  LHS first.
 - `&&` and `||` return the last evaluated operand rather than a normalized 0 or 1.
 - Mixed numeric operands are promoted to a common type: floating point takes
   precedence, and mixed-sign integers become `int64`, or `uint64` when the
   unsigned operand is 64-bit.
 - String `+` concatenates two strings; string `+=` assigns the concatenated
   value to its target. Concatenation preserves embedded NUL bytes.
+
+### Arrays
+
+Array literals use `({value, ...})`, including `({})` for an empty array.
+`array[index]` reads an element and can be used with `=`, compound assignments,
+and prefix or postfix `++`/`--`. Indexes must be nonnegative integers smaller
+than the array size; invalid types and out-of-range accesses raise errors.
+
+Assignments evaluate the RHS first, then the array expression and index once,
+in that order. Compound assignments read the element after those evaluations.
+Arrays have reference semantics: writes are visible through aliases. Strings
+stored in arrays have owned storage independent of local string buffers.
 
 ### Statements and Control Flow
 

@@ -49,7 +49,22 @@ Most operations consume operands from the top of the stack and leave a result.
 For example, two constant loads followed by `F_BINARY_OP ADD` change the stack
 from `[..., left, right]` to `[..., sum]`. Stores copy the top value into the
 selected slot while leaving that value on the stack; `F_POP_N` discards values
-that are no longer needed.
+that are no longer needed. `F_SWAP` exchanges the top two values without copying
+temporary string storage. The compiler uses it after evaluating compound
+assignment operands in RHS-first order, before applying `F_BINARY_OP`.
+
+`F_AGGREGATE_ARRAY n` consumes `n` values in source order and pushes a new
+fabric-managed array. Indexed operations validate the array, integral index,
+and bounds. `F_LOAD_INDEX 0` replaces `[array, index]` with the element;
+argument `1` retains the array and index beneath the loaded value.
+`F_STORE_INDEX 0` replaces `[array, index, value]` with the assigned value.
+Stores and array construction promote temporary strings and local string buffers
+to owned strings before putting them in the array.
+
+`F_COPY depth` duplicates a stack value (`0` selects the top), copying temporary
+string storage as needed. `F_ROTATE n` rotates the top `n` slots one place left.
+These let the compiler retain an indexed target while applying ordinary binary
+or unary instructions, without evaluating its array or index expressions again.
 
 Temporary strings are immutable and owned by their data stack. Stack slots are
 read-only to callers; controlled local copies duplicate temporary string bytes,

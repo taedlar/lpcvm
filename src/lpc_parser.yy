@@ -706,6 +706,7 @@ expr4
         }
     | function_call
     | expr4 '[' comma_expr ']'
+        { ASSIGN_AST($$, @$, AST::Index{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
     ;
 
 local_decl_list
@@ -929,8 +930,10 @@ assoc_list
     ;
 
 aggregation
-    : L_ARRAY_OPEN expr_list '}' ')'
-        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
+    : L_ARRAY_OPEN '}' ')'
+        { ASSIGN_AST($$, @$, AST::ArrayLiteral{}); }
+    | L_ARRAY_OPEN expr_list '}' ')'
+        { ASSIGN_AST($$, @$, AST::ArrayLiteral{ std::move(std::get<AST::List>($2.node).elts) }); }
     | L_MAPPING_OPEN assoc_list ']' ')'
         { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
     ;

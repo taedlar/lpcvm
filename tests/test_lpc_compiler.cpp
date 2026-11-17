@@ -233,8 +233,10 @@ TEST(LpcCompilerTest, StringConcatenationAndCompoundAssignment) {
         TestCase{R"(string f() { string s = "A"; s += "B"; s += "C"; return s; })", "ABC"},
         TestCase{R"(string f() { string s = "A"; string t = s; s += "B"; return t + s; })", "AAB"},
         TestCase{R"(string f() { string s = "A"; string t = (s += "B"); s += "C"; return t + s; })", "ABABC"},
-        TestCase{R"(string f() { string s = "A"; s += (s = "B"); return s; })", "AB"},
+        TestCase{R"(string f() { string s = "A"; s += (s = "B"); return s; })", "BB"},
         TestCase{R"(string f() { string s = "a" + "b"; s += s; return s; })", "abab"},
+        TestCase{R"(string f() { string s = "A"; s += "B" + "C"; return s; })", "ABC"},
+        TestCase{R"(string f() { string s = "A"; return s + (s = "B"); })", "AB"},
         TestCase{R"(string f() { string s = ""; for (int i = 0; i < 40; i++) s += "xxx"; return s; })",
             std::string(120, 'x')},
         TestCase{R"(string f() { return "a\0b" + "\0c"; })", std::string("a\0b\0c", 5)},
@@ -243,10 +245,11 @@ TEST(LpcCompilerTest, StringConcatenationAndCompoundAssignment) {
         SCOPED_TRACE(test.source);
         LpcCompiler compiler;
         ASSERT_TRUE(compiler.parse(test.source));
-        for (bool buffer : {false, true}) {
-            SCOPED_TRACE(buffer);
+        for (int mode : {0, 1, 2, 3}) {
+            SCOPED_TRACE(mode);
             lpcvm::CodeGenerationOptions options;
-            options.use_local_string_buffer = buffer;
+            options.use_local_string_buffer = (mode & 1) != 0;
+            options.use_string_accumulator = (mode & 2) != 0;
             auto prog = compiler.generate_code(options);
             ASSERT_NE(prog, nullptr);
             lpcvm::Execution entry(std::make_shared<ManagedRuntime>());
@@ -760,6 +763,11 @@ TEST(LpcCompilerTest, CompoundAssignments) {
         int32_t expected;
     };
     for (const auto& test : {
+        TestCase{"int f(int p) { int a = 5; return a += (a = 3); }", 6},
+        TestCase{"int f(int p) { int a = 5; return a -= (a = 3); }", 0},
+        TestCase{"int f(int p) { int a = 5; return a += a++; }", 11},
+        TestCase{"int f(int p) { int a = 5; return a - (a = 3); }", 2},
+        TestCase{"int f(int p) { int a = 5; int b = 0; b = a = 3; return a + b; }", 6},
         TestCase{"int f(int p) { int a = 5; a += 3; return a; }", 8},
         TestCase{"int f(int p) { int a = 5; a -= 3; return a; }", 2},
         TestCase{"int f(int p) { int a = 5; a *= 3; return a; }", 15},
@@ -851,4 +859,120 @@ TEST(LpcCompilerTest, ForInitVariableScope) {
     EXPECT_FALSE(compiler.parse("int f() { for (int i = 1; i; i = i - 1) {} return i; }"));
     EXPECT_FALSE(compiler.parse("int f() { while (int i = 1; i) { break; } return i; }"));
     EXPECT_TRUE(compiler.parse("int f() { int i = 1; for (int j = 1; j; j = j - 1) {} return i; }"));
+}
+
+TEST(LpcCompilerTest, ArrayElementAssignments) {
+    struct Case { const char* body; int expected; };
+    for (const auto& test : {
+        Case{"mixed a = ({1, 2}); a[0] = 7; return a[0] + a[1];", 9},
+        Case{"mixed a = ({1}); return a[0] = 9;", 9},
+        Case{"mixed a = ({1}); mixed b = a; b[0] = 7; return a[0];", 7},
+        Case{"mixed a = ({1}); a[0] += (a[0] = 3); return a[0];", 6},
+        Case{"mixed a = ({9}); a[0] -= 2; return a[0];", 7},
+        Case{"mixed a = ({9}); a[0] *= 2; return a[0];", 18},
+        Case{"mixed a = ({9}); a[0] /= 2; return a[0];", 4},
+        Case{"mixed a = ({9}); a[0] %= 2; return a[0];", 1},
+        Case{"mixed a = ({9}); a[0] &= 3; return a[0];", 1},
+        Case{"mixed a = ({9}); a[0] |= 3; return a[0];", 11},
+        Case{"mixed a = ({9}); a[0] ^= 3; return a[0];", 10},
+        Case{"mixed a = ({9}); a[0] <<= 2; return a[0];", 36},
+        Case{"mixed a = ({9}); a[0] >>= 2; return a[0];", 2},
+        Case{"mixed a = ({9}); int b = a[0]++; return b * 100 + a[0];", 910},
+        Case{"mixed a = ({9}); int b = ++a[0]; return b * 100 + a[0];", 1010},
+        Case{"mixed a = ({9}); int b = a[0]--; return b * 100 + a[0];", 908},
+        Case{"mixed a = ({9}); int b = --a[0]; return b * 100 + a[0];", 808},
+        Case{"mixed a = ({1, 2}); int i = 0; a[i++] += 4; return i * 10 + a[0];", 15},
+        Case{"mixed a = ({1, 2}); int i = 0; a[i++]++; return i * 10 + a[0];", 12},
+        Case{"mixed a = ({1, 2}); int i = 0; a[i] = (i = 1); return a[0] * 10 + a[1];", 11},
+        Case{"mixed a = ({1, 2}); int i = 0; a[i] += (i = 1); return a[0] * 10 + a[1];", 13},
+        Case{"mixed a = ({({1})}); a[0][0] = 7; return a[0][0];", 7},
+        Case{"mixed a = ({1}); mixed b = ({2}); a[0] = b[0] = 8; return a[0] + b[0];", 16},
+        Case{"mixed a = ({1}); mixed b = ({2}); mixed old = a; a[0] = (a = b)[0]; return old[0];", 1},
+        Case{"mixed a = ({}); return 1;", 1},
+    }) {
+        SCOPED_TRACE(test.body);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(std::string("int f() { ") + test.body + " }"));
+        auto program = compiler.generate_code();
+        lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+        ASSERT_TRUE(program->lookup_method("f", &code));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        ASSERT_EQ(code.execute(control, stack), 1);
+        ASSERT_EQ(stack.size(), 1u);
+        std::visit([&](const auto& value) {
+            if constexpr (std::is_arithmetic_v<std::decay_t<decltype(value)>>)
+                EXPECT_EQ(value, test.expected);
+            else
+                ADD_FAILURE() << "Expected numeric result";
+        }, stack.top());
+    }
+}
+
+TEST(LpcCompilerTest, ArrayElementStringsOwnTheirStorage) {
+    for (int mode : {0, 1, 2, 3}) {
+        SCOPED_TRACE(mode);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(R"(mixed f() {
+            string s = "a" + "b";
+            mixed a = ({s, "c" + "d"});
+            s = "changed";
+            a[0] += "!";
+            a[1] = s + "!";
+            s = "changed again";
+            return a;
+        })"));
+        lpcvm::CodeGenerationOptions options;
+        options.use_local_string_buffer = (mode & 1) != 0;
+        options.use_string_accumulator = (mode & 2) != 0;
+        auto program = compiler.generate_code(options);
+        auto runtime = std::make_shared<ManagedRuntime>();
+        lpcvm::Execution code(runtime);
+        ASSERT_TRUE(program->lookup_method("f", &code));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push_temp_string("caller");
+        ASSERT_EQ(code.execute(control, stack), 1);
+        auto array = std::get<LpcArrayRef>(stack.top());
+        stack.pop();
+        EXPECT_EQ(array.use_count(), 1u);
+        EXPECT_EQ(stack.top_string(), "caller");
+        stack.push((*array)[0].value);
+        EXPECT_EQ(stack.top_string(), "ab!");
+        stack.pop();
+        stack.push((*array)[1].value);
+        EXPECT_EQ(stack.top_string(), "changed!");
+    }
+}
+
+TEST(LpcCompilerTest, ArrayAssignmentEvaluatesFunctionTargetOnceAfterRhs) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        mixed values;
+        int order;
+        mixed target() { order = order * 10 + 2; return values; }
+        int index() { order = order * 10 + 3; return 0; }
+        int rhs() { order = order * 10 + 1; return 4; }
+        int f() {
+            values = ({5});
+            order = 0;
+            target()[index()] += rhs();
+            return order * 10 + values[0];
+        }
+    )"));
+    auto program = compiler.generate_code();
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+    ASSERT_TRUE(program->lookup_method("f", &code));
+    ObjectState state(program->num_variables_inheriting());
+    code.as_with(&state);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    std::visit([](const auto& value) {
+        if constexpr (std::is_arithmetic_v<std::decay_t<decltype(value)>>)
+            EXPECT_EQ(value, 1239);
+        else
+            ADD_FAILURE() << "Expected numeric result";
+    }, stack.top());
 }

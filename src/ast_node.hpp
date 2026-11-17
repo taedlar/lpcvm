@@ -104,6 +104,13 @@ namespace AST {
     struct Destruct {
         std::unique_ptr<ASTNode> target;
     };
+    struct ArrayLiteral {
+        std::vector<ASTNode> elts;
+    };
+    struct Index {
+        std::unique_ptr<ASTNode> container;
+        std::unique_ptr<ASTNode> index;
+    };
     struct Assign {
         int arg; // namespace oparg::AssignOpArg
         std::unique_ptr<ASTNode> lhs;
@@ -181,6 +188,8 @@ struct ASTNode {
         AST::Switch,
         AST::TryCatch,
         AST::Destruct,
+        AST::ArrayLiteral,
+        AST::Index,
         AST::Assign,
         AST::UnaryOp,
         AST::BinaryOp,
