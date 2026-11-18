@@ -4,37 +4,39 @@
 
 inherit "/std/player" as base;
 
+mount "efun://console";
+void write(string s) {} // TODO: acquired via efun://console mounted resource
+
 int g = 123;
 string *words = ({ "a", "b", "c" }); // aggregate array
 mapping dict = ([ "key1": "value1", "key2": "value2" ]); // aggregate mapping (associative array)
 
 #define ADD(first, second) ((first) + (second))
 
-void write(string s) {}
 
 int add (int x, int y, string, ... argv) {
-    mount "/daemon/weather" as weather_d; // mount LPC object
-    mount "/area/village/weapon" as weapons; // mount filesystem directory
+    mount "/daemon/weather.lpc" as WEATHER_D; // mount a LPC blueprint in filesystem
+    mount "/area/village/weapon" as Weapon; // mount a filesystem directory
     int a = argv[3], b = y - g;
     object obj = self;
-    object armor = new ARMOR;
-    object sword = new weapons::broadsword{damage=10};
+    object sword = new Weapon::broadsword{damage=10};
 
-    using (base) {
-        // .set_max_hp (100);
+    base.set_max_hp (100); // call a method on the inherited base object
+    using (WEATHER_D) { // implicitly load the WEATHER_D resource if not already loaded
+        ::show_weather(); // call a method on the mounted WEATHER_D resource
     }
-    using (weather_d) {
-        // ::show_weather();
-    }
-    using (armor) {
-        // ->set_name("leather armor");
+
+    using (sword) { // acquires strong reference to the object, preventing premature destruction
+        ->set_name("steel broadsword"); // call a method on the sword object
+        ->set_damage(10);
+        base.equip(sword);
     }
 
     // exception handling example
     try {
         int e = 100 / 0;
     } catch (mapping e) {
-        write(s="Caught exception: " + e["msg"]);
+        write (text="Caught exception: " + e["msg"]);
     }
-    return ADD(a, b);
+    return ADD(a, b); // macro expansion
 }
