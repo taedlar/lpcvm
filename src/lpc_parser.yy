@@ -138,7 +138,7 @@
 %token L_ELLIPSIS
 
 %type <ASTNode> program def mount inheritance
-%type <ASTNode> formal_parameters parameter_list class_or_name
+%type <ASTNode> formal_parameters parameter_list res_acquire
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
@@ -152,7 +152,7 @@
 %type <SymbolSignature> storage_or_type typed_storage
 %type <SymbolSignature> type_modifier_list opt_star
 
-%type <std::shared_ptr<SymbolTable::Entry>> function_head new_param id call_id
+%type <std::shared_ptr<SymbolTable::Entry>> function_head new_param defined_id
 
 %type <std::string> str_literal opt_as
 
@@ -695,15 +695,8 @@ expr4
         { $$ = $2; }
     | L_SELF
         { ASSIGN_AST($$, @$, AST::Self{ }); }
-    | L_IDENTIFIER %prec POSITIONAL_IDENTIFIER
-        {
-            auto entry = yyget_extra(yyscanner)->current_scope->lookup(std::string($1));
-            if (!entry) {
-                // Handle the error, e.g., throw an exception or report an undefined variable
-                throw parse_error("Undefined variable: " + std::string($1), yyscanner);
-            }
-            ASSIGN_AST($$, @$, AST::Variable{ entry });
-        }
+    | defined_id
+        { ASSIGN_AST($$, @$, AST::Variable{ $1 }); }
     | function_call
     | expr4 '[' comma_expr ']'
         { ASSIGN_AST($$, @$, AST::Index{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
@@ -940,43 +933,33 @@ aggregation
         { ASSIGN_AST($$, @$, AST::MappingLiteral{}); }
     ;
 
+defined_id
+    : L_IDENTIFIER %prec POSITIONAL_IDENTIFIER
+        {
+            auto entry = yyget_extra(yyscanner)->current_scope->lookup($1);
+            if (!entry) {
+                throw parse_error("Undefined identifier: " + std::string($1), @$, yyget_extra(yyscanner));
+            }
+            $$ = entry;
+        }
+    | defined_id '.' L_IDENTIFIER
+    ;
+
 call_prefix
-    : '.'
-    | L_ARROW
-    | L_COLON_COLON
+    : '.'               // member access
+    | L_ARROW           // context object access
+    | L_COLON_COLON     // context namespace/resource access
     ;
 
-id
-    : L_IDENTIFIER
-        { $$ = yyget_extra(yyscanner)->current_scope->lookup($1); }
-    | id L_COLON_COLON L_IDENTIFIER
-    | id '.' L_IDENTIFIER
-    ;
-
-class_or_name
-    : id
-        { ASSIGN_AST($$, @$, AST::Variable{ std::move($1) }); }
-    | str_literal
-        { ASSIGN_AST($$, @$, AST::StringLiteral{ $1, *yyget_extra(yyscanner)->consts }); }
-    ;
-
-// Factor the optional prefix into the call name so an unprefixed identifier
-// can be distinguished from a variable or keyword argument by its next token.
-call_id
-    : id
+res_acquire
+    : defined_id L_COLON_COLON L_IDENTIFIER
+        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ std::move($1), yyget_extra(yyscanner)->consts->find_or_add($3) }); }
     | call_prefix L_IDENTIFIER
-        { $$ = yyget_extra(yyscanner)->current_scope->lookup($2); }
-    ;
-
-opt_init_list
-    : %empty
-        { ASSIGN_AST($$, @$, AST::List{}); }
-    | '{' arg_list '}'
-        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
+        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ nullptr, yyget_extra(yyscanner)->consts->find_or_add($2) }); }
     ;
 
 function_call
-    : call_id '(' arg_list ')'
+    : defined_id '(' arg_list ')'
         {
             auto lpcc = yyget_extra(yyscanner);
             if (!$1)
@@ -984,21 +967,35 @@ function_call
             $1->signature.b.referenced = 1; // mark the function as referenced
             ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($1), std::make_unique<ASTNode>(std::move($3)) });
         }
-    | L_NEW class_or_name opt_init_list
+    | L_NEW res_acquire opt_init_list
         {
             ASSIGN_AST($$, @$, AST::New{
-                std::make_unique<ASTNode>(std::move($2)), // for clone_object
+                std::make_unique<ASTNode>(std::move($2)), // clone semantics for the resource
                 std::make_unique<ASTNode>(std::move($3))  // initialization list for globals
+            });
+        }
+    | res_acquire '(' arg_list ')'
+        {
+            ASSIGN_AST($$, @$, AST::ResourceCall{
+                std::make_unique<ASTNode>(std::move($1)), // find-or-load semantic for the resource
+                std::make_unique<ASTNode>(std::move($3))
             });
         }
     | expr4 L_ARROW L_IDENTIFIER '(' arg_list ')'
         {
             ASSIGN_AST($$, @$, AST::CallOther{
-                std::make_unique<ASTNode>(std::move($1)),
+                std::make_unique<ASTNode>(std::move($1)), // dereference the object to call the method on
                 yyget_extra(yyscanner)->consts->find_or_add($3),
                 std::make_unique<ASTNode>(std::move($5))
             });
         }
+    ;
+
+opt_init_list
+    : %empty
+        { ASSIGN_AST($$, @$, AST::List{}); }
+    | '{' arg_list '}'
+        { ASSIGN_AST($$, @$, AST::List{ std::move(std::get<AST::List>($2.node).elts) }); }
     ;
 
 kwarg

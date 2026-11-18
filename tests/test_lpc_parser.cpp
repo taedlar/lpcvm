@@ -332,9 +332,15 @@ TEST(LpcParserTest, OptionalFunctionCallPrefixes) {
         const auto& body = *std::get<AST::FunctionDef>(defs.back().node).body;
         const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;
         ASSERT_EQ(statements.size(), 1);
-        const auto& call = std::get<AST::FunctionCall>(statements.front().node);
-        ASSERT_NE(call.entry, nullptr);
-        EXPECT_EQ(call.entry->name, "f");
+        if (!*prefix) {
+            const auto& call = std::get<AST::FunctionCall>(statements.front().node);
+            EXPECT_EQ(call.entry->name, "f");
+            continue; // regular function call without resource acquisition
+        }
+        const auto& call = std::get<AST::ResourceCall>(statements.front().node);
+        ASSERT_NE(call.acquisition, nullptr);
+        const auto& acquisition = std::get<AST::ResourceAcquire>(call.acquisition->node);
+        EXPECT_EQ(acquisition.res_name_idx, compiler.get_consts()->find("f")); // resource name is interned in the constants table
         const auto& arguments = std::get<AST::List>(call.arguments->node).elts;
         ASSERT_EQ(arguments.size(), 2);
         EXPECT_EQ(std::get<AST::Variable>(arguments[0].node).entry->name, "x");
@@ -369,7 +375,7 @@ TEST(LpcParserTest, RejectsMalformedArgumentLists) {
 TEST(LpcParserTest, ArgumentListsPreserveKeywordValuesAndPositionalAssignments) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse(
-        "int f(); void g(int x) { f((x = 1), key = x + 2, other = 3); f(key = 4); }"));
+        "int f(); void g(int x) { f((x = 1), key = x + 2, other = 3); f(x = 4); }"));
     const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
     const auto& body = *std::get<AST::FunctionDef>(defs.back().node).body;
     const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;

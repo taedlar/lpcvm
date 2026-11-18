@@ -27,10 +27,10 @@ LPCVM starts from a minimal set of [LPC grammar](src/lpc_parser.yy) and leaves f
 - Tooling: `lpcfront` command-line frontend (dumps the AST), reentrant `flex`/`bison` preprocessor, lexer and parser, and a bytecode generator.
 
 ## Documentation
+- [docs/development.md](docs/development.md): build, unit-test, and benchmark workflows.
 - [docs/lpcvm.md](docs/lpcvm.md): ontology of objects, methods, values, ownership, and runtime classes.
 - [docs/vm-fabric.md](docs/vm-fabric.md): fabric implementations, runtime services, and C++ usage.
-- [docs/development.md](docs/development.md): build, unit-test, and benchmark workflows.
-- [docs/lpc-language.md](docs/lpc-language.md): language grammar and compiler outline (work in progress).
 - [docs/vm-architecture.md](docs/vm-architecture.md): executor, bytecode instruction set, and sandbox architecture.
+- [docs/lpc-language.md](docs/lpc-language.md): language grammar and compiler outline (work in progress).
 - [docs/string-handling.md](docs/string-handling.md): string representations, measured assignment costs, and LPC programming guidance.
 - [docs/string-runtime.md](docs/string-runtime.md): string ownership, temporary storage, accumulator bytecode, and compiler lowering.

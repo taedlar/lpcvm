@@ -52,6 +52,33 @@ stored in arrays have owned storage independent of local string buffers.
 The current statement set covers blocks with local variables, `if`/`else`,
 `while`, `do`/`while`, `for`, `break`, `continue`, and `return`.
 
+### `call_other` hardening
+
+LPC's `call_other` can both invoke methods on existing objects and load objects
+from LPC source, implicitly invoking the compiler as a side effect. LPCVM
+separates these operations to make object loading explicit.
+
+In LPCVM, `call_other` targets an existing object. Loading an object requires
+explicit **resource acquisition** through a `using` statement or the `::`
+operator on a resource descriptor.
+
+For example, a resource call finds or loads the object before invoking its method:
+
+```
+mount "/daemon/channel.lpc" as Channel; // Declare a resource descriptor.
+Channel::chat("hello"); // Find or load the Channel object, then invoke chat.
+```
+
+The `using` statement acquires the resource for calls within its block, subject
+to policy checks:
+
+```
+using(Channel) { // Enter the block after acquisition succeeds and policy permits access.
+  ::join(self);
+  ::chat("hello");
+}
+```
+
 ## Compiler Outline
 
 ### Preprocessing

@@ -141,8 +141,16 @@ namespace AST {
         std::shared_ptr<SymbolTable::Entry> entry; // the function being called
         std::unique_ptr<ASTNode> arguments; // List
     };
+    struct ResourceAcquire {
+        std::shared_ptr<SymbolTable::Entry> res_entry; // Resource entry
+        ConstPool::IndexType res_name_idx;
+    };
+    struct ResourceCall {
+        std::unique_ptr<ASTNode> acquisition; // Resource acquisition
+        std::unique_ptr<ASTNode> arguments; // List
+    };
     struct CallOther {
-        std::unique_ptr<ASTNode> object; // Expression
+        std::unique_ptr<ASTNode> object; // Target object
         ConstPool::IndexType method_name_idx;
         std::unique_ptr<ASTNode> arguments; // List
     };
@@ -201,6 +209,8 @@ struct ASTNode {
         AST::TernaryOp,
         AST::List,
         AST::FunctionCall,
+        AST::ResourceAcquire,
+        AST::ResourceCall,
         AST::CallOther,
         AST::KeywordArgument,
         AST::NumericConst,
