@@ -287,16 +287,19 @@ void LpcCompiler::FunctionBuilder::build(const AST::FunctionDef& func_def) {
     auto func_idx = std::get<uint32_t>(*func_decl.entry->value);
     if (func_idx >= vtable_.static_bindings_.size())
         throw std::runtime_error("Function index out of bounds");
-    std::size_t num_formal_params = std::get<AST::ParameterList>(func_decl.param_list->node).parameters.size();
+    const auto& parameters = std::get<AST::ParameterList>(func_decl.param_list->node).parameters;
+    std::size_t num_formal_params = parameters.size();
+    const bool vararg = !parameters.empty() && parameters.back()->signature.b.data_type == T_VARARG;
 
     VirtualTable::Binding func_binding;
     func_binding.signature = func_decl.entry->signature;
+    func_binding.signature.b.num_formal_params = num_formal_params;
     func_binding.inheriting = -1; // or some appropriate default value indicating no inheritance
     func_binding.bytecode_offset = codegen_.position(); // entry point of the function's bytecode
 
     // generate bytecode for the function body
     const AST::Block& body = std::get<AST::Block>(func_def.body->node);
-    codegen_.emit_block(body, num_formal_params);
+    codegen_.emit_block(body, num_formal_params, vararg);
     func_binding.bytecode_length = codegen_.position() - func_binding.bytecode_offset;
 
     // register function bindings

@@ -159,6 +159,6 @@ namespace lpcvm {
         Bytecode& emit_expression(const ASTNode& expr);
         /// A formal parameter count marks a function body, including when it is zero.
         Bytecode& emit_block(const AST::Block& block,
-            std::optional<std::size_t> num_formal_params = std::nullopt);
+            std::optional<std::size_t> num_formal_params = std::nullopt, bool vararg = false);
     };
 } // namespace lpcvm

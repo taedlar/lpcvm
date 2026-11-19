@@ -140,6 +140,17 @@ parameter count. It pads missing arguments with void values and discards surplus
 arguments before allocating locals. The instruction is valid only at function
 entry and also applies to host calls through `execute()`.
 
+Keyword arguments are packed into one trailing mapping with string keys. The
+high operand bit (`CALL_KEYWORDS`) on `F_CALL` marks this mapping, distinguishing
+it from a positional mapping value. The remaining bits hold the total slot count.
+For a final `...name` formal parameter, the compiler sets the high operand bit
+(`ARGS_VARARG`) on `F_ADJUST_ARGS`. This entry collects surplus positional values
+into the keyword mapping using their zero-based positions in the full actual
+argument list as integer keys, removes their stack slots, and places the mapping
+in the final formal slot. Missing fixed arguments are padded with void; absent
+keyword arguments produce a new mapping, which may be empty. Host `execute()`
+arguments are positional. Collected strings are promoted to owned storage.
+
 `F_RETURN` specifies the number of values to preserve at the top of the stack.
 It removes the completed frame's arguments, locals, and temporaries, then restores
 the caller's continuation. Returning from the entry frame transfers control to

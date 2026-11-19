@@ -487,7 +487,7 @@ new_param
         }
     | L_ELLIPSIS L_IDENTIFIER
         {
-            SymbolSignature s{LpcDataType::T_VARARG}; // vararg parameter, a catch-all array for remaining actual parameters
+            SymbolSignature s{LpcDataType::T_VARARG}; // catch-all mapping for remaining actual parameters
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->lookup($2))
                 throw parse_error("Parameter name already defined: " + std::string($2), yyscanner);

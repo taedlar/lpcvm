@@ -57,6 +57,8 @@
 /// F_STORE_LOCAL_BUFFER copies the stack-top string into an LpcBuffer local, reusing it when unshared.
 /// F_STR_FINISH_LOCAL moves the accumulator into an LpcBuffer local and pushes the local's reference.
 /// F_ADJUST_ARGS normalizes the entry frame to its argument count by padding or discarding arguments.
+/// With ARGS_VARARG, its final slot receives a mapping of keyword and surplus positional arguments.
+/// F_CALL with CALL_KEYWORDS has a keyword mapping as its final actual argument.
 /// F_JUMP adds its argument to the program counter (relative to the next instruction).
 /// F_JUMP_IF_FALSE pops the top of the stack and jumps only if the value is false (zero/void).
 /// F_JUMP_IF_FALSE_OR_POP / F_JUMP_IF_TRUE_OR_POP peek the top of the stack: if it is false / true, jump and
@@ -71,6 +73,9 @@ enum Opcode: uint8_t {
 };
 
 namespace oparg {
+
+inline constexpr uint32_t ARGS_VARARG = uint32_t{1} << 31;
+inline constexpr uint32_t CALL_KEYWORDS = uint32_t{1} << 31;
 
 /**
  *  @brief The enum definition for unary operation arguments used by the

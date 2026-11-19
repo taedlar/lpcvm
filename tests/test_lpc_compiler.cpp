@@ -482,6 +482,92 @@ TEST(LpcCompilerTest, CallsNormalizeArgumentCountsBeforeAllocatingLocals) {
     EXPECT_TRUE(control.empty());
 }
 
+TEST(LpcCompilerTest, VarargsCollectPositionalAndKeywordArguments) {
+    for (const auto* arguments : {"7, 11, 22, label = 33", "7, 11, 22",
+                                  "7, label = 33", "label = 33", "7", ""}) {
+        SCOPED_TRACE(arguments);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(std::string(R"(
+            mapping collect(int first, ...rest) { int local; local = 99; return rest; }
+            mapping caller() { return collect()").append(arguments).append("); }")));
+        auto program = compiler.generate_code();
+        ASSERT_NE(program, nullptr);
+        lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+        ASSERT_TRUE(program->lookup_method("caller", &code));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push(int32_t{99});
+        ASSERT_EQ(code.execute(control, stack), 1);
+        ASSERT_EQ(stack.size(), 2u);
+        EXPECT_EQ(std::get<int32_t>(stack[0]), 99);
+        EXPECT_TRUE(control.empty());
+        auto mapping = std::get<LpcMappingRef>(stack.top());
+        const bool positional = std::string_view(arguments).find("11") != std::string_view::npos;
+        const bool keywords = std::string_view(arguments).find("label") != std::string_view::npos;
+        EXPECT_EQ(mapping->size(), (positional ? 2u : 0u) + (keywords ? 1u : 0u));
+        if (positional) {
+            for (uint32_t i = 1; i <= 2; ++i) {
+                const auto* value = mapping->find({SValue(i)});
+                ASSERT_NE(value, nullptr);
+                EXPECT_EQ(std::get<uint32_t>(value->value), i * 11);
+            }
+        }
+        if (keywords) {
+            const auto* value = mapping->find({code.fabric_->make_shared_string("label")});
+            ASSERT_NE(value, nullptr);
+            EXPECT_EQ(std::get<uint32_t>(value->value), 33);
+        }
+    }
+}
+
+TEST(LpcCompilerTest, KeywordMappingAndVarargsPreserveEvaluationAndStrings) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        mapping collect(...rest) { return rest; }
+        mapping forward(mapping values) { return values; }
+        string caller() {
+            int n; n = 0;
+            mapping values = collect((n = n + 1), "a" + "b",
+                label = "c" + "d", order = (n = n + 1));
+            mapping wrapped = collect(values);
+            mapping keywords = forward(value = "e" + "f");
+            if (values[0] != 1 || values["order"] != 2 || n != 2) return "wrong order";
+            return wrapped[0][1] + values["label"] + keywords["value"];
+        }
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+    ASSERT_TRUE(program->lookup_method("caller", &code));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    EXPECT_EQ(stack.top_string(), "abcdef");
+    EXPECT_TRUE(control.empty());
+}
+
+TEST(LpcCompilerTest, HostVarargsPreserveTemporaryStrings) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("mapping collect(int first, ...rest) { return rest; }"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+    ASSERT_TRUE(program->lookup_method("collect", &code));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push_temp_string("caller");
+    stack.push_temp_string("fixed");
+    stack.push_temp_string("extra");
+    ASSERT_EQ(code.execute(control, stack, 2), 1);
+    ASSERT_EQ(stack.size(), 2u);
+    EXPECT_EQ(stack.string_at(0), "caller");
+    auto mapping = std::get<LpcMappingRef>(stack.top());
+    const auto* value = mapping->find({SValue(uint32_t{1})});
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(std::get<LpcStringRef>(value->value)->view(), "extra");
+}
+
 TEST(LpcCompilerTest, MissingAndSurplusHostArgumentsPreserveStrings) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse(R"(
