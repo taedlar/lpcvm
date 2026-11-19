@@ -109,7 +109,6 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 
 "inherit"       { return yy::LpcParser::make_L_INHERIT(yyextra->location); }
 "mount"         { return yy::LpcParser::make_L_MOUNT(yyextra->location); }
-"as"            { return yy::LpcParser::make_L_AS(yyextra->location); }
 "using"         { return yy::LpcParser::make_L_USING(yyextra->location); }
 "if"            { return yy::LpcParser::make_L_IF(yyextra->location); }
 "else"          { return yy::LpcParser::make_L_ELSE(yyextra->location); }
@@ -124,7 +123,6 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 "switch"        { return yy::LpcParser::make_L_SWITCH(yyextra->location); }
 "case"          { return yy::LpcParser::make_L_CASE(yyextra->location); }
 "default"       { return yy::LpcParser::make_L_DEFAULT(yyextra->location); }
-"try"           { return yy::LpcParser::make_L_TRY(yyextra->location); }
 "catch"         { return yy::LpcParser::make_L_CATCH(yyextra->location); }
 "new"           { return yy::LpcParser::make_L_NEW(yyextra->location); }
 "destruct"      { return yy::LpcParser::make_L_DESTRUCT(yyextra->location); }

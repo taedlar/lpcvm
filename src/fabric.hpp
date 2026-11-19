@@ -130,6 +130,8 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
         const auto name = obj->name();
         if (!name || name->empty())
             throw std::invalid_argument("Object name cannot be empty");
+        if (name->view().find(':') != std::string_view::npos)
+            throw std::invalid_argument("Object name cannot contain ':'"); // ':' is reserved for URI objects
         if (obj->retain_fabric().get() != this)
             throw std::invalid_argument("Object belongs to another runtime");
 

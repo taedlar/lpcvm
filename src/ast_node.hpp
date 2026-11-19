@@ -45,8 +45,13 @@ namespace AST {
     struct Program {
         std::vector<ASTNode> defs; // *(FunctionDecl | FunctionDef | Inheritance)
     };
-    struct Mount {
+    struct ResourceDecl {
         std::shared_ptr<SymbolTable::Entry> entry; // a descriptor for the mounted object
+    };
+    struct Mount {
+        std::unique_ptr<ASTNode> res_decl; // list of ResourceDecl or StringLiteral
+        std::unique_ptr<ASTNode> body; // do this when mounted successfully
+        std::unique_ptr<ASTNode> else_body; // optional else body
     };
     struct Inheritance {
         std::shared_ptr<SymbolTable::Entry> entry; // a pseudo entry mangled from the file path
@@ -96,10 +101,8 @@ namespace AST {
         std::unique_ptr<ASTNode> condition;
         std::unique_ptr<ASTNode> body;
     };
-    struct TryCatch {
-        std::unique_ptr<ASTNode> try_block;
-        std::unique_ptr<ASTNode> catch_param; // ParameterList to bind the caught exception
-        std::unique_ptr<ASTNode> catch_block;
+    struct Catch {
+        std::unique_ptr<ASTNode> expr;
     };
     struct Destruct {
         std::unique_ptr<ASTNode> target;
@@ -184,6 +187,7 @@ struct ASTNode {
     using Storage = std::variant<
         std::monostate,
         AST::Program,
+        AST::ResourceDecl,
         AST::Mount,
         AST::Inheritance,
         AST::FunctionDef,
@@ -198,7 +202,7 @@ struct ASTNode {
         AST::Break,
         AST::Continue,
         AST::Switch,
-        AST::TryCatch,
+        AST::Catch,
         AST::Destruct,
         AST::ArrayLiteral,
         AST::MappingLiteral,

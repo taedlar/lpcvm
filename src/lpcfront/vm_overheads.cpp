@@ -25,6 +25,7 @@ void write_vm_overheads() {
     std::cout << fmt::format("std::vector<...>        {:6d}", sizeof(std::vector<uint8_t>)) << std::endl;
     std::cout << "# Compile-time" << std::endl;
     std::cout << fmt::format("ASTNode                 {:6d}", sizeof(ASTNode)) << std::endl;
+    std::cout << fmt::format("ASTNode::Storage        {:6d}", sizeof(ASTNode::Storage)) << std::endl;
     std::cout << fmt::format("ConstTable              {:6d}", sizeof(ConstTable)) << std::endl;
     std::cout << fmt::format("ConstTable::ValueType   {:6d}", sizeof(ConstTable::ValueType)) << std::endl;
     std::cout << fmt::format("SymbolTable             {:6d}", sizeof(SymbolTable)) << std::endl;
