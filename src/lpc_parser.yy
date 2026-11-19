@@ -446,6 +446,8 @@ parameter_list
                 throw parse_error("Cannot have parameters after a void parameter", yyscanner);
             if(params.back()->signature.b.data_type == LpcDataType::T_VARARG)
                 throw parse_error("Cannot have parameters after a vararg parameter", yyscanner);
+            if(params.size() == 255)
+                throw parse_error("Cannot have more than 255 parameters", yyscanner);
             params.push_back(std::move($3));
             $$ = $1;
         }
