@@ -47,6 +47,20 @@ in that order. Compound assignments read the element after those evaluations.
 Arrays have reference semantics: writes are visible through aliases. Strings
 stored in arrays have owned storage independent of local string buffers.
 
+### Mappings
+
+Mapping literals use `([key: value, ...])`, including `([])` for an empty mapping.
+`mapping[key]` supports reads, assignment, compound assignment, and prefix or
+postfix `++`/`--`, with the same evaluation order as array indexing. Reads of
+missing keys return an empty value (`std::monostate`) without inserting a key;
+assignment inserts or replaces the value. Compound operations use the ordinary
+operator rules for the loaded value, including empty values.
+
+Keys follow mapping equality rules: numeric types remain distinct, strings
+compare by content, and arrays and mappings compare by identity. Stored string
+keys and values own their storage. Mappings have reference semantics, so writes
+are visible through aliases. Indexed expressions can be nested.
+
 ### Statements and Control Flow
 
 The current statement set covers blocks with local variables, `if`/`else`,

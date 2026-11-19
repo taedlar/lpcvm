@@ -824,3 +824,62 @@ TEST(VMExecutorTest, ArrayIndexValidation) {
         }
     }
 }
+
+TEST(VMExecutorTest, MappingIndexLoadsAndStores) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto mapping = runtime->make_container<LpcMappingRef>();
+    auto array_key = runtime->make_container<LpcArrayRef>();
+    for (const SValue& key : {SValue(int32_t{-1}), SValue(1.5), SValue(array_key),
+                              SValue(mapping), SValue(std::monostate{})}) {
+        for (uint8_t mode : {0, 1}) {
+            const uint8_t bytes[] = {F_LOAD_INDEX, mode, F_RETURN, uint8_t(mode ? 3 : 1)};
+            lpcvm::Execution code(runtime);
+            code.binding(runtime, bytes, sizeof(bytes));
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            stack.push(mapping);
+            stack.push(key);
+            ASSERT_EQ(code.execute(control, stack, 2), mode ? 3 : 1);
+            EXPECT_TRUE(std::holds_alternative<std::monostate>(stack.top()));
+            EXPECT_EQ(mapping->size(), 0u);
+        }
+        const uint8_t bytes[] = {F_STORE_INDEX, 0, F_RETURN, 1};
+        lpcvm::Execution code(runtime);
+        code.binding(runtime, bytes, sizeof(bytes));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push(mapping);
+        stack.push(key);
+        stack.push_temp_string("stored");
+        ASSERT_EQ(code.execute(control, stack, 3), 1);
+        EXPECT_EQ(stack.top_string(), "stored");
+        ASSERT_NE(mapping->find({key}), nullptr);
+        EXPECT_EQ(std::get<LpcStringRef>(mapping->find({key})->value)->view(), "stored");
+        mapping->clear();
+    }
+}
+
+TEST(VMExecutorTest, MappingIndexRejectsInvalidBytecode) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    for (const auto opcode : {F_LOAD_INDEX, F_STORE_INDEX}) {
+        for (const auto& bytes : {std::vector<uint8_t>{opcode},
+                                 std::vector<uint8_t>{opcode, 2},
+                                 std::vector<uint8_t>{opcode, 0}}) {
+            lpcvm::Execution code(runtime);
+            code.binding(runtime, bytes.data(), bytes.size());
+            lpcvm::ReturnStack control;
+            lpcvm::DataStack stack;
+            EXPECT_THROW(code.execute(control, stack), std::runtime_error);
+        }
+        const uint8_t bytes[] = {opcode, 0};
+        lpcvm::Execution code(runtime);
+        code.binding(runtime, bytes, sizeof(bytes));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push(LpcMappingRef{});
+        stack.push(int32_t{0});
+        if (opcode == F_STORE_INDEX)
+            stack.push(int32_t{42});
+        EXPECT_THROW(code.execute(control, stack, stack.size()), std::runtime_error);
+    }
+}
