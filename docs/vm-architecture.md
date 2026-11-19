@@ -64,6 +64,11 @@ to owned strings before putting them in the array.
 `F_AGGREGATE_MAPPING n` similarly consumes `n` key/value pairs and pushes a
 fabric-managed mapping. Keys and values are promoted to owned strings when
 needed; duplicate keys are applied in source order, so the final value wins.
+The indexed load and store instructions also accept mappings with arbitrary
+materialized keys. Missing-key loads return an empty value without insertion;
+stores insert or replace an entry. Both load modes preserve the same stack
+layout as array indexing. String keys are promoted to owned strings before
+lookup, and stored values before insertion.
 
 `F_COPY depth` duplicates a stack value (`0` selects the top), copying temporary
 string storage as needed. `F_ROTATE n` rotates the top `n` slots one place left.

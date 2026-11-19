@@ -599,25 +599,39 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         VM_HANDLER(F_STORE_INDEX) {
             const bool store = pc[-1] == F_STORE_INDEX;
             if (pc >= end_)
-                throw std::runtime_error("Missing array index argument");
+                throw std::runtime_error("Missing index argument");
             oparg = (extended_arg << 8) | *pc++;
             if (oparg > (store ? 0u : 1u))
-                throw std::runtime_error("Invalid array index argument");
+                throw std::runtime_error("Invalid index argument");
             const std::size_t count = store ? 3 : 2;
             if (stack.size() - fp < count)
                 throw std::runtime_error("Evaluation stack underflow");
             const auto base = stack.size() - count;
-            const auto* ref = std::get_if<LpcArrayRef>(&stack[base]);
-            if (!ref || !*ref)
-                throw std::runtime_error("Indexing requires an array");
             { // Release owning references before computed-goto dispatch.
-                const auto array = *ref; // retain across stack removal and self-replacement
-                const auto index = array_index(stack[base + 1], array->size());
+                SValue value;
+                if (const auto* ref = std::get_if<LpcArrayRef>(&stack[base]); ref && *ref) {
+                    const auto array = *ref; // retain across self-replacement
+                    const auto index = array_index(stack[base + 1], array->size());
+                    if (store)
+                        (*array)[index].value = container_value(stack, base + 2, fabric_);
+                    else
+                        value = (*array)[index].value;
+                } else if (const auto* ref = std::get_if<LpcMappingRef>(&stack[base]); ref && *ref) {
+                    const auto mapping = *ref;
+                    const svalue_t key{container_value(stack, base + 1, fabric_)};
+                    if (store) {
+                        // Materialize before inserting so a failed conversion cannot add a key.
+                        const auto assigned = container_value(stack, base + 2, fabric_);
+                        mapping->find_or_insert(key).value = assigned;
+                    } else if (const auto* entry = mapping->find(key)) {
+                        value = entry->value;
+                    }
+                } else {
+                    throw std::runtime_error("Indexing requires an array or mapping");
+                }
                 if (store) {
-                    (*array)[index].value = container_value(stack, base + 2, fabric_);
                     stack.pop_i(base, 2); // leave the assignment result, including temporary strings
                 } else {
-                    const auto value = (*array)[index].value;
                     if (oparg == 0)
                         stack.pop_n(2);
                     stack.push(value);

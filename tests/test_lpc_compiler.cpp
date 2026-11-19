@@ -1013,3 +1013,121 @@ TEST(LpcCompilerTest, ArrayAssignmentEvaluatesFunctionTargetOnceAfterRhs) {
             ADD_FAILURE() << "Expected numeric result";
     }, stack.top());
 }
+
+TEST(LpcCompilerTest, MappingElementAssignments) {
+    struct Case { const char* body; int expected; };
+    for (const auto& test : {
+        Case{"mixed a = ([0: 1, 1: 2]); a[0] = 7; return a[0] + a[1];", 9},
+        Case{"mixed a = ([0: 1]); return a[0] = 9;", 9},
+        Case{"mixed a = ([0: 1]); mixed b = a; b[0] = 7; return a[0];", 7},
+        Case{"mixed a = ([0: 1]); a[0] += (a[0] = 3); return a[0];", 6},
+        Case{"mixed a = ([0: 9]); a[0] -= 2; return a[0];", 7},
+        Case{"mixed a = ([0: 9]); a[0] *= 2; return a[0];", 18},
+        Case{"mixed a = ([0: 9]); a[0] /= 2; return a[0];", 4},
+        Case{"mixed a = ([0: 9]); a[0] %= 2; return a[0];", 1},
+        Case{"mixed a = ([0: 9]); a[0] &= 3; return a[0];", 1},
+        Case{"mixed a = ([0: 9]); a[0] |= 3; return a[0];", 11},
+        Case{"mixed a = ([0: 9]); a[0] ^= 3; return a[0];", 10},
+        Case{"mixed a = ([0: 9]); a[0] <<= 2; return a[0];", 36},
+        Case{"mixed a = ([0: 9]); a[0] >>= 2; return a[0];", 2},
+        Case{"mixed a = ([0: 9]); int b = a[0]++; return b * 100 + a[0];", 910},
+        Case{"mixed a = ([0: 9]); int b = ++a[0]; return b * 100 + a[0];", 1010},
+        Case{"mixed a = ([0: 9]); int b = a[0]--; return b * 100 + a[0];", 908},
+        Case{"mixed a = ([0: 9]); int b = --a[0]; return b * 100 + a[0];", 808},
+        Case{"mixed a = ([0: 1, 1: 2]); int i = 0; a[i++] += 4; return i * 10 + a[0];", 15},
+        Case{"mixed a = ([0: 1, 1: 2]); int i = 0; a[i++]++; return i * 10 + a[0];", 12},
+        Case{"mixed a = ([0: 1, 1: 2]); int i = 0; a[i] = (i = 1); return a[0] * 10 + a[1];", 11},
+        Case{"mixed a = ([0: 1, 1: 2]); int i = 0; a[i] += (i = 1); return a[0] * 10 + a[1];", 13},
+        Case{"mixed a = ([0: ([0: 1])]); a[0][0] = 7; return a[0][0];", 7},
+        Case{"mixed a = ([0: 1]); mixed b = ([0: 2]); a[0] = b[0] = 8; return a[0] + b[0];", 16},
+        Case{"mixed a = ([0: 1]); mixed b = ([0: 2]); mixed old = a; a[0] = (a = b)[0]; return old[0];", 1},
+        Case{"mixed a = ([]); return 1;", 1},
+    }) {
+        SCOPED_TRACE(test.body);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(std::string("int f() { ") + test.body + " }"));
+        auto program = compiler.generate_code();
+        lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+        ASSERT_TRUE(program->lookup_method("f", &code));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        ASSERT_EQ(code.execute(control, stack), 1);
+        ASSERT_EQ(stack.size(), 1u);
+        std::visit([&](const auto& value) {
+            if constexpr (std::is_arithmetic_v<std::decay_t<decltype(value)>>)
+                EXPECT_EQ(value, test.expected);
+            else
+                ADD_FAILURE() << "Expected numeric result";
+        }, stack.top());
+    }
+}
+
+
+TEST(LpcCompilerTest, MappingStringIndexesOwnStorage) {
+    for (int mode : {0, 1, 2, 3}) {
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(R"(mapping f() {
+            mapping m = ([]);
+            string key = "a" + "b";
+            string value = "c" + "d";
+            m[key] = value;
+            key = "changed";
+            value = "changed";
+            m["a" + "b"] += "!";
+            m["result"] = m["a" + "b"];
+            return m;
+        })"));
+        lpcvm::CodeGenerationOptions options;
+        options.use_local_string_buffer = (mode & 1) != 0;
+        options.use_string_accumulator = (mode & 2) != 0;
+        auto program = compiler.generate_code(options);
+        auto runtime = std::make_shared<ManagedRuntime>();
+        lpcvm::Execution code(runtime);
+        ASSERT_TRUE(program->lookup_method("f", &code));
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        stack.push_temp_string("caller");
+        ASSERT_EQ(code.execute(control, stack), 1);
+        auto mapping = std::get<LpcMappingRef>(stack.pop());
+        EXPECT_EQ(stack.top_string(), "caller");
+        EXPECT_EQ(mapping->size(), 2u);
+        for (auto key : {"ab", "result"}) {
+            auto* entry = mapping->find({runtime->make_shared_string(key)});
+            ASSERT_NE(entry, nullptr);
+            ASSERT_TRUE(std::holds_alternative<LpcStringRef>(entry->value));
+            EXPECT_EQ(std::get<LpcStringRef>(entry->value)->view(), "cd!");
+        }
+    }
+}
+
+TEST(LpcCompilerTest, MappingAssignmentEvaluatesFunctionTargetOnceAfterRhs) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        mixed values;
+        int order;
+        mixed target() { order = order * 10 + 2; return values; }
+        int index() { order = order * 10 + 3; return 0; }
+        int rhs() { order = order * 10 + 1; return 4; }
+        int f() {
+            values = ([0: 5]);
+            order = 0;
+            target()[index()] += rhs();
+            return order * 10 + values[0];
+        }
+    )"));
+    auto program = compiler.generate_code();
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+    ASSERT_TRUE(program->lookup_method("f", &code));
+    ObjectState state(program->num_variables_inheriting());
+    code.as_with(&state);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    ASSERT_EQ(stack.size(), 1u);
+    std::visit([](const auto& value) {
+        if constexpr (std::is_arithmetic_v<std::decay_t<decltype(value)>>)
+            EXPECT_EQ(value, 1239);
+        else
+            ADD_FAILURE() << "Expected numeric result";
+    }, stack.top());
+}
