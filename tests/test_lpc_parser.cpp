@@ -47,6 +47,77 @@ TEST(LpcParserTest, AssignmentAssociativityAndPrecedence) {
     EXPECT_EQ(std::get<AST::BinaryOp>(addition.rhs->node).arg, oparg::MUL);
 }
 
+TEST(LpcParserTest, CatchPreservesExpressionAndBlockASTs) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(
+        "void f(int x) {\n"
+        "  catch (x = 1, x + 2);\n"
+        "  catch { int local; local = x; };\n"
+        "  catch {};\n"
+        "}"));
+    const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+    const auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
+    const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;
+    ASSERT_EQ(statements.size(), 3u);
+    const auto& expression = std::get<AST::Catch>(statements[0].node).expr;
+    ASSERT_NE(expression, nullptr);
+    const auto& comma = std::get<AST::BinaryOp>(expression->node);
+    EXPECT_EQ(comma.arg, oparg::COMMA);
+    EXPECT_TRUE(std::holds_alternative<AST::Assign>(comma.lhs->node));
+    EXPECT_EQ(std::get<AST::BinaryOp>(comma.rhs->node).arg, oparg::ADD);
+    EXPECT_EQ(expression->src.lineno, 2);
+    EXPECT_EQ(expression->src.column, 10);
+    for (std::size_t i = 1; i < statements.size(); ++i) {
+        const auto& caught = std::get<AST::Catch>(statements[i].node).expr;
+        ASSERT_NE(caught, nullptr);
+        const auto& block = std::get<AST::Block>(caught->node);
+        EXPECT_EQ(block.num_locals, i == 1 ? 1u : 0u);
+        const auto& contents = std::get<AST::List>(block.stmts->node).elts;
+        if (i == 1) {
+            ASSERT_FALSE(contents.empty());
+            EXPECT_TRUE(std::holds_alternative<AST::Assign>(contents.back().node));
+        } else {
+            EXPECT_TRUE(contents.empty());
+        }
+        EXPECT_EQ(caught->src.lineno, i + 2);
+        EXPECT_EQ(caught->src.column, 9);
+    }
+}
+
+TEST(LpcParserTest, ResourceDeclarationListsPreserveNodesAndOrder) {
+    for (const auto* source : {
+        "mount (\"console\");",
+        "mount (\"console\", Weather -> \"weather.lpc\", \"storage\");"
+    }) {
+        SCOPED_TRACE(source);
+        LpcCompiler compiler;
+        ASSERT_TRUE(compiler.parse(std::string("void f() { ") + source + " }"));
+        const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+        ASSERT_EQ(defs.size(), 1u);
+        const auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
+        const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;
+        ASSERT_EQ(statements.size(), 1u);
+        const auto& mount = std::get<AST::Mount>(statements.front().node);
+        ASSERT_NE(mount.res_decl, nullptr);
+        const auto& declarations = std::get<AST::List>(mount.res_decl->node).elts;
+        const bool multiple = std::string_view(source).find(',') != std::string_view::npos;
+        ASSERT_EQ(declarations.size(), multiple ? 3u : 1u);
+        EXPECT_EQ(std::get<AST::StringLiteral>(declarations[0].node).idx,
+                  compiler.get_consts()->find("console"));
+        if (multiple) {
+            const auto& entry = std::get<AST::ResourceDecl>(declarations[1].node).entry;
+            ASSERT_NE(entry, nullptr);
+            EXPECT_EQ(entry->name, "Weather");
+            ASSERT_TRUE(entry->value.has_value());
+            EXPECT_TRUE(std::holds_alternative<SymbolTable::TokenIndex>(*entry->value));
+            EXPECT_EQ(std::get<AST::StringLiteral>(declarations[2].node).idx,
+                      compiler.get_consts()->find("storage"));
+            EXPECT_LT(declarations[0].src.column, declarations[1].src.column);
+            EXPECT_LT(declarations[1].src.column, declarations[2].src.column);
+        }
+    }
+}
+
 TEST(LpcParserTest, IncrementAndDecrementInExpressions) {
     LpcCompiler compiler;
     ASSERT_TRUE(compiler.parse(
@@ -288,6 +359,31 @@ TEST(LpcParserTest, NonemptyDeclarationPrefixes) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
         EXPECT_TRUE(compiler.parse(source));
+    }
+}
+
+TEST(LpcParserTest, InheritanceBuildsEntriesForPathsAndAliases) {
+    for (bool aliased : {false, true}) {
+        for (bool modified : {false, true}) {
+            const std::string source = std::string(modified ? "public nomask " : "") +
+                "inherit " + (aliased ? "base::parent -> " : "") + "\"/std/\" \"parent\";";
+            SCOPED_TRACE(source);
+            LpcCompiler compiler;
+            ASSERT_TRUE(compiler.parse(source));
+            const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+            ASSERT_EQ(defs.size(), 1u);
+            const auto& entry = std::get<AST::Inheritance>(defs[0].node).entry;
+            ASSERT_NE(entry, nullptr);
+            EXPECT_EQ(entry->name, aliased ? "base::parent" : "/std/parent");
+            EXPECT_EQ(compiler.get_globals()->lookup(entry->name), entry);
+            ASSERT_TRUE(entry->value.has_value());
+            EXPECT_EQ(compiler.get_globals()->token_text(std::get<SymbolTable::TokenIndex>(*entry->value)),
+                      "/std/parent");
+            EXPECT_EQ(entry->signature.b.is_public, modified);
+            EXPECT_EQ(entry->signature.b.is_nomask, modified);
+            EXPECT_EQ(defs[0].src.lineno, 1);
+            EXPECT_EQ(defs[0].src.column, 1);
+        }
     }
 }
 

@@ -91,15 +91,14 @@
     } // namespace yy
 }
 
-%token L_MOUNT L_INHERIT L_AS L_USING
+%token L_MOUNT L_INHERIT L_USING
 %token L_IF L_ELSE
 %token L_WHILE L_DO L_FOR L_FOREACH L_IN
 %token L_BREAK L_CONTINUE
 %token L_RETURN
 %token L_SWITCH L_CASE L_DEFAULT
-%token L_TRY L_CATCH
+%token L_CATCH L_SELF
 %token L_NEW L_DESTRUCT
-%token L_SELF
 
 %nonassoc LOWER_THAN_ELSE
 %nonassoc L_ELSE
@@ -137,16 +136,16 @@
 %token L_COLON_COLON
 %token L_ELLIPSIS
 
-%type <ASTNode> program def mount inheritance
-%type <ASTNode> formal_parameters parameter_list res_acquire
+%type <ASTNode> program def mount inheritance inheritance_decl
+%type <ASTNode> formal_parameters parameter_list res_declare res_alias res_decl_list res_acquire
 %type <ASTNode> block_or_semicolon block
 %type <ASTNode> stmt_list stmt
 %type <ASTNode> local_decl_list var_list new_var loop_init opt_comma_expr
 %type <ASTNode> do_stmt for_stmt foreach_stmt if_stmt opt_else_stmt return_stmt while_stmt
-%type <ASTNode> switch_stmt try_catch_stmt destruct_stmt
-%type <ASTNode> const_expr comma_expr lvalue expr0 expr4
+%type <ASTNode> switch_stmt destruct_stmt
+%type <ASTNode> expr_or_block const_expr comma_expr lvalue expr0 expr4
 %type <ASTNode> aggregation expr_list assoc_list
-%type <ASTNode> function_call arg_list arguments argument kwarg
+%type <ASTNode> catch_clause function_call arg_list arguments argument kwarg
 %type <ASTNode> opt_init_list
 
 %type <SymbolSignature> storage_or_type typed_storage
@@ -154,8 +153,7 @@
 
 %type <std::shared_ptr<SymbolTable::Entry>> function_head new_param defined_id
 
-%type <std::string> str_literal opt_as
-
+%type <std::string> str_literal new_res
 %%
 
 /*
@@ -185,13 +183,6 @@ all:
 
 program
     : %empty { ASSIGN_AST($$, @$, AST::Program{}); }
-    | program mount
-    | program inheritance
-        {
-            $$ = $1;
-            if ($2.node.index() != 0)
-                std::get<AST::Program>($$.node).defs.push_back(std::move($2));
-        }
     | program def extra_semicolon
         {
             $$ = $1;
@@ -206,7 +197,9 @@ extra_semicolon
     ;
 
 def
-    : function_head[entry] '('
+    : mount
+    | inheritance
+    | function_head[entry] '('
         {
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->lookup($entry->name) && $entry->signature.b.is_const)
@@ -368,59 +361,87 @@ new_var
         }
     ;
 
-opt_as
-    : %empty
-        { $$ = ""; }
-    | L_AS L_IDENTIFIER
-        { $$ = $2; }
+mount
+    : L_MOUNT '(' res_decl_list ')' stmt opt_else_stmt
+        {
+            ASSIGN_AST($$, @$, AST::Mount{
+                std::make_unique<ASTNode>(std::move($3)),
+                std::make_unique<ASTNode>(std::move($5)),
+                std::make_unique<ASTNode>(std::move($6))
+            });
+        }
     ;
 
-mount
-    : L_MOUNT str_literal opt_as ';'
+new_res
+    : L_IDENTIFIER
+    | new_res L_COLON_COLON L_IDENTIFIER
+        { $$ = $1 + "::" + $3; }
+    ;
+
+res_declare
+    : str_literal
         {
             auto lpcc = yyget_extra(yyscanner);
-            std::string alias{$3.empty() ? $2 : $3};
-            if (!lpcc->current_scope->lookup(alias)) {
-                auto entry = std::make_shared<SymbolTable::Entry>(alias, SymbolSignature{0}); // alias symbol
-                entry->value = lpcc->current_scope->new_token($2, SymbolTable::TokenType::STRING_LITERAL);
-                lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
-                ASSIGN_AST($$, @$, AST::Mount{ entry });
+            ASSIGN_AST($$, @$, AST::StringLiteral{ $1, *lpcc->consts });
+        }
+    | res_alias
+    ;
+
+res_alias
+    : new_res[alias] L_ARROW str_literal
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            if (!lpcc->current_scope->lookup($alias)) {
+                auto entry = std::make_shared<SymbolTable::Entry>($alias, SymbolSignature{0}); // alias symbol
+                entry->value = lpcc->current_scope->new_token($3, SymbolTable::TokenType::STRING_LITERAL);
+                lpcc->current_scope->emplace($alias, entry); // add the pseudo entry to current scope
+                ASSIGN_AST($$, @$, AST::ResourceDecl{ entry });
             }
-            else if (!$3.empty()) {
-                throw parse_error("Mount descriptor already defined: " + alias, yyscanner);
+            else {
+                throw parse_error("Resource descriptor already defined: " + $alias, yyscanner);
             }
         }
+    ;
+
+res_decl_list
+    : res_declare
+        {
+            ASSIGN_AST($$, @$, AST::List{});
+            std::get<AST::List>($$.node).elts.push_back(std::move($1));
+        }
+    | res_decl_list ',' res_declare
+        {
+            auto elts = std::move(std::get<AST::List>($1.node).elts);
+            elts.push_back(std::move($3));
+            ASSIGN_AST($$, @$, AST::List{ std::move(elts) });
+        }
+    | res_decl_list ','
     ;
 
 inheritance
-    : L_INHERIT str_literal opt_as ';'
+    : inheritance_decl
+    | type_modifier_list inheritance_decl
+        {
+            auto entry = std::move(std::get<AST::Inheritance>($2.node).entry);
+            entry->signature.value |= $1.value;
+            ASSIGN_AST($$, @$, AST::Inheritance{ std::move(entry) });
+        }
+    ;
+
+inheritance_decl
+    : L_INHERIT str_literal ';'
         {
             auto lpcc = yyget_extra(yyscanner);
-            std::string alias{$3.empty() ? $2 : $3};
-            if (!lpcc->current_scope->lookup(alias)) {
-                auto entry = std::make_shared<SymbolTable::Entry>(alias, SymbolSignature{0}); // alias symbol
+            auto entry = lpcc->current_scope->lookup($2);
+            if (!entry) {
+                entry = std::make_shared<SymbolTable::Entry>($2, SymbolSignature{0});
                 entry->value = lpcc->current_scope->new_token($2, SymbolTable::TokenType::STRING_LITERAL);
-                lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
-                ASSIGN_AST($$, @$, AST::Inheritance{ entry });
+                lpcc->current_scope->emplace($2, entry);
             }
-            else if (!$3.empty()) {
-                throw parse_error("Inheritance descriptor already defined: " + alias, yyscanner);
-            }
+            ASSIGN_AST($$, @$, AST::Inheritance{ std::move(entry) });
         }
-    | type_modifier_list L_INHERIT str_literal opt_as ';'
-        {
-            auto lpcc = yyget_extra(yyscanner);
-            std::string alias{$4.empty() ? $3 : $4};
-            if (!lpcc->current_scope->lookup(alias)) {
-                auto entry = std::make_shared<SymbolTable::Entry>(alias, $1); // alias symbol
-                entry->value = lpcc->current_scope->new_token($3, SymbolTable::TokenType::STRING_LITERAL);
-                lpcc->current_scope->emplace(alias, entry); // add the pseudo entry to current scope
-                ASSIGN_AST($$, @$, AST::Inheritance{ entry });
-            }
-            else if (!$4.empty()) {
-                throw parse_error("Alias already defined: " + alias, yyscanner);
-            }
-        }
+    | L_INHERIT res_alias ';'
+        { ASSIGN_AST($$, @$, AST::Inheritance{ std::move(std::get<AST::ResourceDecl>($2.node).entry) }); }
     ;
 
 str_literal
@@ -569,7 +590,6 @@ stmt
     | if_stmt
     | while_stmt
     | switch_stmt
-    | try_catch_stmt
     | block
     | L_BREAK ';'
         { ASSIGN_AST($$, @$, AST::Break{}); }
@@ -699,9 +719,10 @@ expr4
         { ASSIGN_AST($$, @$, AST::Self{ }); }
     | defined_id
         { ASSIGN_AST($$, @$, AST::Variable{ $1 }); }
-    | function_call
     | expr4 '[' comma_expr ']'
         { ASSIGN_AST($$, @$, AST::Index{std::make_unique<ASTNode>(std::move($1)), std::make_unique<ASTNode>(std::move($3))}); }
+    | function_call
+    | catch_clause
     ;
 
 local_decl_list
@@ -866,15 +887,16 @@ switch_stmt
         }
     ;
 
-try_catch_stmt
-    : L_TRY stmt[try_block] L_CATCH '(' parameter_list[catch_param] ')' stmt[catch_block]
-        {
-            ASSIGN_AST($$, @$, AST::TryCatch{
-                std::make_unique<ASTNode>(std::move($try_block)),
-                std::make_unique<ASTNode>(std::move($catch_param)),
-                std::make_unique<ASTNode>(std::move($catch_block))
-            });
-        }
+expr_or_block
+    : '(' comma_expr ')'
+        { $$ = std::move($2); }
+    | block
+        { $$ = std::move($1); }
+    ;
+
+catch_clause
+    : L_CATCH expr_or_block
+        { ASSIGN_AST($$, @$, AST::Catch{ std::make_unique<ASTNode>(std::move($2)) }); }
     ;
 
 destruct_stmt
@@ -969,11 +991,11 @@ function_call
             $1->signature.b.referenced = 1; // mark the function as referenced
             ASSIGN_AST($$, @$, AST::FunctionCall{ std::move($1), std::make_unique<ASTNode>(std::move($3)) });
         }
-    | L_NEW res_acquire opt_init_list
+    | L_NEW '(' res_acquire ')' opt_init_list
         {
             ASSIGN_AST($$, @$, AST::New{
-                std::make_unique<ASTNode>(std::move($2)), // clone semantics for the resource
-                std::make_unique<ASTNode>(std::move($3))  // initialization list for globals
+                std::make_unique<ASTNode>(std::move($3)), // clone semantics for the resource
+                std::make_unique<ASTNode>(std::move($5))  // initialization list for globals
             });
         }
     | res_acquire '(' arg_list ')'
