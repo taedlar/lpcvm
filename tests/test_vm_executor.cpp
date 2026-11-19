@@ -383,6 +383,31 @@ TEST(VMExecutorTest, ArgumentAdjustmentSupportsExtendedCounts) {
     EXPECT_EQ(std::get<int32_t>(stack.top()), 42);
 }
 
+TEST(VMExecutorTest, VarargAdjustmentRequiresFormalSlotAndFabric) {
+    for (uint32_t formal : {0u, 1u}) {
+        std::vector<uint8_t> bytecode;
+        lpcvm::Bytecode generator(bytecode);
+        generator.emit(F_ADJUST_ARGS, oparg::ARGS_VARARG | formal);
+        lpcvm::Execution code(bytecode.data(), bytecode.size());
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        EXPECT_THROW(code.execute(control, stack), lpcvm::Exception<std::runtime_error>);
+    }
+}
+
+TEST(VMExecutorTest, KeywordCallRequiresMappingAndValidCount) {
+    for (uint32_t count : {0u, 1u, 2u, 3u}) {
+        std::vector<uint8_t> bytecode;
+        lpcvm::Bytecode generator(bytecode);
+        generator.emit(F_PUSH_FUNC, 0).emit(F_PUSH_N, 1)
+            .emit(F_CALL, oparg::CALL_KEYWORDS | count);
+        lpcvm::Execution code(bytecode.data(), bytecode.size());
+        lpcvm::ReturnStack control;
+        lpcvm::DataStack stack;
+        EXPECT_THROW(code.execute(control, stack), lpcvm::Exception<std::runtime_error>);
+    }
+}
+
 TEST(VMExecutorTest, MissingArgumentIsVoid) {
     const uint8_t bytecode[] = {F_ADJUST_ARGS, 2, F_LOAD_LOCAL, 1, F_RETURN, 1};
     lpcvm::Execution code(bytecode, sizeof(bytecode));

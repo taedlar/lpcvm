@@ -172,6 +172,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         uint32_t extended_arg = 0; // holds the extended argument for the next opcode (CPython style)
         uint32_t oparg; // holds the extendable argument for the current opcode
         bool entry_ready = true;
+        bool entry_keywords = false;
         SValue result;
         std::string string_accumulator;
         bool string_active = false;
@@ -201,7 +202,38 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                 throw std::runtime_error("Argument adjustment must be at function entry");
             oparg = (extended_arg << 8) | *pc++;
             const auto actual = stack.size() - fp;
-            if (actual < oparg)
+            if (oparg & oparg::ARGS_VARARG) {
+                const auto formal = oparg & ~oparg::ARGS_VARARG;
+                if (formal == 0)
+                    throw std::runtime_error("Vararg entry requires a final formal parameter");
+                const std::size_t fixed = formal - 1;
+                const auto positional = actual - (entry_keywords ? 1 : 0);
+                if (positional > UINT32_MAX)
+                    throw std::length_error("Too many positional arguments");
+                LpcMappingRef mapping;
+                if (entry_keywords) {
+                    const auto* supplied = std::get_if<LpcMappingRef>(&stack.top());
+                    if (!supplied || !*supplied)
+                        throw std::runtime_error("Expected a keyword argument mapping");
+                    mapping = *supplied;
+                } else {
+                    if (!fabric_)
+                        throw std::runtime_error("Vararg mapping creation requires a fabric");
+                    mapping = fabric_->make_container<LpcMappingRef>(positional > fixed ? positional - fixed : 0);
+                }
+                for (std::size_t i = fixed; i < positional; ++i) {
+                    // Match integer literals: zero is signed, positive positions are unsigned.
+                    const SValue key = i == 0 ? SValue(int32_t{0}) : SValue(static_cast<uint32_t>(i));
+                    mapping->find_or_insert({key}).value = container_value(stack, fp + i, fabric_);
+                }
+                if (entry_keywords)
+                    stack.pop();
+                if (positional > fixed)
+                    stack.pop_n(positional - fixed);
+                else if (positional < fixed)
+                    stack.push_n(fixed - positional);
+                stack.push(mapping);
+            } else if (actual < oparg)
                 stack.push_n(oparg - actual);
             else if (actual > oparg)
                 stack.pop_n(actual - oparg);
@@ -504,9 +536,18 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         VM_HANDLER(F_CALL) {
             if (string_active)
                 throw std::runtime_error("Cannot call with an active string accumulator");
-            oparg = (extended_arg << 8) | *pc++; // number of items on the stack for this call (func_index + arguments)
-            if (oparg < 1)
-                throw std::runtime_error("Invalid call with no function index on the stack");
+            if (pc >= end_)
+                throw std::runtime_error("Missing call argument count");
+            oparg = (extended_arg << 8) | *pc++; // func_index + arguments, with optional keyword flag
+            entry_keywords = (oparg & oparg::CALL_KEYWORDS) != 0;
+            oparg &= ~oparg::CALL_KEYWORDS;
+            if (oparg < 1 || oparg > stack.size() || (entry_keywords && oparg < 2))
+                throw std::runtime_error("Invalid call argument count");
+            if (entry_keywords) {
+                const auto* mapping = std::get_if<LpcMappingRef>(&stack.top());
+                if (!mapping || !*mapping)
+                    throw std::runtime_error("Expected a keyword argument mapping");
+            }
             auto func_index = std::get<uint32_t>(stack[stack.size() - oparg]);
             auto binding = prog_->get_method(func_index);
             control.push(pc, fp, var0_, start_, end_, obj_ref_); // save the current execution context on the return stack

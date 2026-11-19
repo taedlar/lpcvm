@@ -31,6 +31,7 @@ typedef union symbol_signature_u {
     uint32_t value;
     struct {
         uint32_t data_type : 4;
+        uint32_t num_formal_params : 8; // number of formal parameters for functions, or arguments for macros
         uint32_t is_function : 1; // indicates if the symbol represents a method function
         uint32_t is_local : 1; // indicates if the symbol is a local variable
         uint32_t is_array : 1;

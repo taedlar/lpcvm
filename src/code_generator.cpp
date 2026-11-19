@@ -348,10 +348,21 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             auto func_idx = std::get<uint32_t>(*func_call.entry->value);
             emit(F_PUSH_FUNC, func_idx);
             const auto& args = std::get<AST::List>(func_call.arguments->node);
-            for(auto& arg: args.elts)
-                emit_expression(arg);
-            // stack: [func_index, arg1, arg2, ...]
-            emit(F_CALL, args.elts.size() + 1);
+            std::size_t keywords = 0;
+            for (const auto& arg : args.elts) {
+                if (const auto* keyword = std::get_if<AST::KeywordArgument>(&arg.node)) {
+                    emit(F_CONST_STR, keyword->idx);
+                    emit_expression(*keyword->value);
+                    ++keywords;
+                } else {
+                    emit_expression(arg);
+                }
+            }
+            if (keywords)
+                emit(F_AGGREGATE_MAPPING, keywords);
+            // stack: [func_index, positional arguments..., optional keyword mapping]
+            emit(F_CALL, (args.elts.size() - keywords + 1 + (keywords != 0)) |
+                (keywords ? oparg::CALL_KEYWORDS : 0));
         },
         [&](auto&) {
             // Handle other expression types
@@ -360,7 +371,7 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
     return *this;
 }
 
-Bytecode& Bytecode::emit_block(const AST::Block& block, std::optional<std::size_t> num_formal_params) {
+Bytecode& Bytecode::emit_block(const AST::Block& block, std::optional<std::size_t> num_formal_params, bool vararg) {
     if (!block.stmts || !std::holds_alternative<AST::List>(block.stmts->node))
         return *this;
 
@@ -369,7 +380,8 @@ Bytecode& Bytecode::emit_block(const AST::Block& block, std::optional<std::size_
     if (num_formal_params && *num_formal_params > num_locals)
         throw std::runtime_error("Number of formal parameters exceeds number of local variables");
     if (num_formal_params) {
-        emit(F_ADJUST_ARGS, static_cast<uint32_t>(*num_formal_params));
+        emit(F_ADJUST_ARGS, static_cast<uint32_t>(*num_formal_params) |
+            (vararg ? oparg::ARGS_VARARG : 0));
         num_locals -= *num_formal_params;
     }
     if (num_locals > 0)
