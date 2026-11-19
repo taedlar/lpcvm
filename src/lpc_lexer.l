@@ -261,6 +261,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
 [0-9]+ { return yy::LpcParser::make_L_INTEGER(std::stol(yytext), yyextra->location); }
 
 "->"    { return yy::LpcParser::make_L_ARROW(yyextra->location); }
+"=>"    { return yy::LpcParser::make_L_FAT_ARROW(yyextra->location); }
 "=="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::EQUAL), yyextra->location); }
 "!="    { return yy::LpcParser::make_L_ORDER(static_cast<int>(oparg::NOT_EQUAL), yyextra->location); }
 "++"    { return yy::LpcParser::make_L_INC(yyextra->location); }
@@ -295,7 +296,7 @@ RAW_DELIMITER [\x21-\x27\x2a-\x5b\x5d-\x7e]{0,16}
     return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }
 
-","|";"|"."|"{"|"}"|"("|")"|"["|"]"|"?"|":" {
+","|";"|"."|"{"|"}"|"("|")"|"["|"]"|"?"|":"|"@" {
     /* punctuation symbols */
     return yy::LpcParser::symbol_type(yytext[0], yyextra->location);
 }

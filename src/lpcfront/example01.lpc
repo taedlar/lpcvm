@@ -1,9 +1,9 @@
 // Example LPC source file for testing the parser
 
-#define STOCK_WEAPONS "/std/weapons"
+#define STOCK_WEAPONS "/std/weapons/"
 #define ADD(first, second) ((first) + (second))
 
-inherit base -> "/std/player";
+inherit "/std/player" => base;
 
 mount ("efun://console", "efun://filesystem") {} else {} // mount efuns in the :: namespace
 
@@ -12,8 +12,8 @@ string *words = ({ "a", "b", "c" }); // aggregate array
 mapping dict = ([ "key1": "value1", "key2": "value2" ]); // aggregate mapping (associative array)
 
 int add (int x, int y, string, ... argv) {
-    mount (WEATHER_D -> "/daemon/weather.lpc"); // mount a LPC blueprint in filesystem
-    mount (Weapon -> STOCK_WEAPONS); // mount a filesystem directory
+    mount ("/daemon/weather" => WEATHER_D); // mount a LPC blueprint in filesystem
+    mount (STOCK_WEAPONS => Weapon); // mount a filesystem directory (path ends with a slash)
     int a = argv[3], b = y - g;
     object obj = self;
     object sword = new (Weapon::broadsword) {damage=10};
@@ -31,7 +31,7 @@ int add (int x, int y, string, ... argv) {
 
     // exception handling example
     mixed e = catch (sword->get_price());
-    ::write (text="Hello world!");
+    ::write ("Hello world!", flush=true);
     destruct (sword);
     return ADD(a, b); // macro expansion
 }
