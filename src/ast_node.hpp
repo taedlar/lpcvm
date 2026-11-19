@@ -47,6 +47,7 @@ namespace AST {
     };
     struct ResourceDecl {
         std::shared_ptr<SymbolTable::Entry> entry; // a descriptor for the mounted object
+        std::unique_ptr<ASTNode> path; // StringLiteral representing the resource path
     };
     struct Mount {
         std::unique_ptr<ASTNode> res_decl; // list of ResourceDecl or StringLiteral

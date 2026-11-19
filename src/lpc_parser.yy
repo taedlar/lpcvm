@@ -132,7 +132,7 @@
 %nonassoc L_INC L_DEC
 
 %token L_ARRAY_OPEN L_MAPPING_OPEN
-%token L_ARROW
+%token L_ARROW L_FAT_ARROW
 %token L_COLON_COLON
 %token L_ELLIPSIS
 
@@ -388,14 +388,13 @@ res_declare
     ;
 
 res_alias
-    : new_res[alias] L_ARROW str_literal
+    : expr0[path] L_FAT_ARROW new_res[alias]
         {
             auto lpcc = yyget_extra(yyscanner);
             if (!lpcc->current_scope->lookup($alias)) {
                 auto entry = std::make_shared<SymbolTable::Entry>($alias, SymbolSignature{0}); // alias symbol
-                entry->value = lpcc->current_scope->new_token($3, SymbolTable::TokenType::STRING_LITERAL);
                 lpcc->current_scope->emplace($alias, entry); // add the pseudo entry to current scope
-                ASSIGN_AST($$, @$, AST::ResourceDecl{ entry });
+                ASSIGN_AST($$, @$, AST::ResourceDecl{ entry, std::make_unique<ASTNode>(std::move($path)) });
             }
             else {
                 throw parse_error("Resource descriptor already defined: " + $alias, yyscanner);
