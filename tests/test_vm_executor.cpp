@@ -242,7 +242,9 @@ TEST(VMExecutorTest, ExceptionRetainsRaisingObjectAfterUnwinding) {
         } catch (const lpcvm::Exception<std::runtime_error>& error) {
             ASSERT_FALSE(handle.expired());
             EXPECT_EQ(error.party(), *handle.lock());
-            EXPECT_EQ(error.party()->program(), program);
+            auto* party = dynamic_cast<LpcObject*>(&*error.party());
+            ASSERT_NE(party, nullptr);
+            EXPECT_EQ(party->program(), program);
             EXPECT_EQ(error.func_name(), "divide");
             EXPECT_STREQ(error.what(), "party.lpc:2:12: In function `divide()': Division by zero");
         }

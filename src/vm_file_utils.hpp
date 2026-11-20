@@ -7,6 +7,8 @@
 #include <vector>
 #include "fabric.hpp"
 
+using namespace lpcvm;
+
 namespace lpcvm::detail {
 
 namespace fs = std::filesystem;

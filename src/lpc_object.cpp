@@ -7,7 +7,7 @@
 #include "vm_sandbox.hpp"
 
 LpcObject::LpcObject(std::shared_ptr<FabricType> sb, std::shared_ptr<ObjectClass> program)
-    : weak_fabric_(sb),
+    : lpcvm::Object(sb),
       program_(std::move(program)), state_(nullptr) {
     if (program_) {
         state_ = std::make_unique<ObjectState>(program_->num_variables_inheriting());

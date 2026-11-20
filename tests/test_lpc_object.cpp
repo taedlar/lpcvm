@@ -14,17 +14,20 @@ static_assert(!std::is_copy_assignable_v<ManagedRuntime>);
 static_assert(!std::is_move_constructible_v<ManagedRuntime>);
 static_assert(!std::is_move_assignable_v<ManagedRuntime>);
 static_assert(std::is_same_v<decltype(std::declval<ManagedRuntime&>().objects()),
-                             const ObjectTable&>);
+                             const ManagedRuntime::ObjectTable&>);
 
 TEST(ManagedRuntimeTest, ScopeExitReleasesObjectsAndStrings) {
-    ObjectHandle object;
+    lpcvm::ObjectHandle object;
     lpcvm::Handle<LpcString, LpcStringRef> string;
     {
         auto runtime = std::make_shared<ManagedRuntime>();
         EXPECT_TRUE(runtime->objects().empty());
+
+        auto owned = runtime->make_shared_string("test/string");
+        string = decltype(string)(owned);
+        owned = {};
+
         object = LpcObject::create(runtime, "test/object", nullptr);
-        auto name = runtime->find_object("test/object")->name();
-        string = decltype(string)(name);
         EXPECT_FALSE(object.expired());
         EXPECT_FALSE(string.expired());
     }
@@ -33,13 +36,16 @@ TEST(ManagedRuntimeTest, ScopeExitReleasesObjectsAndStrings) {
 }
 
 TEST(ManagedRuntimeTest, ExceptionUnwindingReleasesOwnedResources) {
-    ObjectHandle object;
+    lpcvm::ObjectHandle object;
     lpcvm::Handle<LpcString, LpcStringRef> string;
     EXPECT_THROW({
         auto runtime = std::make_shared<ManagedRuntime>();
+
+        auto owned = runtime->make_shared_string("test/string");
+        string = decltype(string)(owned);
+        owned = {};
+
         object = LpcObject::create(runtime, "test/object", nullptr);
-        auto name = runtime->find_object("test/object")->name();
-        string = decltype(string)(name);
         throw std::runtime_error("test failure");
     }, std::runtime_error);
     EXPECT_TRUE(object.expired());
@@ -48,13 +54,14 @@ TEST(ManagedRuntimeTest, ExceptionUnwindingReleasesOwnedResources) {
 
 TEST(LpcObjectHandleTest, LockRetainsObjectUntilStrongReferenceIsReleased) {
     LpcObject::HandleType handle;
-    std::optional<LpcObjectRef> locked;
+    std::optional<lpcvm::ObjectRef> locked;
     {
         auto owner = lpcvm::create_shared<LpcObject>(nullptr, std::make_shared<ObjectClass>());
         handle = LpcObject::HandleType(owner);
         locked = handle.lock();
         ASSERT_TRUE(locked.has_value());
-        EXPECT_EQ(*locked, owner);
+        lpcvm::ObjectRef owner_ref = owner;
+        EXPECT_EQ(*locked, owner_ref);
     }
 
     EXPECT_TRUE(handle.lock().has_value());
@@ -83,12 +90,12 @@ TEST(LpcObjectTest, CreatingDuplicateNameReplacesWithoutInvalidatingOldName) {
     auto new_ref = new_object.lock();
     ASSERT_TRUE(new_ref.has_value());
 
-    EXPECT_EQ((*old_ref)->name()->view(), "duplicate-name");
+    EXPECT_EQ((*old_ref)->name(), "duplicate-name");
     EXPECT_EQ((*old_ref)->name(), (*new_ref)->name());
-    EXPECT_EQ(sb->find_object("duplicate-name"), new_ref);
+    EXPECT_EQ(sb->find_object("duplicate-name"), new_object);
 
     sb->destruct_object(old_object);
-    EXPECT_EQ(sb->find_object("duplicate-name"), new_ref);
+    EXPECT_EQ(sb->find_object("duplicate-name"), new_object);
     sb->destruct_object(new_object);
     EXPECT_FALSE(sb->find_object("duplicate-name"));
 }
@@ -103,19 +110,23 @@ TEST(LpcObjectTest, RegistrationRejectsInvalidObjectsWithoutChangingTable) {
     EXPECT_THROW(runtime->emplace_object({}), std::invalid_argument);
     EXPECT_THROW(runtime->emplace_object(unnamed), std::invalid_argument);
     EXPECT_THROW(runtime->emplace_object(*foreign.lock()), std::invalid_argument);
-    EXPECT_EQ(runtime->find_object("std/player"), *existing.lock());
-    EXPECT_EQ(other->find_object("std/player"), *foreign.lock());
+    EXPECT_EQ(runtime->find_object("std/player"), existing);
+    EXPECT_EQ(other->find_object("std/player"), foreign);
     EXPECT_EQ(runtime->objects().size(), 1u);
 }
 
 TEST(LpcObjectTest, RegistrationCanReinsertTheSameObject) {
     auto runtime = std::make_shared<ManagedRuntime>();
     auto handle = LpcObject::create(runtime, "std/player", nullptr);
-    EXPECT_EQ(runtime->emplace_object(runtime->find_object("std/player")), handle);
+    auto existing = runtime->find_object("std/player").lock();
+    ASSERT_TRUE(existing.has_value());
+    EXPECT_EQ(runtime->emplace_object(*existing), handle);
     auto retained = *handle.lock();
     runtime->destruct_object(handle);
     EXPECT_EQ(runtime->emplace_object(retained), handle);
-    EXPECT_EQ(runtime->find_object("std/player"), retained);
+    auto found = runtime->find_object("std/player").lock();
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(*found, retained);
 }
 
 TEST(LpcObjectTest, ReplacementKeyUsesNewObjectNameStorage) {
@@ -127,16 +138,20 @@ TEST(LpcObjectTest, ReplacementKeyUsesNewObjectNameStorage) {
     };
     auto runtime = std::make_shared<UninternedRuntime>();
     auto old_handle = LpcObject::create(runtime, "std/player", nullptr);
-    auto old_name = runtime->find_object("std/player")->name();
+    auto old_ref = runtime->find_object("std/player").lock();
+    ASSERT_TRUE(old_ref.has_value());
+    const auto old_name = (*old_ref)->name();
     auto new_handle = LpcObject::create(runtime, "std/player", nullptr);
-    auto new_name = runtime->find_object("std/player")->name();
+    auto new_ref = runtime->find_object("std/player").lock();
+    ASSERT_TRUE(new_ref.has_value());
+    const auto new_name = (*new_ref)->name();
+    EXPECT_NE(old_name.data(), new_name.data());
+    old_ref.reset();
     EXPECT_TRUE(old_handle.expired());
-    EXPECT_FALSE(old_name == new_name);
     const auto& table = runtime->objects();
     ASSERT_EQ(table.size(), 1u);
-    EXPECT_EQ(table.begin()->first.data(), new_name->data());
-    old_name = {};
-    EXPECT_EQ(runtime->find_object("std/player"), *new_handle.lock());
+    EXPECT_EQ(table.begin()->first.data(), new_name.data());
+    EXPECT_EQ(runtime->find_object("std/player"), new_handle);
 }
 
 TEST(LpcObjectTest, NameSharesRuntimeStringAndSurvivesObjectDestruction) {
@@ -144,50 +159,46 @@ TEST(LpcObjectTest, NameSharesRuntimeStringAndSurvivesObjectDestruction) {
     std::string input = "std/player";
     auto handle = LpcObject::create(runtime, input, nullptr);
     input.assign("changed");
-    auto name = runtime->find_object("std/player")->name();
-    EXPECT_EQ(name, runtime->make_shared_string("std/player"));
+
+    auto name_opt = runtime->find_shared_string("std/player");
+    ASSERT_TRUE(name_opt.has_value());
+    auto name_ref = *name_opt;
     const auto bytes = runtime->shared_string_allocation_size();
     EXPECT_GT(bytes, 0u);
 
     // The object's reference alone protects both its name and the table key.
-    name = {};
+    lpcvm::Handle<LpcString, LpcStringRef> weak(name_ref);
+    name_ref = {};
+	name_opt.reset();
     EXPECT_EQ(runtime->sweep_shared_strings(), 0u);
+    EXPECT_FALSE(weak.expired());
     ASSERT_TRUE(runtime->find_object("std/player"));
-    name = runtime->find_object("std/player")->name();
     runtime->destruct_object(handle);
     EXPECT_TRUE(handle.expired());
     EXPECT_FALSE(runtime->find_object("std/player"));
-    EXPECT_EQ(runtime->sweep_shared_strings(), 0u);
-    EXPECT_EQ(name->view(), "std/player");
 
-    name = {};
     // The expired object handle must not retain the string.
     EXPECT_EQ(runtime->sweep_shared_strings(), bytes);
+    EXPECT_TRUE(weak.expired());
     EXPECT_EQ(runtime->shared_string_allocation_size(), 0u);
 }
 
 TEST(LpcObjectTest, NameSurvivesRuntimeDestruction) {
-    LpcStringRef name;
-    LpcObjectRef object;
+    lpcvm::ObjectRef object;
     {
         auto runtime = std::make_shared<ManagedRuntime>();
         auto handle = LpcObject::create(runtime, "std/player", nullptr);
         object = *handle.lock();
         EXPECT_EQ(object->retain_fabric(), runtime);
-        name = object->name();
     }
     EXPECT_FALSE(object->retain_fabric());
-    EXPECT_EQ(object->name(), name);
-    EXPECT_EQ(object->name()->view(), "std/player");
-    object = {};
-    EXPECT_EQ(name->view(), "std/player");
-    EXPECT_EQ(name.use_count(), 1u);
+    EXPECT_EQ(object->name(), "std/player");
 }
 
 TEST(LpcObjectTest, UnnamedObjectHasNullNameAndCanBeDestructed) {
     auto runtime = std::make_shared<ManagedRuntime>();
     auto object = lpcvm::create_shared<LpcObject>(runtime, nullptr);
-    EXPECT_FALSE(object->name());
+    EXPECT_TRUE(object->name().empty());
     EXPECT_NO_THROW(runtime->destruct_object(LpcObject::HandleType(object)));
 }
 
@@ -215,7 +226,7 @@ TEST(LpcObjectTest, RegistrationRejectsObjectWithExpiredFabric) {
 // Thread-confinement contract: counts are plain integers, not atomics.
 static_assert(std::is_same_v<decltype(LpcObjectRef::ControlBlock::ref_count), uint32_t>);
 static_assert(std::is_same_v<decltype(LpcObjectRef::ControlBlock::weak_count), uint32_t>);
-static_assert(sizeof(LpcObjectRef::ControlBlock) == 8);
+static_assert(sizeof(LpcObjectRef::ControlBlock) == (sizeof(void*) == 8 ? 16 : 12));
 static_assert(sizeof(LpcObjectRef) == sizeof(void*));
 static_assert(sizeof(LpcObject::HandleType) == sizeof(void*));
 

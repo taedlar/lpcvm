@@ -74,13 +74,14 @@ TEST_F(SourceExceptionTest, IncludesSourceLocation) {
 }
 
 TEST_F(SourceExceptionTest, CopyRetainsRaisingObjectWithoutSourceLocation) {
-    LpcObject::HandleType handle;
+    lpcvm::ObjectHandle handle;
     {
         const auto copy = [&] {
             auto party = lpcvm::create_shared<LpcObject>(nullptr, object);
-            handle = LpcObject::HandleType(party);
+            handle = lpcvm::ObjectHandle(party);
             lpcvm::Exception original(std::runtime_error("Failure"), nullptr, nullptr, party);
-            EXPECT_EQ(original.party(), party);
+            lpcvm::ObjectRef party_ref = party;
+            EXPECT_EQ(original.party(), party_ref);
             auto copied = original;
             return copied;
         }();

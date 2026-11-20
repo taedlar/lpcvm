@@ -19,20 +19,20 @@ class Exception : public E {
 
 public:
     Exception(const E& exception, const ObjectClass* prog, const uint8_t* pc,
-        const LpcObjectRef& party = {})
+        const ObjectRef& party = {})
         : Exception(exception, prog ? prog->lookup_source_location(pc) : std::nullopt, party) {}
 
     const std::string& source_file() const noexcept { return source_file_; }
     const std::string& func_name() const noexcept { return func_name_; }
     int lineno() const noexcept { return lineno_; }
     int column() const noexcept { return column_; }
-    const LpcObjectRef& party() const noexcept { return party_; }
+    const ObjectRef& party() const noexcept { return party_; }
 
     const char* what() const noexcept override { return message_.c_str(); }
 
 private:
     Exception(const E& exception, const std::optional<ObjectClass::SourceLocation>& location,
-        const LpcObjectRef& party)
+        const ObjectRef& party)
         : E(exception), party_(party) {
         if (!location) {
             source_file_ = "<unknown-file>";
@@ -56,7 +56,7 @@ private:
     int lineno_;
     int column_;
     std::string message_;
-    LpcObjectRef party_; // Retain the raising object while the exception is alive.
+    ObjectRef party_; // Retain the raising object while the exception is alive.
 };
 
 } // namespace lpcvm

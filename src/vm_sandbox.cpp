@@ -7,6 +7,7 @@
 #include "vm_file_utils.hpp"
 #include <utility>
 #include <cerrno>
+#include <stdexcept>
 
 using namespace lpcvm;
 
@@ -61,14 +62,14 @@ ObjectHandle Sandbox::load_object (const PathType &path) {
     compiler.set_filename(canonical_path.local_path.generic_string());
     if (!compiler.parse()) {
         fclose(file);
-        return LpcObject::HandleType();
+        return ObjectHandle();
     }
 
     // Create and return the LPC object handle
     auto prog = compiler.generate_code();
     fclose(file);
     if (!prog)
-        return LpcObject::HandleType();
+        return ObjectHandle();
 
     return LpcObject::create(fabric, object_key(canonical_path.local_path), prog);
 }
@@ -77,9 +78,13 @@ ObjectHandle Sandbox::clone_object (ObjectHandle obj) {
     static uint32_t clone_counter = 0;
     auto obj_ref = obj.lock();
     if (obj_ref == std::nullopt) {
-        return LpcObject::HandleType();
+        return ObjectHandle();
     }
+    auto* lpc_object = dynamic_cast<LpcObject*>(&**obj_ref);
+    if (!lpc_object)
+        throw std::invalid_argument("clone_object requires an LPC object");
+
     const auto name = (*obj_ref)->name();
-    std::string clone_name = fmt::format("{}#{}", name ? name->view() : std::string_view{}, ++clone_counter);
-    return LpcObject::create(shared_from_this(), clone_name, (*obj_ref)->program());
+    std::string clone_name = fmt::format("{}#{}", name, ++clone_counter);
+    return LpcObject::create(shared_from_this(), clone_name, lpc_object->program());
 }

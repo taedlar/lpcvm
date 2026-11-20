@@ -22,6 +22,7 @@ class ObjectClass;
 class LpcCompiler {
 public:
     using FabricType = ManagedRuntime;
+    using PathType = lpcvm::PathType;
 
     LpcCompiler(FILE* source_file = nullptr);
     ~LpcCompiler();

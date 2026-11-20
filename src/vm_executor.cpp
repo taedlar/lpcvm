@@ -523,7 +523,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             if (pc >= end_)
                 throw std::runtime_error("Missing self argument");
             oparg = (extended_arg << 8) | *pc++;
-            stack.push(LpcObject::HandleType(obj_ref_)); // non-owning reference to self
+            stack.push(lpcvm::ObjectHandle(obj_ref_)); // non-owning reference to self
             VM_DISPATCH();
         }
 
@@ -550,7 +550,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             }
             auto func_index = std::get<uint32_t>(stack[stack.size() - oparg]);
             auto binding = prog_->get_method(func_index);
-            control.push(pc, fp, var0_, start_, end_, obj_ref_); // save the current execution context on the return stack
+            control.push(pc, fp, var0_, start_, end_, lpcvm::ObjectHandle(obj_ref_)); // save the current execution context on the return stack
             fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
             pc = start_ = prog_->bytecode() + binding.bytecode_offset;
             end_ = start_ + binding.bytecode_length;
