@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #pragma once
+#include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <new>
+#include <optional>
+#include <stdexcept>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 struct ManagedRuntime;
 class LpcContainer;
@@ -213,7 +221,7 @@ inline void shared_ptr_destroy(void* obj) noexcept {
 template <typename T, typename... Args>
 SharedPtr<T> create_shared(Args&&... args) {
     using ControlBlock = typename SharedPtr<T>::ControlBlock;
-    static_assert(alignof(T) <= sizeof(ControlBlock), "object would be misaligned after the prefix control block");
+    static_assert(sizeof(ControlBlock) % alignof(T) == 0, "object would be misaligned after the prefix control block");
     void* mem = ::operator new(sizeof(ControlBlock) + sizeof(T)); // co-allocated control block and object
     ControlBlock* cb = new (mem) ControlBlock{1, 0, &shared_ptr_destroy<T>};
     T* obj;
