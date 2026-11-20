@@ -16,7 +16,7 @@ std::size_t LpcBufferPool::small_capacity() noexcept {
     return capacity;
 }
 
-LpcBufferPool* LpcBufferPool::create(lpcvm::BufferPoolLimits limits) {
+LpcBufferPool* LpcBufferPool::create(BufferPoolLimits limits) {
     return new LpcBufferPool(limits);
 }
 
@@ -126,7 +126,7 @@ void LpcBufferPool::close() noexcept {
     unref();
 }
 
-lpcvm::BufferPoolStats LpcBufferPool::stats() const noexcept {
+LpcBufferPool::BufferPoolStats LpcBufferPool::stats() const noexcept {
     return stats_;
 }
 
@@ -141,8 +141,8 @@ LpcBufferRef ManagedRuntime::make_buffer(std::size_t capacity) {
     return buffer_pool_->acquire(capacity);
 }
 
-lpcvm::BufferPoolStats ManagedRuntime::buffer_pool_stats() const noexcept {
-    return buffer_pool_ ? buffer_pool_->stats() : lpcvm::BufferPoolStats{};
+LpcBufferPool::BufferPoolStats ManagedRuntime::buffer_pool_stats() const noexcept {
+    return buffer_pool_ ? buffer_pool_->stats() : LpcBufferPool::BufferPoolStats{};
 }
 
 std::size_t ManagedRuntime::trim_buffer_pool() noexcept {

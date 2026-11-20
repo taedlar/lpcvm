@@ -78,7 +78,7 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
      */
     LpcBufferRef make_buffer(std::size_t capacity = 0);
 
-    lpcvm::BufferPoolStats buffer_pool_stats() const noexcept;
+    LpcBufferPool::BufferPoolStats buffer_pool_stats() const noexcept;
 
     /** @brief Free recycled buffers; return their approximate allocation bytes. */
     std::size_t trim_buffer_pool() noexcept;
