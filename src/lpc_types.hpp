@@ -151,7 +151,7 @@ class LpcContainer {
 public:
     // Borrowed, thread-confined owner; nullptr for untracked containers or after
     // runtime destruction. The returned pointer does not extend runtime lifetime.
-    ManagedRuntime* fabric() const noexcept { return gc_owner_; }
+    ManagedRuntime* fabric() const noexcept { return fabric_; }
 
 protected:
     LpcContainer() = default;
@@ -164,8 +164,16 @@ protected:
     // These hooks must not allocate, throw, or invoke collection recursively.
     virtual void visit_edges(EdgeVisitor visitor, void* context) const noexcept = 0;
     virtual void clear_edges() noexcept = 0;
+    // Only valid for tracked containers allocated with SharedPtr.
+    virtual uint32_t& gc_ref_count() noexcept = 0;
     // Release the collector's temporary strong reference. This may destroy this.
     virtual void release_gc_reference() noexcept = 0;
+
+    template <typename T>
+    static uint32_t& container_reference_count(T* container) noexcept {
+        static_assert(std::is_base_of_v<LpcContainer, T>);
+        return lpcvm::SharedPtr<T>::control_block(container)->ref_count;
+    }
 
     template <typename T>
     static void release_container_reference(T* container) noexcept {
@@ -175,10 +183,10 @@ protected:
 
 private:
     friend struct ManagedRuntime;
-    ManagedRuntime* gc_owner_ = nullptr;
-    uint32_t* gc_ref_count_ = nullptr;
-    uint32_t gc_external_refs_ = 0;
-    bool gc_marked_ = false;
+    ManagedRuntime* fabric_ = nullptr;
+    // Borrowed list head; also identifies the runtime tracking this container.
+    // Cleared before runtime destruction invalidates the pointed-to storage.
+    LpcContainer** gc_owner_ = nullptr;
     LpcContainer* gc_prev = nullptr; // previous container in the garbage collection list
     LpcContainer* gc_next = nullptr; // next container in the garbage collection list
 };
@@ -205,6 +213,7 @@ public:
 private:
     void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
     void clear_edges() noexcept override { clear(); }
+    uint32_t& gc_ref_count() noexcept override { return container_reference_count(this); }
     void release_gc_reference() noexcept override { release_container_reference(this); }
 
     uint32_t size_ = 0; // number of elements in the array
@@ -248,6 +257,7 @@ public:
 private:
     void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
     void clear_edges() noexcept override { clear(); }
+    uint32_t& gc_ref_count() noexcept override { return container_reference_count(this); }
     void release_gc_reference() noexcept override { release_container_reference(this); }
 
     bool need_grow() const noexcept {

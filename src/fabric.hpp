@@ -91,8 +91,8 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
                       "make_container requires an LpcContainer type");
         auto ref = lpcvm::create_shared<ContainerType>(std::forward<Args>(args)...);
         auto* container = static_cast<LpcContainer*>(&*ref);
-        container->gc_ref_count_ = &RefType::control_block(&*ref)->ref_count;
-        container->gc_owner_ = this;
+        container->fabric_ = this;
+        container->gc_owner_ = &gc_head_;
         container->gc_next = gc_head_;
         if (gc_head_)
             gc_head_->gc_prev = container;
@@ -177,7 +177,6 @@ protected:
     static LpcStringRef allocate_shared_string(std::string_view value);
 
 private:
-    friend class LpcContainer;
     ObjectTable named_collection_; // named references to lpcvm::Object instances (owned by the fabric)
 
     std::unordered_map<std::string_view, LpcStringRef> strings_; // owned strings keyed by their string_view

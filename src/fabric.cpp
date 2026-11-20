@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #include "config.hpp"
 #include "fabric.hpp"
+#include <algorithm>
 
 ManagedRuntime::~ManagedRuntime() {
     // External container references can outlive the runtime.
@@ -9,6 +10,7 @@ ManagedRuntime::~ManagedRuntime() {
         auto* container = gc_head_;
         gc_head_ = container->gc_next;
         container->gc_owner_ = nullptr;
+        container->fabric_ = nullptr;
         container->gc_prev = nullptr;
         container->gc_next = nullptr;
     }
@@ -22,46 +24,57 @@ std::size_t ManagedRuntime::collect_garbage() {
         containers.push_back(container);
 
     // Allocate all scratch space before changing reference counts or edges.
+    struct CollectionState {
+        uint32_t* ref_count;
+        uint32_t external_refs;
+        bool marked = false;
+    };
+    std::unordered_map<LpcContainer*, CollectionState> states;
+    states.reserve(containers.size());
     std::vector<LpcContainer*> reachable;
     reachable.reserve(containers.size());
     for (auto* container : containers) {
-        container->gc_external_refs_ = *container->gc_ref_count_;
-        container->gc_marked_ = false;
+        auto& ref_count = container->gc_ref_count();
+        states.emplace(container, CollectionState{&ref_count, ref_count});
     }
 
     for (auto* container : containers) {
         container->visit_edges([](LpcContainer* child, void* context) {
-            if (child->gc_owner_ == context)
-                --child->gc_external_refs_;
-        }, this);
+            auto& collection = *static_cast<decltype(states)*>(context);
+            if (auto it = collection.find(child); it != collection.end())
+                --it->second.external_refs;
+        }, &states);
     }
 
     for (auto* container : containers) {
-        if (container->gc_external_refs_ != 0) {
-            container->gc_marked_ = true;
+        auto& state = states.find(container)->second;
+        if (state.external_refs != 0) {
+            state.marked = true;
             reachable.push_back(container);
         }
     }
     // Every node enters the worklist at most once; traversal is iterative.
-    auto traversal = std::make_pair(this, &reachable);
+    auto traversal = std::make_pair(&states, &reachable);
     for (std::size_t i = 0; i < reachable.size(); ++i) {
         reachable[i]->visit_edges([](LpcContainer* child, void* context) {
             auto& state = *static_cast<decltype(traversal)*>(context);
-            if (child->gc_owner_ == state.first && !child->gc_marked_) {
-                child->gc_marked_ = true;
+            auto it = state.first->find(child);
+            if (it != state.first->end() && !it->second.marked) {
+                it->second.marked = true;
                 state.second->push_back(child);
             }
         }, &traversal);
     }
 
     containers.erase(std::remove_if(containers.begin(), containers.end(),
-        [](LpcContainer* container) { return container->gc_marked_; }), containers.end());
+        [&states](LpcContainer* container) { return states.find(container)->second.marked; }),
+        containers.end());
 
     // Pin all garbage before breaking any edge: releasing one cycle must not
     // destroy a node that we still need to visit. Ordinary SharedPtr teardown
     // then preserves weak handles and each concrete type's destructor.
     for (auto* container : containers)
-        ++*container->gc_ref_count_;
+        ++*states.find(container)->second.ref_count;
     for (auto* container : containers)
         container->clear_edges();
     for (auto* container : containers)
