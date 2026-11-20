@@ -14,11 +14,12 @@ namespace lpcvm {
     using PathType = std::filesystem::path;
 }
 
-/** Lightweight, scope-owned runtime services, usable without a Sandbox.
- * Destruction releases the tables' owning references. External owning references
- * may survive; objects observe this runtime weakly and execution contexts retain
- * shared ownership. Object creation requires a shared runtime.
- * Like SharedPtr, allocation, references, and sweeping are thread-confined.
+/**
+ * Lightweight, scope-bound runtime resource manager for LPCVM in RAII style.
+ *
+ * This is a prototype implementation for the LPCVM sandbox that
+ * provides basic memory and resource management for polymorphic objects,
+ * shared strings, recycled buffers, and garbage-collected containers.
  */
 struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
     using ObjectTable = std::unordered_map<std::string_view, lpcvm::ObjectRef>;
@@ -177,9 +178,9 @@ protected:
 
 private:
     friend class LpcContainer;
-    ObjectTable named_collection_; // named references to lpcvm::Object instances
-    std::unordered_map<std::string_view, LpcStringRef> strings_;
-    lpcvm::BufferPool* buffer_pool_ = nullptr; // created on first use, closed on destruction
+    ObjectTable named_collection_; // named references to lpcvm::Object instances (owned by the fabric)
 
+    std::unordered_map<std::string_view, LpcStringRef> strings_; // owned strings keyed by their string_view
+    LpcBufferPool* buffer_pool_ = nullptr; // created on first use, closed on destruction
     LpcContainer* gc_head_ = nullptr; // head of the garbage collection list for containers
 };

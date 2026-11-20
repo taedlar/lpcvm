@@ -10,7 +10,7 @@ static_assert(sizeof(SValue) == 16);
 static_assert(!std::is_constructible_v<LpcBuffer>);
 
 namespace {
-const std::size_t small = lpcvm::BufferPool::small_capacity();
+const std::size_t small = LpcBufferPool::small_capacity();
 }
 
 TEST(LpcBufferTest, ReferencesShareMutableBytes) {
@@ -63,7 +63,7 @@ TEST(LpcBufferTest, GrowsRecycledLargeBufferToRequest) {
 }
 
 TEST(LpcBufferTest, HonorsLimits) {
-    auto* pool = lpcvm::BufferPool::create({1, 1, 256});
+    auto* pool = LpcBufferPool::create({1, 1, 256});
     {
         auto a = pool->acquire();
         auto b = pool->acquire();

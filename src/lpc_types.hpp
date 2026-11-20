@@ -14,6 +14,7 @@
 
 class LpcString;
 class LpcBuffer;
+class LpcBufferPool;
 class LpcContainer;
 class LpcArray;
 class LpcMapping;
@@ -26,8 +27,6 @@ namespace lpcvm {
 
 struct svalue_t; // forward declaration of struct wrapper for SValue (stack value)
 struct svalue_pair_t; // forward declaration of struct wrapper for a pair of SValues
-
-class BufferPool;
 
 } // namespace lpcvm
 
@@ -57,9 +56,9 @@ private:
     const std::size_t length_;
 };
 
-using LpcBufferRef = lpcvm::PooledPtr<LpcBuffer, lpcvm::BufferPool>;
+using LpcBufferRef = lpcvm::PooledPtr<LpcBuffer, LpcBufferPool>;
 
-/** Mutable bytes recycled through the fabric's BufferPool. Acquire one with
+/** Mutable bytes recycled through the fabric's LpcBufferPool. Acquire one with
  * ManagedRuntime::make_buffer(); copies of LpcBufferRef share the same bytes.
  */
 class LpcBuffer {
@@ -70,7 +69,7 @@ public:
     std::string data;
 
 private:
-    friend class lpcvm::BufferPool;
+    friend class LpcBufferPool;
 
     LpcBuffer() noexcept = default;
     ~LpcBuffer() = default;
@@ -91,6 +90,8 @@ struct BufferPoolStats {
     std::size_t large_capacity = 0; // retained string capacity of recycled large buffers
 };
 
+} // namespace lpcvm
+
 /**
  * @brief Recycles LpcBuffer allocations for one fabric.
  *
@@ -100,18 +101,18 @@ struct BufferPoolStats {
  * fabric; after close(), released buffers are freed instead of recycled.
  * Thread-confined.
  */
-class BufferPool {
+class LpcBufferPool {
 public:
     using ControlBlock = LpcBufferRef::ControlBlock;
 
-    BufferPool(const BufferPool&) = delete;
-    BufferPool& operator=(const BufferPool&) = delete;
+    LpcBufferPool(const LpcBufferPool&) = delete;
+    LpcBufferPool& operator=(const LpcBufferPool&) = delete;
 
     /** Capacity of an empty std::string, which needs no heap allocation. */
     static std::size_t small_capacity() noexcept;
 
     /** Create a pool holding one owner reference, released by close(). */
-    static BufferPool* create(BufferPoolLimits limits = {});
+    static LpcBufferPool* create(lpcvm::BufferPoolLimits limits = {});
 
     /** Acquire an empty buffer with at least `capacity` reserved bytes. */
     LpcBufferRef acquire(std::size_t capacity = 0);
@@ -122,15 +123,15 @@ public:
     /** Trim, stop recycling, and release the owner reference. Call once. */
     void close() noexcept;
 
-    BufferPoolStats stats() const noexcept;
-    const BufferPoolLimits& limits() const noexcept { return limits_; }
+    lpcvm::BufferPoolStats stats() const noexcept;
+    const lpcvm::BufferPoolLimits& limits() const noexcept { return limits_; }
 
 private:
     template <typename U, typename P>
-    friend struct PooledPtr;
+    friend struct lpcvm::PooledPtr;
 
-    explicit BufferPool(BufferPoolLimits limits) noexcept : limits_(limits) {}
-    ~BufferPool();
+    explicit LpcBufferPool(lpcvm::BufferPoolLimits limits) noexcept : limits_(limits) {}
+    ~LpcBufferPool();
 
     static void recycle(ControlBlock* cb) noexcept;
     static LpcBuffer* buffer_of(ControlBlock* cb) noexcept;
@@ -138,15 +139,13 @@ private:
     static void destroy(ControlBlock* cb) noexcept;
     void unref() noexcept;
 
-    BufferPoolLimits limits_;
+    lpcvm::BufferPoolLimits limits_;
     std::size_t ref_count_ = 1; // the owner plus each live buffer
     bool closed_ = false;
     ControlBlock* small_free_ = nullptr;
     ControlBlock* large_free_ = nullptr;
-    BufferPoolStats stats_;
+    lpcvm::BufferPoolStats stats_;
 };
-
-} // namespace lpcvm
 
 class LpcContainer {
 public:

@@ -58,6 +58,7 @@ add_library(lpcvm_obj OBJECT
     lpc_container.cpp
     lpc_mapping.cpp
     vm_object.hpp
+    fabric.cpp
 )
 
 target_include_directories(lpcvm_obj PUBLIC
