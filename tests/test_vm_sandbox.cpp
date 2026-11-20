@@ -214,7 +214,7 @@ TEST_F(SandboxFileTest, FindsObjectsOnlyByExactName) {
     auto clone = sandbox->clone_object(object);
     auto clone_ref = clone.lock();
     ASSERT_TRUE(clone_ref);
-    const auto clone_name = std::string((*clone_ref)->name()->view());
+    const auto clone_name = std::string((*clone_ref)->name());
     EXPECT_EQ(sandbox->find_object(clone_name), clone);
     EXPECT_FALSE(sandbox->find_object("/" + clone_name));
 
@@ -246,10 +246,10 @@ TEST_F(SandboxFileTest, ObjectKeysAreRelativeToEachMudlibRoot) {
         auto object = sandbox->load_object("/std/../std/player.lpc");
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
-        EXPECT_EQ((*object_ref)->name()->view(), "std/player");
+        EXPECT_EQ((*object_ref)->name(), "std/player");
         ASSERT_EQ(sandbox->objects().size(), 1u);
         EXPECT_EQ(sandbox->objects().begin()->first, "std/player");
-        EXPECT_EQ(sandbox->find_object((*object_ref)->name()->view()), object);
+        EXPECT_EQ(sandbox->find_object((*object_ref)->name()), object);
         sandbox->destruct_object(object);
         EXPECT_TRUE(sandbox->objects().empty());
     }
@@ -266,12 +266,12 @@ TEST_F(SandboxFileTest, StripsSourceExtensionAndPreservesCloneSuffix) {
         auto object = sandbox->load_object(source);
         auto object_ref = object.lock();
         ASSERT_TRUE(object_ref);
-        EXPECT_EQ((*object_ref)->name()->view(), key.generic_string());
+        EXPECT_EQ((*object_ref)->name(), key.generic_string());
         EXPECT_EQ(sandbox->find_object(key.generic_string()), object);
         auto clone = sandbox->clone_object(object);
         auto clone_ref = clone.lock();
         ASSERT_TRUE(clone_ref);
-        const auto clone_name = std::string((*clone_ref)->name()->view());
+        const auto clone_name = std::string((*clone_ref)->name());
         ASSERT_EQ(clone_name.find(key.generic_string() + "#"), 0u);
         EXPECT_EQ(sandbox->find_object(clone_name), clone);
         std::filesystem::remove(root / source);
@@ -302,8 +302,8 @@ TEST_F(SandboxFileTest, LoadObjectUsesMudlibRoot) {
 
 TEST_F(SandboxFileTest, LoadedAndClonedObjectsObserveSharedFabric) {
     std::weak_ptr<ManagedRuntime> lifetime;
-    LpcObjectRef blueprint;
-    LpcObjectRef clone;
+    lpcvm::ObjectRef blueprint;
+    lpcvm::ObjectRef clone;
     {
         auto sandbox = std::make_shared<Sandbox>(root);
         lifetime = sandbox;
@@ -313,10 +313,16 @@ TEST_F(SandboxFileTest, LoadedAndClonedObjectsObserveSharedFabric) {
         auto clone_handle = sandbox->clone_object(handle);
         ASSERT_TRUE(clone_handle.lock().has_value());
         clone = *clone_handle.lock();
+
+        auto* blueprint_lpc = dynamic_cast<LpcObject*>(&*blueprint);
+        auto* clone_lpc = dynamic_cast<LpcObject*>(&*clone);
+        ASSERT_NE(blueprint_lpc, nullptr);
+        ASSERT_NE(clone_lpc, nullptr);
+
         EXPECT_EQ(blueprint->retain_fabric(), sandbox);
         EXPECT_EQ(clone->retain_fabric(), sandbox);
-        EXPECT_NE(blueprint->state(), clone->state());
-        EXPECT_EQ(blueprint->program(), clone->program());
+        EXPECT_NE(blueprint_lpc->state(), clone_lpc->state());
+        EXPECT_EQ(blueprint_lpc->program(), clone_lpc->program());
     }
     EXPECT_TRUE(lifetime.expired());
     EXPECT_FALSE(blueprint->retain_fabric());

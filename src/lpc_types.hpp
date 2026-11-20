@@ -3,23 +3,18 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <limits>
-#include <memory>
+#include <new>
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <string_view>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <variant>
-#include <vector>
-
-struct ManagedRuntime;
+#include "vm_object.hpp"
 
 class LpcString;
 class LpcBuffer;
+class LpcBufferPool;
 class LpcContainer;
 class LpcArray;
 class LpcMapping;
@@ -32,348 +27,6 @@ namespace lpcvm {
 
 struct svalue_t; // forward declaration of struct wrapper for SValue (stack value)
 struct svalue_pair_t; // forward declaration of struct wrapper for a pair of SValues
-
-/**
- * @brief A weak reference to an LPC compound data type managed by SharedPtr.
- *
- * Handle does not own the object; it only observes it. The object may be
- * destroyed if all SharedPtr instances are released, at which point the
- * Handle becomes expired.
- */
-template <typename T, typename RefType>
-struct Handle;
-
-/**
- * @brief A shared pointer implementation for LPC compound data types'
- * reference semantics (strong reference only).
- *
- * This is a smart pointer that manages the lifetime of LPC compound data
- * types using reference counting with a co-allocated prefix control block.
- *
- * The std::shared_ptr is too expensive for a virtual machine's data
- * stack due to its size overhead and separate allocation of the control
- * block, so we use a cheaper alternative with a co-allocated prefix control
- * block. Weak references (Handle) share the control block's weak_count.
- * Thread-confined: counts are plain integers, so every SharedPtr and
- * Handle to the same object must be used on a single VM worker thread.
- * Cross-thread hand-off must go through plain data, never these pointers.
- */
-template <typename T>
-struct SharedPtr {
-    using element_type = T;
-
-    struct ControlBlock { // the size of control block must be aligned to avoid undefined behavior
-        uint32_t ref_count;
-        uint32_t weak_count;
-    };
-
-    SharedPtr() noexcept : ptr(nullptr) {}
-
-    // Deduce the optional's type to avoid recursively checking SharedPtr's
-    // copy constructibility through optional's converting constructors.
-    template <typename U, std::enable_if_t<std::is_same_v<T, U>, int> = 0>
-    SharedPtr(std::optional<SharedPtr<U>> other) noexcept
-        : SharedPtr(other ? std::move(*other) : SharedPtr{}) {}
-
-    SharedPtr(const SharedPtr& other) {
-        ptr = other.ptr;
-        if (ptr) {
-            ++control_block(ptr)->ref_count;
-        }
-    }
-
-    SharedPtr(SharedPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
-
-    SharedPtr& operator=(const SharedPtr& other) {
-        if (this != &other) {
-            if (ptr) {
-                release_strong(ptr);
-            }
-            ptr = other.ptr;
-            if (ptr) {
-                ++control_block(ptr)->ref_count;
-            }
-        }
-        return *this;
-    }
-    ~SharedPtr() {
-        if (ptr) {
-            release_strong(ptr);
-        }
-    }
-
-    uint32_t use_count() const noexcept {
-        return ptr ? control_block(ptr)->ref_count : 0;
-    }
-
-    bool operator==(const SharedPtr& other) const noexcept {
-        return ptr == other.ptr;
-    }
-
-    operator bool() const noexcept {
-        return ptr != nullptr;
-    }
-
-    T* operator->() const {
-        if (!ptr) {
-            throw std::runtime_error("Dereferencing null SharedPtr");
-        }
-        return ptr;
-    }
-    T& operator*() const {
-        if (!ptr) {
-            throw std::runtime_error("Dereferencing null SharedPtr");
-        }
-        return *ptr;
-    }
-
-    void reset() noexcept {
-        if (ptr) {
-            release_strong(ptr);
-            ptr = nullptr;
-        }
-    }
-
-private:
-    T* ptr;
-
-    template <typename U, typename R>
-    friend struct Handle;
-
-    template <typename U, typename... Args>
-    friend SharedPtr<U> create_shared(Args&&... args);
-
-    friend struct ::ManagedRuntime;
-    friend class ::LpcContainer;
-
-    struct AdoptRetainedReference {};
-
-    SharedPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {} // private constructor for allocating factories
-
-    static ControlBlock* control_block(T* obj) noexcept {
-        return reinterpret_cast<ControlBlock*>(obj) - 1;
-    }
-
-    static SharedPtr retain(T* existing) {
-        if (existing) {
-            ++control_block(existing)->ref_count;
-        }
-        return SharedPtr(existing, AdoptRetainedReference{});
-    }
-
-    static void release_weak(ControlBlock* cb) noexcept {
-        if (--cb->weak_count == 0 && cb->ref_count == 0) {
-            ::operator delete(cb);
-        }
-    }
-
-    static void release_strong(T* obj) noexcept {
-        ControlBlock* cb = control_block(obj);
-        if (--cb->ref_count == 0) {
-            ++cb->weak_count; // keep the block alive while the destructor runs
-            obj->~T();
-            release_weak(cb);
-        }
-    }
-};
-
-/**
- * @brief Co-allocates a control block and an object, returning an SharedPtr managing it.
- * @tparam T The type of the object to create.
- * @tparam Args The types of the arguments to forward to T's constructor.
- * @param args The arguments to forward to T's constructor.
- * @return An SharedPtr managing the newly created object.
- * @throws std::bad_alloc if memory allocation fails.
- * @throws Any exception thrown by T's constructor.
- */
-template <typename T, typename... Args>
-SharedPtr<T> create_shared(Args&&... args) {
-    using ControlBlock = typename SharedPtr<T>::ControlBlock;
-    static_assert(alignof(T) <= sizeof(ControlBlock), "object would be misaligned after the prefix control block");
-    void* mem = ::operator new(sizeof(ControlBlock) + sizeof(T)); // co-allocated control block and object
-    ControlBlock* cb = new (mem) ControlBlock{1, 0};
-    T* obj;
-    try {
-        obj = new (static_cast<void*>(cb + 1)) T(std::forward<Args>(args)...);
-    } catch (...) {
-        ::operator delete(mem);
-        throw;
-    }
-    return SharedPtr<T>(obj, typename SharedPtr<T>::AdoptRetainedReference{});
-}
-
-/**
- * @brief Weak reference to an SharedPtr-managed object, sharing the
- * object's prefix control block (weak_count).
- */
-template <typename T, typename RefType>
-struct Handle {
-    friend class ::LpcMapping;
-
-    using ControlBlock = typename RefType::ControlBlock;
-
-    Handle() noexcept : ptr(nullptr) {}
-    Handle(RefType& ref) noexcept : ptr(ref.ptr) {
-        if (ptr) {
-            ++RefType::control_block(ptr)->weak_count;
-        }
-    }
-
-    Handle(const Handle& other) noexcept : ptr(other.ptr) {
-        if (ptr) {
-            ++RefType::control_block(ptr)->weak_count;
-        }
-    }
-    Handle(Handle&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
-    Handle& operator=(const Handle& other) noexcept {
-        Handle tmp(other);
-        std::swap(ptr, tmp.ptr);
-        return *this;
-    }
-    Handle& operator=(Handle&& other) noexcept {
-        Handle tmp(std::move(other));
-        std::swap(ptr, tmp.ptr);
-        return *this;
-    }
-    ~Handle() {
-        if (ptr) {
-            RefType::release_weak(RefType::control_block(ptr));
-        }
-    }
-
-    uint32_t use_count() const noexcept {
-        return ptr ? RefType::control_block(ptr)->ref_count : 0;
-    }
-
-    uint32_t weak_count() const noexcept {
-        return ptr ? RefType::control_block(ptr)->weak_count : 0;
-    }
-
-    bool expired() const noexcept {
-        return !ptr || RefType::control_block(ptr)->ref_count == 0;
-    }
-
-    bool operator==(const Handle& other) const noexcept {
-        return ptr == other.ptr;
-    }
-
-    bool operator<(const Handle& other) const noexcept {
-        return std::less<T*>{}(ptr, other.ptr);
-    }
-
-    operator bool() const noexcept {
-        return !expired();
-    }
-
-    /**
-     * @brief Obtains a strong reference to the observed object.
-     * @return The strong reference if the object is still alive, or
-     * std::nullopt if it has been released.
-     */
-    std::optional<RefType> lock() const {
-        if (expired()) {
-            return std::nullopt;
-        }
-        return RefType::retain(ptr);
-    }
-
-private:
-    T* ptr = nullptr;
-
-    /**
-     * @brief Constructs a weak handle from a raw pointer to the object.
-     * @param obj The raw pointer to the object.
-     * @note This constructor is private and should only be used internally.
-     */
-    explicit Handle(T* obj) noexcept : ptr(obj) {
-        if (ptr) {
-            ++RefType::control_block(ptr)->weak_count;
-        }
-    }
-};
-
-/**
- * @brief A strong reference to an object recycled through Pool (no weak handles).
- *
- * Like SharedPtr, the object follows a co-allocated prefix control block and
- * counts are thread-confined. While referenced, the control block points to
- * the owning pool; when the last reference is released, Pool::recycle()
- * either links it into a free list or frees it.
- */
-template <typename T, typename Pool>
-struct PooledPtr {
-    struct ControlBlock {
-        uint32_t ref_count;
-        union {
-            Pool* pool;         // while referenced
-            ControlBlock* next; // while recycled
-        };
-    };
-
-    PooledPtr() noexcept : ptr(nullptr) {}
-    PooledPtr(const PooledPtr& other) noexcept : ptr(other.ptr) {
-        if (ptr) {
-            ++control_block(ptr)->ref_count;
-        }
-    }
-    PooledPtr(PooledPtr&& other) noexcept : ptr(std::exchange(other.ptr, nullptr)) {}
-    PooledPtr& operator=(PooledPtr other) noexcept {
-        std::swap(ptr, other.ptr);
-        return *this;
-    }
-    ~PooledPtr() {
-        if (ptr) {
-            release(ptr);
-        }
-    }
-
-    uint32_t use_count() const noexcept {
-        return ptr ? control_block(ptr)->ref_count : 0;
-    }
-
-    bool operator==(const PooledPtr& other) const noexcept {
-        return ptr == other.ptr;
-    }
-
-    operator bool() const noexcept {
-        return ptr != nullptr;
-    }
-
-    T* operator->() const {
-        if (!ptr) {
-            throw std::runtime_error("Dereferencing null PooledPtr");
-        }
-        return ptr;
-    }
-    T& operator*() const {
-        if (!ptr) {
-            throw std::runtime_error("Dereferencing null PooledPtr");
-        }
-        return *ptr;
-    }
-
-private:
-    T* ptr;
-
-    friend Pool;
-
-    struct AdoptRetainedReference {};
-
-    PooledPtr(T* existing, AdoptRetainedReference) noexcept : ptr(existing) {}
-
-    static ControlBlock* control_block(T* obj) noexcept {
-        return reinterpret_cast<ControlBlock*>(obj) - 1;
-    }
-
-    static void release(T* obj) noexcept {
-        ControlBlock* cb = control_block(obj);
-        if (--cb->ref_count == 0) {
-            Pool::recycle(cb);
-        }
-    }
-};
-
-class BufferPool;
 
 } // namespace lpcvm
 
@@ -403,9 +56,9 @@ private:
     const std::size_t length_;
 };
 
-using LpcBufferRef = lpcvm::PooledPtr<LpcBuffer, lpcvm::BufferPool>;
+using LpcBufferRef = lpcvm::PooledPtr<LpcBuffer, LpcBufferPool>;
 
-/** Mutable bytes recycled through the fabric's BufferPool. Acquire one with
+/** Mutable bytes recycled through the fabric's LpcBufferPool. Acquire one with
  * ManagedRuntime::make_buffer(); copies of LpcBufferRef share the same bytes.
  */
 class LpcBuffer {
@@ -416,25 +69,10 @@ public:
     std::string data;
 
 private:
-    friend class lpcvm::BufferPool;
+    friend class LpcBufferPool;
 
     LpcBuffer() noexcept = default;
     ~LpcBuffer() = default;
-};
-
-namespace lpcvm {
-
-struct BufferPoolLimits {
-    std::size_t max_small_buffers = 1024;
-    std::size_t max_large_buffers = 64;
-    std::size_t max_large_capacity = 64 * 1024; // larger buffers are freed on release
-};
-
-struct BufferPoolStats {
-    std::size_t live_buffers = 0;
-    std::size_t small_buffers = 0;  // recycled, using std::string's inline storage
-    std::size_t large_buffers = 0;  // recycled, retaining heap capacity
-    std::size_t large_capacity = 0; // retained string capacity of recycled large buffers
 };
 
 /**
@@ -446,18 +84,24 @@ struct BufferPoolStats {
  * fabric; after close(), released buffers are freed instead of recycled.
  * Thread-confined.
  */
-class BufferPool {
+class LpcBufferPool {
 public:
     using ControlBlock = LpcBufferRef::ControlBlock;
 
-    BufferPool(const BufferPool&) = delete;
-    BufferPool& operator=(const BufferPool&) = delete;
+    struct BufferPoolLimits {
+        std::size_t max_small_buffers;
+        std::size_t max_large_buffers;
+        std::size_t max_large_capacity; // larger buffers are freed on release
+    };
+
+    LpcBufferPool(const LpcBufferPool&) = delete;
+    LpcBufferPool& operator=(const LpcBufferPool&) = delete;
 
     /** Capacity of an empty std::string, which needs no heap allocation. */
     static std::size_t small_capacity() noexcept;
 
     /** Create a pool holding one owner reference, released by close(). */
-    static BufferPool* create(BufferPoolLimits limits = {});
+    static LpcBufferPool* create(BufferPoolLimits limits = {1024, 64, 64*1024});
 
     /** Acquire an empty buffer with at least `capacity` reserved bytes. */
     LpcBufferRef acquire(std::size_t capacity = 0);
@@ -468,15 +112,22 @@ public:
     /** Trim, stop recycling, and release the owner reference. Call once. */
     void close() noexcept;
 
+    struct BufferPoolStats {
+        std::size_t live_buffers = 0;
+        std::size_t small_buffers = 0;  // recycled, using std::string's inline storage
+        std::size_t large_buffers = 0;  // recycled, retaining heap capacity
+        std::size_t large_capacity = 0; // retained string capacity of recycled large buffers
+    };
+
     BufferPoolStats stats() const noexcept;
     const BufferPoolLimits& limits() const noexcept { return limits_; }
 
 private:
     template <typename U, typename P>
-    friend struct PooledPtr;
+    friend struct lpcvm::PooledPtr;
 
-    explicit BufferPool(BufferPoolLimits limits) noexcept : limits_(limits) {}
-    ~BufferPool();
+    explicit LpcBufferPool(BufferPoolLimits limits) noexcept : limits_(limits) {}
+    ~LpcBufferPool();
 
     static void recycle(ControlBlock* cb) noexcept;
     static LpcBuffer* buffer_of(ControlBlock* cb) noexcept;
@@ -492,13 +143,11 @@ private:
     BufferPoolStats stats_;
 };
 
-} // namespace lpcvm
-
 class LpcContainer {
 public:
     // Borrowed, thread-confined owner; nullptr for untracked containers or after
     // runtime destruction. The returned pointer does not extend runtime lifetime.
-    ManagedRuntime* fabric() const noexcept { return gc_owner_; }
+    ManagedRuntime* fabric() const noexcept { return fabric_; }
 
 protected:
     LpcContainer() = default;
@@ -511,8 +160,16 @@ protected:
     // These hooks must not allocate, throw, or invoke collection recursively.
     virtual void visit_edges(EdgeVisitor visitor, void* context) const noexcept = 0;
     virtual void clear_edges() noexcept = 0;
+    // Only valid for tracked containers allocated with SharedPtr.
+    virtual uint32_t& gc_ref_count() noexcept = 0;
     // Release the collector's temporary strong reference. This may destroy this.
     virtual void release_gc_reference() noexcept = 0;
+
+    template <typename T>
+    static uint32_t& container_reference_count(T* container) noexcept {
+        static_assert(std::is_base_of_v<LpcContainer, T>);
+        return lpcvm::SharedPtr<T>::control_block(container)->ref_count;
+    }
 
     template <typename T>
     static void release_container_reference(T* container) noexcept {
@@ -522,10 +179,10 @@ protected:
 
 private:
     friend struct ManagedRuntime;
-    ManagedRuntime* gc_owner_ = nullptr;
-    uint32_t* gc_ref_count_ = nullptr;
-    uint32_t gc_external_refs_ = 0;
-    bool gc_marked_ = false;
+    ManagedRuntime* fabric_ = nullptr;
+    // Borrowed list head; also identifies the runtime tracking this container.
+    // Cleared before runtime destruction invalidates the pointed-to storage.
+    LpcContainer** gc_owner_ = nullptr;
     LpcContainer* gc_prev = nullptr; // previous container in the garbage collection list
     LpcContainer* gc_next = nullptr; // next container in the garbage collection list
 };
@@ -552,6 +209,7 @@ public:
 private:
     void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
     void clear_edges() noexcept override { clear(); }
+    uint32_t& gc_ref_count() noexcept override { return container_reference_count(this); }
     void release_gc_reference() noexcept override { release_container_reference(this); }
 
     uint32_t size_ = 0; // number of elements in the array
@@ -595,6 +253,7 @@ public:
 private:
     void visit_edges(EdgeVisitor visitor, void* context) const noexcept override;
     void clear_edges() noexcept override { clear(); }
+    uint32_t& gc_ref_count() noexcept override { return container_reference_count(this); }
     void release_gc_reference() noexcept override { release_container_reference(this); }
 
     bool need_grow() const noexcept {
@@ -619,14 +278,14 @@ private:
 };
 
 using LpcObjectRef = lpcvm::SharedPtr<LpcObject>; // strong reference to LpcObject instances
+using LpcObjectHandle = lpcvm::Handle<LpcObject, LpcObjectRef>;
 
 class ObjectClass;
 class ObjectState;
 
-class LpcObject {
+class LpcObject: public lpcvm::Object {
 public:
-    using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC objects
-    using HandleType = lpcvm::Handle<LpcObject, LpcObjectRef>;
+    using HandleType = lpcvm::ObjectHandle;
 
     static HandleType create(std::shared_ptr<FabricType> sb, std::string_view name, std::shared_ptr<ObjectClass> program);
 
@@ -635,8 +294,7 @@ public:
     LpcObject& operator=(const LpcObject&) = delete;
     ~LpcObject();
 
-    std::shared_ptr<FabricType> retain_fabric() const noexcept { return weak_fabric_.lock(); }
-    LpcStringRef name() const { return name_; }
+    std::string_view name() const override { return name_ ? name_->view() : std::string_view{}; }
     ObjectState* state() const noexcept { return state_.get(); }
     std::shared_ptr<ObjectClass> program() const noexcept { return program_; }
 
@@ -646,7 +304,6 @@ private:
 
     LpcObject(std::shared_ptr<FabricType> sb, std::shared_ptr<ObjectClass> program); // private ctor: use LpcObject::create() instead
 
-    std::weak_ptr<FabricType> weak_fabric_;
     LpcStringRef name_;
     std::unique_ptr<ObjectState> state_;
     std::shared_ptr<ObjectClass> program_;

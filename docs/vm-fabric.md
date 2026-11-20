@@ -67,7 +67,7 @@ release of removed strings' allocations.
 from a pool the runtime creates on first use. Copies of `LpcBufferRef` share
 one buffer. When the last reference is released, the buffer is cleared and
 recycled onto one of two free lists: buffers that fit in `std::string`'s inline
-storage (`BufferPool::small_capacity()`, 15 bytes on libstdc++), and larger
+storage (`LpcBufferPool::small_capacity()`, 15 bytes on libstdc++), and larger
 buffers that keep their heap capacity. Requests up to the small capacity are
 served only from the small list; larger requests take a large buffer and grow
 it if needed. Default limits keep up to 1024 small and 64 large buffers, and

@@ -8,6 +8,23 @@
 #include "vm_executor.hpp"
 #include "vm_svalue.hpp"
 
+/**
+ * @brief Get the index of type T in the variant Variant.
+ * Returns std::variant_size_v<Variant> if not found.
+ */
+template <typename Variant, typename T, std::size_t I = 0>
+constexpr std::size_t variant_index() {
+    if constexpr (I >= std::variant_size_v<Variant>) {
+        return std::variant_size_v<Variant>; // Type not found
+    } else {
+        if constexpr (std::is_same_v<std::variant_alternative_t<I, Variant>, T>) {
+            return I;
+        } else {
+            return variant_index<Variant, T, I + 1>();
+        }
+    }
+}
+
 static_assert(std::is_constructible_v<SValue, LpcStringRef>);
 static_assert(sizeof(void*) != 8 || sizeof(SValue) == 16,
               "SValue must remain 16 bytes on 64-bit architectures");
@@ -274,7 +291,8 @@ TEST(SValueTest, ObjectHandleEqualityAndInequality) {
         ASSERT_TRUE(std::holds_alternative<LpcObject::HandleType>(handles.top()));
         auto locked = std::get<LpcObject::HandleType>(handles.top()).lock();
         ASSERT_TRUE(locked.has_value());
-        EXPECT_TRUE(*locked == owner);
+        lpcvm::ObjectRef owner_ref = owner;
+        EXPECT_TRUE(*locked == owner_ref);
     }
     SValue different = handles.pop();
     SValue same = handles.pop();

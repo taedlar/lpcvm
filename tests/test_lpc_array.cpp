@@ -166,9 +166,15 @@ TEST(LpcArrayTest, ContainerListSupportsRemovalAndReuse) {
     auto tail = runtime.make_container<LpcArrayRef>();
     auto middle = runtime.make_container<LpcArrayRef>();
     auto head = runtime.make_container<LpcArrayRef>();
+    auto new_head = runtime.make_container<LpcArrayRef>();
+    new_head.reset(); // Removing the head must retain the rest of the list.
+    EXPECT_EQ(runtime.collect_garbage(), 0);
     middle.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 0);
     tail.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 0);
     head.reset();
+    EXPECT_EQ(runtime.collect_garbage(), 0);
     auto replacement = runtime.make_container<LpcArrayRef>(2);
     EXPECT_EQ(replacement->size(), 2);
 }

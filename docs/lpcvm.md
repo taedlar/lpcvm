@@ -100,9 +100,12 @@ Weak handles do not keep containers alive. Unreachable containers are temporaril
 retained while their edges are cleared, preserving normal reference-counted
 destruction and weak-handle expiration.
 
-Each container subtype must implement edge traversal and clearing; traversal
-reports every owning container reference, including duplicates. Collection takes
-linear time in tracked containers and their edges, with linear scratch space.
+Each container subtype must implement edge traversal, clearing, and access to
+its shared control block's reference count; traversal reports every owning
+container reference, including duplicates. Reference-count pointers, external
+reference counts, and reachability marks live in a temporary table allocated
+only during collection. Collection takes expected linear time in tracked
+containers and their edges, with linear scratch space.
 Allocation failure before collection leaves the graph intact. References from
 untracked containers or another runtime count as external roots; cycles spanning
 runtimes are not reclaimed. Collection is explicit, not triggered at allocation

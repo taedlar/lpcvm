@@ -36,7 +36,7 @@ std::size_t LpcMapping::hash(const lpcvm::svalue_t& key) noexcept {
             return 0;
         } else if constexpr (std::is_same_v<T, LpcObject::HandleType>) {
             // Keep the identity even after expiration; locking would lose it.
-            return std::hash<const void*>{}(value.ptr);
+            return std::hash<const void*>{}(value.identity());
         } else {
             // Arrays and mappings have reference semantics.
             return std::hash<const void*>{}(value ? std::addressof(*value) : nullptr);

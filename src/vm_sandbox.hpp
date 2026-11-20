@@ -53,8 +53,6 @@ public:
     ObjectHandle load_object (const PathType &path);
     ObjectHandle clone_object (ObjectHandle obj);
 
-    friend class ::LpcObject; // to allow adding/removing objects from the sandbox's object table
-
 private:
     PathType mudlib_root_;
 };

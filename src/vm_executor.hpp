@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include "lpc_types.hpp"
 #include "fabric.hpp"
 #include "object_state.hpp"
@@ -289,10 +290,10 @@ public:
         std::size_t vbp;            // variable base pointer (position of global variable #0 in self_)
         const uint8_t* start;       // start of the bytecode segment
         const uint8_t* end;         // end of the bytecode segment
-        LpcObject::HandleType obj;  // handle to the current object
+        lpcvm::ObjectHandle obj;  // handle to the current object
     };
 
-    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, const uint8_t* start, const uint8_t* end, LpcObject::HandleType obj) {
+    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, const uint8_t* start, const uint8_t* end, lpcvm::ObjectHandle obj) {
         stack_.push_back({pc, fp, vbp, start, end, obj});
     }
 
@@ -326,7 +327,7 @@ private:
  * and the current object state. It is used to track the execution of a
  * function or method, including its start and end positions in the bytecode.
  *
- * When constructed with a LpcObjectRef, the Execution struct holds a strong
+ * When constructed with a lpcvm::ObjectRef, the Execution struct holds a strong
  * reference to the object to ensure it remains alive during execution (RAII).
  */
 struct Execution {
@@ -343,11 +344,14 @@ struct Execution {
         : start_(bytecode), end_(bytecode + size), prog_(prog), self_(nullptr), var0_(0), fabric_(nullptr) {
     }
 
-    Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, LpcObjectRef obj)
+    Execution(const uint8_t* bytecode, std::size_t size, std::size_t offset, lpcvm::ObjectRef obj)
         : start_(bytecode), end_(bytecode + size), var0_(offset), obj_ref_(obj) {
         if (obj_ref_) {
-            prog_ = obj_ref_->program().get();
-            self_ = obj_ref_->state();
+            auto* lpc_object = dynamic_cast<LpcObject*>(&*obj_ref_);
+            if (!lpc_object)
+                throw std::invalid_argument("Execution requires an LPC object");
+            prog_ = lpc_object->program().get();
+            self_ = lpc_object->state();
             fabric_ = obj_ref_->retain_fabric();
         }
         else {
@@ -377,7 +381,7 @@ struct Execution {
     ObjectState* self_ = nullptr;
     std::size_t var0_ = 0; // position of global variable #0 in self_ (inheritance offset)
     std::shared_ptr<FabricType> fabric_; // fabric associated with the execution context
-    LpcObjectRef obj_ref_;  // holds a strong reference when constructed with LpcObjectRef
+    lpcvm::ObjectRef obj_ref_;  // holds a strong reference when constructed with lpcvm::ObjectRef
 };
 
 } // namespace lpcvm

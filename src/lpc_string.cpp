@@ -37,7 +37,7 @@ LpcStringRef ManagedRuntime::allocate_shared_string(std::string_view value) {
 
     // One allocation: [reference counts][LpcString][bytes][NUL].
     void* memory = ::operator new(string_overhead + value.size());
-    auto* control = new (memory) ControlBlock{1, 0};
+    auto* control = new (memory) ControlBlock{1, 0, &lpcvm::shared_ptr_destroy<LpcString>};
     auto* object = new (static_cast<void*>(control + 1)) LpcString(value.size());
     auto* bytes = reinterpret_cast<char*>(object + 1);
     if (!value.empty())
