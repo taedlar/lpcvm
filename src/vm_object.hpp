@@ -422,6 +422,9 @@ private:
     }
 };
 
+class DataStack;
+class ReturnStack;
+
 class Object {
 public:
     using FabricType = ManagedRuntime; // a fabric of substantial resources for executing LPC objects
@@ -430,7 +433,27 @@ public:
         : weak_fabric_(sb) {}
     virtual ~Object() = default;
 
-    virtual std::string_view name() const { return {}; }
+    /**
+     * @brief Get the name of the object.
+     * @return The name of the object as a string view, or an empty string view if the object has no name.
+     */
+    virtual std::string_view name() const { return std::string_view{}; }
+
+    /**
+     * @brief Call a method function on the object by its identifier.
+     *   In LPCVM, if both caller and callee are bytecode-compiled objects, the call is optimized with the F_CALL_OTHER opcode.
+     * @param func_identity A pointer identifying the function to call (e.g. a fabric-interned shared string).
+     * @param data_stack The data stack for argument passing and return values.
+     * @param return_stack The return stack for managing call frames.
+     * @param num_args The number of arguments passed to the function.
+     * @return The result of the function call, or -1 if the function calling fails or is not implemented for this object.
+     *   If the function is successfully called, arguments on the data stack should be consumed and the return
+     *   value should reflect the outcome of the call: 0 for no return value, positive for number of return values.
+     *   If function calling fails or is not implemented, the data stack and return stack should remain unchanged. The caller
+     *   is responsible for checking the return value to determine if the call was successful.
+     */
+    virtual int call_method (void* func_identity, DataStack* data_stack, ReturnStack* return_stack, int num_args) { return -1; }
+
     std::shared_ptr<FabricType> retain_fabric() const noexcept { return weak_fabric_.lock(); }
 
 private:

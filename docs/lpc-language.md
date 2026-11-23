@@ -79,7 +79,7 @@ operator on a resource descriptor.
 For example, a resource call finds or loads the object before invoking its method:
 
 ```
-mount ("/daemon/channel.lpc" => Channel); // Declare a resource descriptor.
+mount ("/daemon/channel" => Channel); // Declare a LPC module using resource descriptor.
 Channel::chat("hello"); // Find or load the Channel object, then invoke chat.
 ```
 
@@ -92,6 +92,30 @@ using(Channel) { // Enter the block after acquisition succeeds and policy permit
   ::chat("hello");
 }
 ```
+
+A resource descriptor (e.g. `Channel` in above example) is a handle to a resource, similar
+to the LPC `object` type but cannot be used in ordinary expressions. It can be bound to
+a resource with `mount`, used with a `using` clause, or specificed directly in a function calling.
+
+### LPC packages and modules
+
+We borrow the concepts of **package** and **module** from Python to allow LPC code to
+organize the mudlib with better control.
+
+A "module" is a LPC source file that can be loaded to serve specific purpose. LPC code
+cal call methods in a module (blueprint instance), or clone the module to create new objects.
+
+A "package" is a filesystem directory with a `init.lpc` file. LPC code can also mount a
+package using a path end with `/`, and clone new objects in the package. Package itself
+cannot be cloned.
+
+LPC modules and packages can be represented with resource descriptors in LPCVM.
+
+Traditional LPMud SimulEfun can be implemented as modules or packages.
+
+### EFUN packages
+
+In LPCVM, all EFUNs are provided as modules and must be mount before use.
 
 ## Compiler Outline
 

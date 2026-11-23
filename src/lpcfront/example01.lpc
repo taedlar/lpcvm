@@ -12,8 +12,8 @@ string *words = ({ "a", "b", "c" }); // aggregate array
 mapping dict = ([ "key1": "value1", "key2": "value2" ]); // aggregate mapping (associative array)
 
 int add (int x, int y, string, ... argv) {
-    mount ("/daemon/weather" => WEATHER_D); // mount a LPC blueprint in filesystem
-    mount (STOCK_WEAPONS => Weapon); // mount a filesystem directory (path ends with a slash)
+    mount ("/daemon/weather" => WEATHER_D); // mount a module (LPC blueprint) in filesystem
+    mount (STOCK_WEAPONS => Weapon); // mount a package (directory) in filesystem. (package path ends with a slash)
     int a = argv[3], b = y - g;
     object obj = self;
     object sword = new (Weapon::broadsword) {damage=10};
