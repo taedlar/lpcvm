@@ -38,6 +38,7 @@ void write_vm_overheads() {
     std::cout << fmt::format("ObjectState             {:6d}", sizeof(ObjectState)) << std::endl;
     std::cout << fmt::format("ConstPool               {:6d}", sizeof(ConstPool)) << std::endl;
     std::cout << fmt::format("VirtualTable            {:6d}", sizeof(VirtualTable)) << std::endl;
+    std::cout << fmt::format("lpcvm::Object           {:6d}", sizeof(lpcvm::Object)) << std::endl;
     std::cout << fmt::format("LpcObject               {:6d}", sizeof(LpcObject)) << std::endl;
     std::cout << fmt::format("LpcString               {:6d}", sizeof(LpcString)) << std::endl;
     std::cout << fmt::format("LpcBuffer               {:6d}", sizeof(LpcBuffer)) << std::endl;

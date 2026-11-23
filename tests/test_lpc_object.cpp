@@ -6,10 +6,90 @@
 #include <optional>
 #include <type_traits>
 #include "lpc_types.hpp"
+#include "lpc_compiler.hpp"
 #include "object_class.hpp"
+#include "vm_executor.hpp"
+#include "vm_exception.hpp"
 #include "vm_sandbox.hpp"
 
 static_assert(!std::is_copy_constructible_v<ManagedRuntime>);
+
+TEST(LpcObjectTest, CallMethodExecutesWithArgumentsStateAndFabric) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(
+        "int value; int main() { return 42; } "
+        "void set(int n) { value = n; } int get() { return value; } "
+        "string join(string s) { return s + \"!\"; }"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    auto object = *LpcObject::create(runtime, "test/call", program).lock();
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    auto call = [&](const char* name, int argc) {
+        auto id = runtime->make_shared_string(name);
+        return object->call_method(&*id, &stack, &control, argc);
+    };
+    EXPECT_EQ(call("main", 0), 1);
+    ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
+    EXPECT_EQ(std::get<uint32_t>(stack.pop()), 42u);
+    stack.push(int32_t{99}); // caller's stack prefix
+    control.push(nullptr, 0, 0, nullptr, nullptr, {});
+    stack.push(int32_t{17});
+    EXPECT_EQ(call("set", 1), 0);
+    ASSERT_EQ(stack.size(), 1u);
+    EXPECT_EQ(call("get", 0), 1);
+    ASSERT_TRUE(std::holds_alternative<int32_t>(stack.top()));
+    EXPECT_EQ(std::get<int32_t>(stack.pop()), 17);
+    stack.push_temp_string("hello");
+    EXPECT_EQ(call("join", 1), 1);
+    EXPECT_EQ(stack.top_string(), "hello!");
+    stack.pop();
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 99);
+    EXPECT_EQ(control.size(), 1u);
+}
+
+TEST(LpcObjectTest, CallMethodRejectsInvalidRequestsWithoutChangingStacks) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    auto object = lpcvm::create_shared<LpcObject>(runtime, std::make_shared<ObjectClass>());
+    auto id = runtime->make_shared_string("missing");
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    stack.push_temp_string("argument");
+    control.push(nullptr, 7, 3, nullptr, nullptr, {});
+    EXPECT_EQ(object->call_method(&*id, &stack, &control, 1), -1);
+    EXPECT_EQ(object->call_method(nullptr, &stack, &control, 1), -1);
+    EXPECT_EQ(object->call_method(&*id, nullptr, &control, 1), -1);
+    EXPECT_EQ(object->call_method(&*id, &stack, nullptr, 1), -1);
+    EXPECT_EQ(object->call_method(&*id, &stack, &control, -1), -1);
+    EXPECT_EQ(object->call_method(&*id, &stack, &control, 2), -1);
+    auto empty = lpcvm::create_shared<LpcObject>(runtime, nullptr);
+    EXPECT_EQ(empty->call_method(&*id, &stack, &control, 1), -1);
+    ASSERT_EQ(stack.size(), 1u);
+    EXPECT_EQ(stack.top_string(), "argument");
+    ASSERT_EQ(control.size(), 1u);
+    EXPECT_EQ(control.top().fp, 7u);
+    EXPECT_EQ(control.top().vbp, 3u);
+}
+
+TEST(LpcObjectTest, CallMethodPropagatesExceptionWithObjectContext) {
+    auto runtime = std::make_shared<ManagedRuntime>();
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("int fail() { return 1 / 0; }"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    auto object = lpcvm::create_shared<LpcObject>(runtime, program);
+    auto id = runtime->make_shared_string("fail");
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    try {
+        object->call_method(&*id, &stack, &control, 0);
+        FAIL() << "Expected division by zero";
+    } catch (const lpcvm::Exception<std::runtime_error>& error) {
+        EXPECT_EQ(error.party(), lpcvm::ObjectRef(object));
+        EXPECT_EQ(error.func_name(), "fail");
+    }
+}
 static_assert(!std::is_copy_assignable_v<ManagedRuntime>);
 static_assert(!std::is_move_constructible_v<ManagedRuntime>);
 static_assert(!std::is_move_assignable_v<ManagedRuntime>);

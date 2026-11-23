@@ -127,21 +127,7 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
      * @throws std::invalid_argument If obj is null, has no non-empty name,
      *      or belongs to another runtime. Validation leaves the table unchanged.
      */
-    virtual lpcvm::ObjectHandle emplace_object (lpcvm::ObjectRef obj) {
-        if (!obj)
-            throw std::invalid_argument("Object cannot be null");
-        const auto name = obj->name();
-        if (name.empty())
-            throw std::invalid_argument("Object name cannot be empty");
-        if (name.find(':') != std::string_view::npos)
-            throw std::invalid_argument("Object name cannot contain ':'"); // ':' is reserved for URI objects
-        if (obj->retain_fabric().get() != this)
-            throw std::invalid_argument("Object belongs to another runtime");
-
-        mutable_objects().erase(name); // replace the borrowed key, not just its value
-        mutable_objects().emplace(name, obj);
-        return lpcvm::ObjectHandle(obj);
-    }
+    virtual lpcvm::ObjectHandle emplace_object (lpcvm::ObjectRef obj);
 
     /**
      * @brief Find an object by its unique name. Returns an empty reference if not found.
@@ -157,15 +143,7 @@ struct ManagedRuntime : public std::enable_shared_from_this<ManagedRuntime> {
     /**
      * @brief Destruct an object by its handle. Removes it from the runtime's object table.
      */
-    virtual void destruct_object (lpcvm::ObjectHandle obj) {
-        auto obj_ref = obj.lock();
-        if (obj_ref != std::nullopt && !(*obj_ref)->name().empty()) {
-            auto it = objects().find((*obj_ref)->name());
-            if (it != objects().end() && it->second == *obj_ref) {
-                mutable_objects().erase(it); // also erase the string_view pointing to the object's name
-            }
-        }
-    }
+    virtual void destruct_object (lpcvm::ObjectHandle obj);
 
 protected:
     /** 

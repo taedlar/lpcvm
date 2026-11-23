@@ -76,3 +76,4 @@ target_include_directories(lpcvm PUBLIC
 )
 
 add_subdirectory(lpcfront)
+add_subdirectory(lpcshell)

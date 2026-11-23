@@ -71,7 +71,7 @@ ConstPool::IndexType ConstTable::find_or_add(const ValueType& value) {
             store_.string_refs_.pop_back();
             throw;
         }
-        SPDLOG_DEBUG("Added string constant '{}' at index {} (interned)", *sv, pool_index);
+        SPDLOG_DEBUG("Added string constant '{}' at index {} (fabric-interned)", *sv, str_index);
         return pool_index;
     }
 

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 #pragma once
-
 #include <spdlog/spdlog.h>
+
+#define VERSION "@CMAKE_PROJECT_VERSION@"
 
 // some utility for std::visit with multiple lambdas
 template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };

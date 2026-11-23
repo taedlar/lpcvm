@@ -18,6 +18,34 @@ ManagedRuntime::~ManagedRuntime() {
         buffer_pool_->close();
 }
 
+lpcvm::ObjectHandle ManagedRuntime::emplace_object (lpcvm::ObjectRef obj) {
+    if (!obj)
+        throw std::invalid_argument("Object cannot be null");
+    const auto name = obj->name();
+    if (name.empty())
+        throw std::invalid_argument("Object name cannot be empty");
+    if (name.find(':') != std::string_view::npos)
+        throw std::invalid_argument("Object name cannot contain ':'"); // ':' is reserved for URI objects
+    if (obj->retain_fabric().get() != this)
+        throw std::invalid_argument("Object belongs to another runtime");
+
+    mutable_objects().erase(name); // replace the borrowed key, not just its value
+    mutable_objects().emplace(name, obj);
+    SPDLOG_INFO("Emplaced object with name: \"{}\"", name);
+    return lpcvm::ObjectHandle(obj);
+}
+
+void ManagedRuntime::destruct_object (lpcvm::ObjectHandle obj) {
+    auto obj_ref = obj.lock();
+    if (obj_ref != std::nullopt && !(*obj_ref)->name().empty()) {
+        auto it = objects().find((*obj_ref)->name());
+        if (it != objects().end() && it->second == *obj_ref) {
+            mutable_objects().erase(it); // also erase the string_view pointing to the object's name
+            SPDLOG_INFO("Destructed object with name: \"{}\"", (*obj_ref)->name());
+        }
+    }
+}
+
 std::size_t ManagedRuntime::collect_garbage() {
     std::vector<LpcContainer*> containers;
     for (auto* container = gc_head_; container; container = container->gc_next)
