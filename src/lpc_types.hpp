@@ -295,6 +295,11 @@ public:
     ~LpcObject();
 
     std::string_view name() const override { return name_ ? name_->view() : std::string_view{}; }
+    // func_identity must point to an LpcString. Returns the number of results,
+    // or -1 without changing either stack if the request cannot be dispatched.
+    // Exceptions raised during bytecode execution propagate to the caller.
+    int call_method(void* func_identity, lpcvm::DataStack* data_stack,
+                    lpcvm::ReturnStack* return_stack, int num_args) override;
     ObjectState* state() const noexcept { return state_.get(); }
     std::shared_ptr<ObjectClass> program() const noexcept { return program_; }
 

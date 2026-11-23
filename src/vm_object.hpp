@@ -14,6 +14,7 @@
 
 struct ManagedRuntime;
 class LpcContainer;
+class LpcObject;
 
 namespace lpcvm {
 
@@ -171,6 +172,7 @@ private:
 
     friend struct ::ManagedRuntime;
     friend class ::LpcContainer;
+    friend class ::LpcObject;
 
     struct AdoptRetainedReference {};
 
