@@ -20,7 +20,7 @@ static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* global
 
 int main(int argc, char* argv[]) {
     int log_level = spdlog::level::warn;
-    argparse::ArgumentParser program("lpcfront");
+    argparse::ArgumentParser program("lpcfront", VERSION);
 
     program.add_argument("source").default_value("").help("The source file to compile");
     program.add_argument("-E", "--preprocess").default_value(false).implicit_value(true).nargs(0)

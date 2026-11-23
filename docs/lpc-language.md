@@ -79,7 +79,7 @@ operator on a resource descriptor.
 For example, a resource call finds or loads the object before invoking its method:
 
 ```
-mount "/daemon/channel.lpc" as Channel; // Declare a resource descriptor.
+mount ("/daemon/channel.lpc" => Channel); // Declare a resource descriptor.
 Channel::chat("hello"); // Find or load the Channel object, then invoke chat.
 ```
 
