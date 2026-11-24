@@ -24,7 +24,7 @@ lpcvm::ObjectHandle ManagedRuntime::emplace_object (lpcvm::ObjectRef obj) {
     const auto name = obj->name();
     if (name.empty())
         throw std::invalid_argument("Object name cannot be empty");
-    if (name.find(':') != std::string_view::npos)
+    if (dynamic_cast<LpcObject*>(&*obj) && name.find(':') != std::string_view::npos)
         throw std::invalid_argument("Object name cannot contain ':'"); // ':' is reserved for URI objects
     if (obj->retain_fabric().get() != this)
         throw std::invalid_argument("Object belongs to another runtime");
