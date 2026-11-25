@@ -21,10 +21,10 @@ Scenario | Caller | Callee | Description
 4. `F_CALL_OTHER`: resolve remote function binding by name, push control frame, jump to begin of function bytecode
 
 ## `F_CALL_NATIVE`
-1. Push resource descriptor and function name
+1. Push resource descriptor (module name or object reference) and function name
 2. Push arguments
-3. `F_CALL_NATIVE`: acquire the named resource from the execution fabric, then
-   dispatch through `NativeModule::call_method`, which resolves and invokes the
+3. `F_CALL_NATIVE`: acquire a named resource from the execution fabric or use
+   the mounted object reference, then dispatch through `NativeModule::call_method`, which resolves and invokes the
    registered native function pointer.
 
 ### Function-local native mounts
@@ -53,19 +53,35 @@ registered under that name and requires a `NativeModule`. Each call looks up the
 registration again, so replacing or removing a module affects subsequent calls.
 The acquired strong reference protects a module through callbacks, including a
 callback that replaces its own registration. The method name is interned in the
-execution fabric to match the native method table's pointer identities.
+module's fabric to match the native method table's pointer identities.
 
 The native module normalizes arguments using its method signature. Keyword
 arguments are packed into a trailing mapping, following `NativeModule`'s existing
 vararg convention. Native callbacks consume their arguments and return the number
 of results. LPC native calls accept zero or one result; zero becomes a void
-expression value. The executor removes both name operands and checks the returned
+expression value. The executor removes the descriptor and method operands and checks the returned
 stack size and return-stack depth. Missing modules or methods, unbound descriptors,
 non-native resources, and invalid callback stack results raise execution errors.
 Owning references created for acquisition are released on return or exception.
 
-This first implementation lowers explicit function-local aliases. Class mounts,
-anonymous `::` dispatch, and LPC resource calls are not implemented by this opcode.
+### Global native mounts
+
+```lpc
+mount ("math" => Math);
+int example() { return Math::add(2, 3); }
+```
+
+Before code generation, register the native module in the compiler's fabric.
+Code generation resolves each aliased global mount and stores a strong reference
+in the corresponding class slot. Missing or non-native modules cause code
+generation to fail. `F_LOAD_GLOBAL_MOUNT` loads the retained object, so replacing
+or removing its registration does not change existing compiled programs.
+The module's fabric must remain alive when calling it. Global and local aliases
+can be used in the same function; local aliases retain their dynamic lookup behavior.
+Global native mount bodies and `else` clauses are not supported.
+
+Anonymous mounts, anonymous `::` dispatch, and LPC resource calls are not
+implemented by this opcode.
 
 ## `lpcvm::Execution`
 1. Prepare bytecode of `ObjectClass`
