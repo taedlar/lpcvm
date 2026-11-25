@@ -942,7 +942,7 @@ TEST(VMExecutorTest, CallsAllocateAndReuseLexicalMountFrames) {
     EXPECT_EQ(program->get_method(2).num_mounts, 2u);
     EXPECT_EQ(program->get_method(3).num_mounts, 0u);
 
-    lpcvm::Execution code;
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
     ASSERT_TRUE(program->lookup_method("root", &code));
     EXPECT_EQ(code.num_mounts_, 2u);
     lpcvm::ReturnStack control;
@@ -977,7 +977,7 @@ TEST(VMExecutorTest, RecursiveCallsHaveIndependentMountFrames) {
     )"));
     auto program = compiler.generate_code();
     ASSERT_NE(program, nullptr);
-    lpcvm::Execution code;
+    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
     ASSERT_TRUE(program->lookup_method("recurse", &code));
     lpcvm::ReturnStack control;
     lpcvm::DataStack stack;

@@ -3,6 +3,7 @@
 
 #include "config.hpp"
 #include "object_class.hpp"
+#include "native_module.hpp"
 #include "object_state.hpp"
 #include "vm_exception.hpp"
 #include "vm_executor.hpp"
@@ -176,7 +177,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         bool entry_keywords = false;
         SValue result;
         std::string string_accumulator;
-        std::vector<lpcvm::ObjectRef> mounts;
+        std::vector<LpcStringRef> mounts; // bound module names; acquired only at a resource call
         if (mnt0_ > mounts.max_size() || num_mounts_ > mounts.max_size() - mnt0_)
             throw std::length_error("Mount stack size out of range");
         mounts.resize(mnt0_ + num_mounts_);
@@ -535,6 +536,74 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         VM_HANDLER(F_PUSH_FUNC) {
             oparg = (extended_arg << 8) | *pc++;
             stack.push(oparg); // push the function index onto the stack
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_BIND_MOUNT) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing mount slot");
+            oparg = (extended_arg << 8) | *pc++;
+            if (mnt0_ > mounts.size() || oparg >= mounts.size() - mnt0_)
+                throw std::out_of_range("Local mount slot out of range");
+            if (stack.size() <= fp || !is_string(stack.top()))
+                throw std::runtime_error("Mount requires a string module name");
+            if (!fabric_)
+                throw std::runtime_error("Mount binding requires a fabric");
+            {
+                auto name = fabric_->make_shared_string(stack.top_string());
+                if (name->view().empty())
+                    throw std::runtime_error("Mount requires a nonempty module name");
+                mounts[mnt0_ + oparg] = std::move(name);
+            }
+            stack.pop();
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_LOAD_MOUNT) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing mount slot");
+            oparg = (extended_arg << 8) | *pc++;
+            if (mnt0_ > mounts.size() || oparg >= mounts.size() - mnt0_)
+                throw std::out_of_range("Local mount slot out of range");
+            if (!mounts[mnt0_ + oparg])
+                throw std::runtime_error("Local mount descriptor is unbound");
+            stack.push(mounts[mnt0_ + oparg]);
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_CALL_NATIVE) {
+            if (string_active)
+                throw std::runtime_error("Cannot call with an active string accumulator");
+            if (pc >= end_)
+                throw std::runtime_error("Missing native call argument count");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg < 2 || fp > stack.size() || oparg > stack.size() - fp ||
+                oparg - 2 > static_cast<uint32_t>(std::numeric_limits<int>::max()))
+                throw std::runtime_error("Invalid native call argument count");
+            if (!fabric_)
+                throw std::runtime_error("Native call requires a fabric");
+            { // Release acquired resources before computed-goto dispatch, also on exceptions.
+                const auto base = stack.size() - oparg;
+                if (!is_string(stack[base]) || !is_string(stack[base + 1]))
+                    throw std::runtime_error("Native call requires module and method names");
+                const auto resource = fabric_->find_object(stack.string_at(base)).lock();
+                if (!resource)
+                    throw std::runtime_error("Native module not found: " + std::string(stack.string_at(base)));
+                auto* module = dynamic_cast<NativeModule*>(&**resource);
+                if (!module)
+                    throw std::runtime_error("Resource is not a native module");
+                // Method identities belong to the executing fabric, not necessarily the constant pool's fabric.
+                const auto method = fabric_->make_shared_string(stack.string_at(base + 1));
+                const auto frames = control.size();
+                const int count = module->call_method(&*method, &stack, &control, static_cast<int>(oparg - 2));
+                if (count < 0)
+                    throw std::runtime_error("Native method not found: " + std::string(method->view()));
+                if (count > 1 || stack.size() != base + 2 + static_cast<std::size_t>(count) || control.size() != frames)
+                    throw std::runtime_error("Invalid native method stack result");
+                stack.pop_i(base, 2); // remove descriptor and method, preserving the result
+                if (count == 0)
+                    stack.push_n(1); // native void is a single LPC expression value
+            }
             VM_DISPATCH();
         }
 
