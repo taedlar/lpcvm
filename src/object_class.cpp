@@ -38,8 +38,6 @@ ObjectClass::ObjectClass(std::size_t num_vars, ConstTable* consts, SymbolTable* 
     if (consts) {
         if (globals) {
             globals->emit_names(consts);
-            // TODO: count variables only
-            num_variables_ = globals->size();
         }
         const_pool_ = consts->freeze();
     }
@@ -63,6 +61,7 @@ bool ObjectClass::lookup_method(const std::string_view name, lpcvm::Execution* e
             entry->start_ = bytecode_.data() + out_binding.bytecode_offset;
             entry->end_ = entry->start_ + out_binding.bytecode_length;
             entry->prog_ = this;
+            entry->num_mounts_ = out_binding.num_mounts;
             entry->var0_ = 0; // TODO: lookup inheritance mapping of globals
         }
         return true;

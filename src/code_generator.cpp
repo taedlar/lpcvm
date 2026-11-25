@@ -142,6 +142,10 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
                 emit(F_POP_N, local_depth_ - loops_.back().local_depth);
             loops_.back().continues.push_back(emit_jump(F_JUMP));
         },
+        [&](const AST::Mount&) {
+            // Descriptor storage is allocated per call. Resource acquisition and
+            // mount branches still need lowering; this statement produces no value.
+        },
         [&](const std::monostate&) {
             // empty statement
         },

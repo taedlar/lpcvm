@@ -114,16 +114,22 @@ static void ast_dump(const ASTNode* ast, bool newline, const SymbolTable* global
             indent_level--;
             std::cout << "])";
         },
+        [&](const AST::ResourceDecl& resource) {
+            std::cout << "AST::ResourceDecl(alias = \"" << resource.entry->name << "\"";
+            if (resource.entry->value)
+                std::cout << ", slot = " << std::get<uint32_t>(*resource.entry->value);
+            if (resource.path) {
+                std::cout << ", path = ";
+                ast_dump(resource.path.get(), false, globals);
+            }
+            std::cout << ")";
+        },
         [&](const AST::Inheritance& inh) {
             std::cout << "AST::Inheritance(" << std::endl;
             indent_level++;
-            if (inh.entry->value.has_value()) {
-                auto token = std::get<SymbolTable::TokenIndex>(*inh.entry->value);
-                auto text = globals->token_text(token);
-                std::cout << std::string(indent_level * 2, ' ') << "path = \"" << text << "\"";
-                if (inh.entry->name != text) {
-                    std::cout << comma_sep << std::string(indent_level * 2, ' ') << "alias = \"" << inh.entry->name << "\"";
-                }
+            if (inh.res_decl) {
+                std::cout << std::string(indent_level * 2, ' ') << "resource = ";
+                ast_dump(inh.res_decl.get(), false, globals);
             }
             indent_level--;
             std::cout << ")";

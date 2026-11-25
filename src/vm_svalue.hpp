@@ -41,6 +41,7 @@ using SValue = std::variant<
     float,
     double,
     TemporaryString, // stack-owned temporary string
+    lpcvm::ObjectRef, // resource descriptor
     LpcStringRef,
     LpcBufferRef,
     LpcMappingRef,

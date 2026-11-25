@@ -55,7 +55,8 @@ namespace AST {
         std::unique_ptr<ASTNode> else_body; // optional else body
     };
     struct Inheritance {
-        std::shared_ptr<SymbolTable::Entry> entry; // a pseudo entry mangled from the file path
+        std::unique_ptr<ASTNode> res_decl; // ResourceDecl or StringLiteral, as in Mount
+        SymbolSignature signature{}; // inheritance modifiers, including unaliased clauses
     };
     struct FunctionDecl {
         std::shared_ptr<SymbolTable::Entry> entry;
@@ -67,6 +68,7 @@ namespace AST {
     struct FunctionDef {
         std::unique_ptr<ASTNode> decl; // FunctionDecl
         std::unique_ptr<ASTNode> body; // Block
+        uint32_t num_mounts{0}; // peak lexical mount slots for this function
     };
     struct Block {
         uint32_t num_locals; // for block scope

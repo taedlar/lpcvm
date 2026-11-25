@@ -206,13 +206,16 @@ def
                 throw parse_error("Function already defined: " + $entry->name, yyscanner);
             lpcc->current_scope->emplace($entry->name, $entry); // add the function to the current scope
             lpcc->current_func = lpcc->consts->find_or_add($entry->name); // set the current function being parsed
-            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::FUNCTION, 0); // enter a new subscope for the function body
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::FUNCTION, 0, lpcc->next_local_mount); // enter a new subscope for the function body
             lpcc->next_local = 0; // reset overlay base for the function scope
+            lpcc->next_local_mount = 0;
+            lpcc->max_local_mounts = 0;
         }
       formal_parameters[params] ')' block_or_semicolon[body]
         {
             auto lpcc = yyget_extra(yyscanner);
             auto func_scope = lpcc->current_scope;
+            lpcc->next_local_mount = func_scope->mount_overlay_base();
             lpcc->current_scope = func_scope->get_enclosing_scope(); // exit the function's subscope
             lpcc->current_func = ConstPool::INVALID_INDEX; // reset the current function being parsed
             if ($body.node.index()) {
@@ -224,7 +227,8 @@ def
                 }, source_location(@entry, lpcc));
                 ASSIGN_AST($$, @entry, AST::FunctionDef{
                     std::move(decl),
-                    std::make_unique<ASTNode>(std::move($body))
+                    std::make_unique<ASTNode>(std::move($body)),
+                    lpcc->max_local_mounts
                 });
                 SPDLOG_DEBUG("Added definition of function: {}", $entry->name);
             }
@@ -364,6 +368,33 @@ new_var
 mount
     : L_MOUNT '(' res_decl_list ')' stmt opt_else_stmt
         {
+            auto lpcc = yyget_extra(yyscanner);
+            if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::GLOBAL) {
+                for (auto& declaration : std::get<AST::List>($3.node).elts) {
+                    auto* resource = std::get_if<AST::ResourceDecl>(&declaration.node);
+                    if (!resource || std::holds_alternative<AST::StringLiteral>(resource->path->node))
+                        continue;
+                    // Fold literal string concatenations, without evaluating runtime expressions.
+                    const auto constants = lpcc->consts->freeze();
+                    std::string path;
+                    std::vector<const ASTNode*> pending{resource->path.get()};
+                    while (!pending.empty()) {
+                        const auto* part = pending.back();
+                        pending.pop_back();
+                        if (const auto* literal = std::get_if<AST::StringLiteral>(&part->node)) {
+                            path.append(constants->fetch_string(literal->idx)->view());
+                        } else if (const auto* binary = std::get_if<AST::BinaryOp>(&part->node);
+                                   binary && binary->arg == oparg::ADD) {
+                            pending.push_back(binary->rhs.get());
+                            pending.push_back(binary->lhs.get());
+                        } else {
+                            throw parse_error("Global mount path must be a compile-time string",
+                                              part->src.lineno, part->src.column, lpcc);
+                        }
+                    }
+                    resource->path->node = AST::StringLiteral{path, *lpcc->consts};
+                }
+            }
             ASSIGN_AST($$, @$, AST::Mount{
                 std::make_unique<ASTNode>(std::move($3)),
                 std::make_unique<ASTNode>(std::move($5)),
@@ -393,6 +424,15 @@ res_alias
             auto lpcc = yyget_extra(yyscanner);
             if (!lpcc->current_scope->lookup($alias)) {
                 auto entry = std::make_shared<SymbolTable::Entry>($alias, SymbolSignature{0}); // alias symbol
+                entry->signature.b.data_type = T_RESOURCE;
+                if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::GLOBAL) {
+                    entry->value = lpcc->next_mount++;
+                } else {
+                    entry->signature.b.is_local = 1;
+                    entry->value = lpcc->next_local_mount++;
+                    if (lpcc->next_local_mount > lpcc->max_local_mounts)
+                        lpcc->max_local_mounts = lpcc->next_local_mount;
+                }
                 lpcc->current_scope->emplace($alias, entry); // add the pseudo entry to current scope
                 ASSIGN_AST($$, @$, AST::ResourceDecl{ entry, std::make_unique<ASTNode>(std::move($path)) });
             }
@@ -421,26 +461,19 @@ inheritance
     : inheritance_decl
     | type_modifier_list inheritance_decl
         {
-            auto entry = std::move(std::get<AST::Inheritance>($2.node).entry);
-            entry->signature.value |= $1.value;
-            ASSIGN_AST($$, @$, AST::Inheritance{ std::move(entry) });
+            auto inheritance = std::move(std::get<AST::Inheritance>($2.node));
+            inheritance.signature.value |= $1.value;
+            if (auto* resource = std::get_if<AST::ResourceDecl>(&inheritance.res_decl->node))
+                resource->entry->signature.value |= $1.value;
+            ASSIGN_AST($$, @$, std::move(inheritance));
         }
     ;
 
 inheritance_decl
-    : L_INHERIT str_literal ';'
+    : L_INHERIT res_declare ';'
         {
-            auto lpcc = yyget_extra(yyscanner);
-            auto entry = lpcc->current_scope->lookup($2);
-            if (!entry) {
-                entry = std::make_shared<SymbolTable::Entry>($2, SymbolSignature{0});
-                entry->value = lpcc->current_scope->new_token($2, SymbolTable::TokenType::STRING_LITERAL);
-                lpcc->current_scope->emplace($2, entry);
-            }
-            ASSIGN_AST($$, @$, AST::Inheritance{ std::move(entry) });
+            ASSIGN_AST($$, @$, AST::Inheritance{ std::make_unique<ASTNode>(std::move($2)) });
         }
-    | L_INHERIT res_alias ';'
-        { ASSIGN_AST($$, @$, AST::Inheritance{ std::move(std::get<AST::ResourceDecl>($2.node).entry) }); }
     ;
 
 str_literal
@@ -537,7 +570,7 @@ block
                 lpcc->current_scope->set_scope_type(SymbolTable::ScopeType::LOCAL);
             }
             else if (lpcc->current_scope->scope_type() != SymbolTable::ScopeType::GLOBAL) {
-                lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::BLOCK, lpcc->next_local);
+                lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::BLOCK, lpcc->next_local, lpcc->next_local_mount);
             }
         }
      stmt_list '}'
@@ -547,6 +580,7 @@ block
             if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::BLOCK) {
                 num_locals -= lpcc->current_scope->overlay_base();
                 lpcc->next_local = lpcc->current_scope->overlay_base(); // restore the local variable counter to the overlay base of the enclosing block
+                lpcc->next_local_mount = lpcc->current_scope->mount_overlay_base();
                 lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             }
             else if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::LOCAL) {
@@ -764,7 +798,7 @@ for_begin
     : L_FOR '('
         {
             auto lpcc = yyget_extra(yyscanner);
-            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local);
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local, lpcc->next_local_mount);
         }
     ;
 
@@ -775,6 +809,7 @@ for_stmt
             // leave the loop scope, releasing the locals declared in the init clause
             const uint32_t num_locals = lpcc->next_local - lpcc->current_scope->overlay_base();
             lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->next_local_mount = lpcc->current_scope->mount_overlay_base();
             lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             ASTNode for_loop;
             ASSIGN_AST(for_loop, @$, AST::PreTestedLoop{
@@ -799,7 +834,7 @@ foreach_begin
     : L_FOREACH '('
         {
             auto lpcc = yyget_extra(yyscanner);
-            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local);
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local, lpcc->next_local_mount);
         }
     ;
 
@@ -808,6 +843,7 @@ foreach_stmt
         {
             auto lpcc = yyget_extra(yyscanner);
             lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->next_local_mount = lpcc->current_scope->mount_overlay_base();
             lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             ASSIGN_AST($$, @$, AST::IterativeLoop{
                 std::make_unique<ASTNode>(std::move($iter)),
@@ -821,7 +857,7 @@ while_begin
     : L_WHILE '('
         {
             auto lpcc = yyget_extra(yyscanner);
-            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local);
+            lpcc->current_scope = lpcc->current_scope->new_subscope(SymbolTable::ScopeType::LOOP, lpcc->next_local, lpcc->next_local_mount);
         }
     ;
 
@@ -830,6 +866,7 @@ while_stmt
         {
             auto lpcc = yyget_extra(yyscanner);
             lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->next_local_mount = lpcc->current_scope->mount_overlay_base();
             lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             ASSIGN_AST($$, @$, AST::PreTestedLoop{
                 std::make_unique<ASTNode>(std::move($cond)),
@@ -843,6 +880,7 @@ while_stmt
             // leave the loop scope, releasing the locals declared in the init clause
             const uint32_t num_locals = lpcc->next_local - lpcc->current_scope->overlay_base();
             lpcc->next_local = lpcc->current_scope->overlay_base();
+            lpcc->next_local_mount = lpcc->current_scope->mount_overlay_base();
             lpcc->current_scope = lpcc->current_scope->get_enclosing_scope();
             ASTNode loop;
             ASSIGN_AST(loop, @$, AST::PreTestedLoop{

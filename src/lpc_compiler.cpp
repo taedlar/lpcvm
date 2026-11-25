@@ -90,6 +90,10 @@ bool LpcCompiler::init() {
     impl_->ctx.pp_eof = false;
     impl_->ctx.current_scope = globals_;
     impl_->ctx.switch_depth = 0;
+    impl_->ctx.next_mount = 1;
+    impl_->ctx.next_local_mount = 0;
+    impl_->ctx.max_local_mounts = 0;
+    num_mounts_ = 1;
     if (!filename_.empty() && filename_ != "<unknown>") {
         impl_->ctx.current_file = consts_->find_or_add(filename_); // make an interned copy of current filename
     }
@@ -162,6 +166,7 @@ bool LpcCompiler::parse() noexcept {
             return false;
         impl_->parser->parse();
         ast_ = impl_->ctx.root;
+        num_mounts_ = impl_->ctx.next_mount;
         SPDLOG_DEBUG("parsing succeeded: consts={}, global_scope={}", consts_->size(), globals_->size());
         messages_.push_back({-1, -1, "parsing succeeded"});
         result = true;
@@ -237,16 +242,18 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code(lpcvm::CodeGenerationOpt
 
     std::shared_ptr<ObjectClass> prog; // the object representing the compiled program
     try {
-        // compute number of global variables (for F_LOAD_GLOBAL / F_STORE_GLOBAL)
-        std::size_t num_global_vars = globals_->size();
-        for(auto& [key, entry]: globals_->symbols()) {
-            if (entry->signature.b.is_const)
-                --num_global_vars;
+        std::size_t num_global_vars = 0;
+        std::size_t num_functions = 0;
+        for (const auto& [key, entry] : globals_->symbols()) {
+            if (entry->signature.b.is_function) {
+                if (entry->signature.b.is_const)
+                    ++num_functions;
+            } else if (entry->signature.b.data_type != T_RESOURCE && !entry->signature.b.is_const) {
+                ++num_global_vars;
+            }
         }
         prog = std::make_shared<ObjectClass>(num_global_vars, consts_.get(), globals_.get());
-
-        // compute number of functions (for F_CALL)
-        std::size_t num_functions = globals_->size() - num_global_vars;
+        prog->mounts_.resize(num_mounts_);
         prog->virtual_table_->static_bindings_.resize(num_functions);
 
         // generate code for each top-level definition in the program
@@ -293,6 +300,7 @@ void LpcCompiler::FunctionBuilder::build(const AST::FunctionDef& func_def) {
 
     VirtualTable::Binding func_binding;
     func_binding.signature = func_decl.entry->signature;
+    func_binding.num_mounts = func_def.num_mounts;
     func_binding.signature.b.num_formal_params = num_formal_params;
     func_binding.inheriting = -1; // or some appropriate default value indicating no inheritance
     func_binding.bytecode_offset = codegen_.position(); // entry point of the function's bytecode

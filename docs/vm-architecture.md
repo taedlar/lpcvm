@@ -135,6 +135,15 @@ It resolves the callee's binding, saves the caller's execution state, establishe
 callee's frame, and switches to its bytecode range. Calls are dispatched by the
 VM loop rather than by recursively invoking the C++ executor.
 
+Each method binding records its local mount descriptor count. `F_CALL` appends
+that many empty descriptors to the execution-owned mount stack and sets `mnt0_`
+to the callee's base. `F_RETURN`, including implicit return, truncates this stack
+at the callee's base and restores the caller's base from `ReturnStack`. Recursive
+calls therefore have independent descriptor slots. Host method lookup supplies
+the same count for allocation at `execute()` entry. Class mounts remain separate;
+local mount indices are relative to `mnt0_`. Execution unwinding destroys the
+mount stack and releases its owning references.
+
 Compiled function bodies begin with `F_ADJUST_ARGS`, whose operand is the formal
 parameter count. It pads missing arguments with void values and discards surplus
 arguments before allocating locals. The instruction is valid only at function

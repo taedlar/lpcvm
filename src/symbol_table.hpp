@@ -23,7 +23,8 @@ enum LpcDataType {
     T_MAPPING,
     T_OBJECT,
     T_MIXED,
-    T_VARARG = 0xf
+    T_RESOURCE, // for mounted resources, represented as a lpcvm::ObjectRef
+    T_VARARG = 0xf // for catch-all argument collection (keyword arguments and surplus positional arguments)
 };
 
 /// @brief Represents the signature of a symbol, including its data type and various attributes.
@@ -105,8 +106,8 @@ public:
 
     SymbolTable()
         : scope_type_(ScopeType::GLOBAL), overlay_base_(0), enclosing_scope_(nullptr) {}
-    SymbolTable (ScopeType scope_type, uint32_t overlay_base, std::shared_ptr<SymbolTable> enclosing_scope)
-        : scope_type_(scope_type), overlay_base_(overlay_base), enclosing_scope_ (std::move(enclosing_scope)) {}
+    SymbolTable (ScopeType scope_type, uint32_t overlay_base, std::shared_ptr<SymbolTable> enclosing_scope, uint32_t mount_base = 0)
+        : scope_type_(scope_type), overlay_base_(overlay_base), mount_overlay_base_(mount_base), enclosing_scope_ (std::move(enclosing_scope)) {}
 
     TokenIndex new_token(std::string_view text, TokenType type = TokenType::IDENTIFIER) {
         const auto offset = token_arena_.size();
@@ -125,12 +126,13 @@ public:
         return std::string_view(token_arena_).substr(token.offset, token.length);
     }
 
-    std::shared_ptr<SymbolTable> new_subscope (ScopeType scope_type, uint32_t base) {
-        return std::make_shared<SymbolTable>(scope_type, base, shared_from_this());
+    std::shared_ptr<SymbolTable> new_subscope (ScopeType scope_type, uint32_t base, uint32_t mount_base = 0) {
+        return std::make_shared<SymbolTable>(scope_type, base, shared_from_this(), mount_base);
     }
     std::shared_ptr<SymbolTable> get_enclosing_scope() const { return enclosing_scope_; }
     ScopeType scope_type() const { return scope_type_; }
     void set_scope_type(ScopeType scope_type) { scope_type_ = scope_type; }
+    uint32_t mount_overlay_base() const { return mount_overlay_base_; }
     uint32_t overlay_base() const { return overlay_base_; }
 
     /**
@@ -160,6 +162,7 @@ public:
 private:
     ScopeType scope_type_;
     uint32_t overlay_base_;
+    uint32_t mount_overlay_base_{0};
     std::shared_ptr<SymbolTable> enclosing_scope_;
     std::unordered_map<std::string, std::shared_ptr<Entry>> symbols_;
 
