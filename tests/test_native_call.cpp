@@ -105,6 +105,93 @@ TEST_F(NativeCallTest, CallsRegisteredModuleThroughDynamicLocalMount) {
     )")), 26);
 }
 
+TEST_F(NativeCallTest, GlobalMountsRetainCompileTimeObjectsAcrossCallsAndReplacement) {
+    auto original = fabric->find_object("test");
+    auto execution_fabric = std::make_shared<ManagedRuntime>();
+    execution_fabric->emplace_object(lpcvm::create_shared<TestModule>(execution_fabric, "other", 20));
+    std::shared_ptr<ObjectClass> program;
+    {
+        LpcCompiler compiler;
+        compiler.use_fabric(fabric);
+        ASSERT_TRUE(compiler.parse(R"(
+            #define PREFIX "te"
+            mount (PREFIX + "st" => Global, "other" => Second);
+            int leaf() { return Global::value() + Second::value(); }
+            int main() {
+                mount ("other" => Local);
+                return Global::replace() + leaf() + Global::value() + Local::value();
+            }
+        )"));
+        program = compiler.generate_code();
+        ASSERT_NE(program, nullptr) << compiler.messages().back().text;
+    }
+    ASSERT_EQ(program->num_mounts(), 3u);
+    EXPECT_EQ(lpcvm::ObjectHandle(program->get_mount(1)), original);
+    EXPECT_FALSE(program->get_mount(0));
+    lpcvm::Execution code(execution_fabric);
+    ASSERT_TRUE(program->lookup_method("main", &code));
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 61);
+    EXPECT_FALSE(original.expired());
+    fabric->destruct_object(fabric->find_object("test"));
+    EXPECT_FALSE(original.expired());
+    stack.pop();
+    ASSERT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 61);
+    stack.pop();
+    program.reset();
+    EXPECT_TRUE(original.expired());
+}
+
+TEST_F(NativeCallTest, GlobalMountResolutionReportsMissingAndNonNativeModules) {
+    LpcObject::create(fabric, "lpc", std::make_shared<ObjectClass>());
+    for (const char* name : {"missing", "lpc", ""}) {
+        SCOPED_TRACE(name);
+        LpcCompiler compiler;
+        compiler.use_fabric(fabric);
+        ASSERT_TRUE(compiler.parse(std::string("mount (\"") + name + "\" => Module);"));
+        EXPECT_EQ(compiler.generate_code(), nullptr);
+        ASSERT_FALSE(compiler.messages().empty());
+        EXPECT_NE(compiler.messages().back().text.find(name[0] == 'l' ? "not a native module" : "not found"),
+                  std::string::npos);
+    }
+}
+
+TEST_F(NativeCallTest, FailedGlobalMountCompilationReleasesEarlierBindings) {
+    const auto original = fabric->find_object("test");
+    const auto initial_count = original.use_count();
+    LpcCompiler compiler;
+    compiler.use_fabric(fabric);
+    ASSERT_TRUE(compiler.parse("mount (\"test\" => First, \"missing\" => Second);"));
+    EXPECT_EQ(compiler.generate_code(), nullptr);
+    EXPECT_EQ(original.use_count(), initial_count);
+    ASSERT_TRUE(compiler.parse("mount (\"test\" => First) { First::nothing(); }"));
+    EXPECT_EQ(compiler.generate_code(), nullptr);
+    EXPECT_NE(compiler.messages().back().text.find("do not support a body"), std::string::npos);
+}
+
+TEST_F(NativeCallTest, GlobalMountCallRequiresTheModulesFabricToRemainAlive) {
+    std::shared_ptr<ObjectClass> program;
+    lpcvm::ObjectHandle module;
+    {
+        auto module_fabric = std::make_shared<ManagedRuntime>();
+        module = module_fabric->emplace_object(lpcvm::create_shared<TestModule>(module_fabric, "module", 3));
+        LpcCompiler compiler;
+        compiler.use_fabric(module_fabric);
+        ASSERT_TRUE(compiler.parse("mount (\"module\" => Module); int main() { return Module::value(); }"));
+        program = compiler.generate_code();
+        ASSERT_NE(program, nullptr);
+    }
+    ASSERT_FALSE(module.expired());
+    lpcvm::Execution code(fabric);
+    ASSERT_TRUE(program->lookup_method("main", &code));
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    EXPECT_THROW(code.execute(control, stack), std::runtime_error);
+}
+
 TEST_F(NativeCallTest, BindingDoesNotAcquireAndEachCallFindsCurrentRegistration) {
     EXPECT_EQ(std::get<int32_t>(run(R"(
         int main() {
@@ -177,10 +264,22 @@ TEST_F(NativeCallTest, RejectsMissingResourcesMethodsAndInvalidNativeResults) {
 TEST_F(NativeCallTest, ValidatesNativeCallAndMountOperands) {
     for (const auto& bytes : std::vector<std::vector<uint8_t>>{
         {F_CALL_NATIVE}, {F_CALL_NATIVE, 0}, {F_CALL_NATIVE, 2},
-        {F_BIND_MOUNT}, {F_BIND_MOUNT, 0}, {F_LOAD_MOUNT}, {F_LOAD_MOUNT, 0}
+        {F_BIND_MOUNT}, {F_BIND_MOUNT, 0}, {F_LOAD_MOUNT}, {F_LOAD_MOUNT, 0},
+        {F_LOAD_GLOBAL_MOUNT}, {F_LOAD_GLOBAL_MOUNT, 0}
     }) {
         lpcvm::Execution code(bytes.data(), bytes.size());
         code.fabric_ = fabric;
+        lpcvm::DataStack stack;
+        lpcvm::ReturnStack control;
+        EXPECT_THROW(code.execute(control, stack), std::exception);
+    }
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse("void main() {}"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    for (const uint8_t slot : {uint8_t{0}, uint8_t{1}}) {
+        const uint8_t bytes[] = {F_LOAD_GLOBAL_MOUNT, slot};
+        lpcvm::Execution code(bytes, sizeof(bytes), program.get());
         lpcvm::DataStack stack;
         lpcvm::ReturnStack control;
         EXPECT_THROW(code.execute(control, stack), std::exception);

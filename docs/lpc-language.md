@@ -100,6 +100,8 @@ a resource with `mount`, used with a `using` clause, or specificed directly in a
 Global `mount` paths must be compile-time strings: string literals (including
 adjacent literals and macro-expanded literals) or `+` concatenations of those
 strings. The parser folds these concatenations into string literal AST nodes.
+Aliased global mounts currently resolve registered native modules during code
+generation and retain them in the class; missing or non-native modules are errors.
 Function-local mounts may use dynamic path expressions.
 
 Mount slots are separate from variable slots. Class slot 0 is reserved for the

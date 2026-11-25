@@ -571,6 +571,19 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             VM_DISPATCH();
         }
 
+        VM_HANDLER(F_LOAD_GLOBAL_MOUNT) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing global mount slot");
+            oparg = (extended_arg << 8) | *pc++;
+            if (!prog_)
+                throw std::runtime_error("Global mount requires a program");
+            const auto& object = prog_->get_mount(oparg);
+            if (!object)
+                throw std::runtime_error("Global mount descriptor is unbound");
+            stack.push(object);
+            VM_DISPATCH();
+        }
+
         VM_HANDLER(F_CALL_NATIVE) {
             if (string_active)
                 throw std::runtime_error("Cannot call with an active string accumulator");
@@ -584,16 +597,27 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                 throw std::runtime_error("Native call requires a fabric");
             { // Release acquired resources before computed-goto dispatch, also on exceptions.
                 const auto base = stack.size() - oparg;
-                if (!is_string(stack[base]) || !is_string(stack[base + 1]))
-                    throw std::runtime_error("Native call requires module and method names");
-                const auto resource = fabric_->find_object(stack.string_at(base)).lock();
+                if (!is_string(stack[base + 1]))
+                    throw std::runtime_error("Native call requires a method name");
+                lpcvm::ObjectRef resource;
+                if (const auto* object = std::get_if<lpcvm::ObjectRef>(&stack[base])) {
+                    resource = *object;
+                } else if (is_string(stack[base])) {
+                    resource = fabric_->find_object(stack.string_at(base)).lock();
+                    if (!resource)
+                        throw std::runtime_error("Native module not found: " + std::string(stack.string_at(base)));
+                } else {
+                    throw std::runtime_error("Native call requires a module name or object");
+                }
                 if (!resource)
-                    throw std::runtime_error("Native module not found: " + std::string(stack.string_at(base)));
-                auto* module = dynamic_cast<NativeModule*>(&**resource);
+                    throw std::runtime_error("Native module is null");
+                auto* module = dynamic_cast<NativeModule*>(&*resource);
                 if (!module)
                     throw std::runtime_error("Resource is not a native module");
-                // Method identities belong to the executing fabric, not necessarily the constant pool's fabric.
-                const auto method = fabric_->make_shared_string(stack.string_at(base + 1));
+                const auto module_fabric = module->retain_fabric();
+                if (!module_fabric)
+                    throw std::runtime_error("Native module requires a live fabric");
+                const auto method = module_fabric->make_shared_string(stack.string_at(base + 1));
                 const auto frames = control.size();
                 const int count = module->call_method(&*method, &stack, &control, static_cast<int>(oparg - 2));
                 if (count < 0)

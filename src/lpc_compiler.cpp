@@ -6,6 +6,7 @@
 #include "lpc_compiler.hpp"
 #include "lpc_parser.hpp"
 #include "lpc_lexer.hpp"
+#include "native_module.hpp"
 #include "preprocessor.hpp"
 #include "object_class.hpp"
 #include <cstdio>
@@ -263,6 +264,24 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code(lpcvm::CodeGenerationOpt
                 [&](AST::Inheritance& inh) {
                     // TODO: Implement inheritance handling (requires Sandbox integration)
                     // prog->inherit_from(std::make_shared<ObjectClass>());
+                },
+                [&](AST::Mount& mount) {
+                    for (const auto& declaration : std::get<AST::List>(mount.res_decl->node).elts) {
+                        const auto* resource = std::get_if<AST::ResourceDecl>(&declaration.node);
+                        if (!resource)
+                            continue; // anonymous mounts are not implemented yet
+                        if (!std::holds_alternative<std::monostate>(mount.body->node) ||
+                            !std::holds_alternative<std::monostate>(mount.else_body->node))
+                            throw std::runtime_error("Global native mounts do not support a body or else clause");
+                        const auto& literal = std::get<AST::StringLiteral>(resource->path->node);
+                        const auto name = prog->const_pool_->fetch_string(literal.idx)->view();
+                        const auto object = fabric_->find_object(name).lock();
+                        if (!object)
+                            throw std::runtime_error("Global native module not found: " + std::string(name));
+                        if (!dynamic_cast<NativeModule*>(&**object))
+                            throw std::runtime_error("Global resource is not a native module: " + std::string(name));
+                        prog->mounts_.at(std::get<uint32_t>(*resource->entry->value)) = *object;
+                    }
                 },
                 [&](AST::FunctionDef& func_def) {
                     if (!func_def.body)

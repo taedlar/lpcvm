@@ -50,10 +50,12 @@
     X(F_BIND_MOUNT) \
     X(F_LOAD_MOUNT) \
     X(F_CALL_NATIVE) \
+    X(F_LOAD_GLOBAL_MOUNT) \
 
 /// F_BIND_MOUNT stores and consumes a string module name in a local descriptor slot.
 /// F_LOAD_MOUNT pushes the bound module name from a local descriptor slot.
-/// F_CALL_NATIVE consumes [module name, method name, arguments...] and pushes one result
+/// F_LOAD_GLOBAL_MOUNT pushes the object retained in a class mount slot.
+/// F_CALL_NATIVE consumes [module name or object, method name, arguments...] and pushes one result
 /// (void for a native method returning no values). Operand is the total slot count.
 /// F_COPY duplicates the value at the given depth (zero is the top).
 /// F_ROTATE rotates the top argument values one position left.

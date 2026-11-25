@@ -26,6 +26,7 @@ public:
     ~ObjectClass() = default;
 
     std::size_t num_mounts() const { return mounts_.size(); }
+    const lpcvm::ObjectRef& get_mount(std::size_t index) const { return mounts_.at(index); }
     std::size_t num_variables() const { return num_variables_; }
     std::size_t num_variables_inheriting() const {
         std::size_t total = num_variables_;

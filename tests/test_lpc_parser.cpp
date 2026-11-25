@@ -3,6 +3,7 @@
 #include "config.hpp"
 #include "ast_node.hpp"
 #include "lpc_compiler.hpp"
+#include "native_module.hpp"
 
 #include <gtest/gtest.h>
 #include <stdexcept>
@@ -13,6 +14,24 @@ static_assert(!std::is_copy_assignable_v<ASTNode>);
 static_assert(std::is_move_constructible_v<ASTNode>);
 static_assert(std::is_move_assignable_v<ASTNode>);
 static_assert(std::is_assignable_v<ASTNode&, ASTNode&>);
+
+namespace {
+class ParserTestModule : public NativeModule {
+public:
+    ParserTestModule(std::shared_ptr<ManagedRuntime> fabric, std::string name)
+        : NativeModule(std::move(fabric)), name_(std::move(name)) {}
+    std::string_view name() const override { return name_; }
+private:
+    std::string name_;
+};
+
+std::shared_ptr<ManagedRuntime> mount_test_fabric(std::initializer_list<const char*> names) {
+    auto fabric = std::make_shared<ManagedRuntime>();
+    for (const auto* name : names)
+        fabric->emplace_object(lpcvm::create_shared<ParserTestModule>(fabric, name));
+    return fabric;
+}
+}
 
 TEST(ASTNodeTest, MutableAssignmentTransfersOwnership) {
     ASTNode source{AST::Return{std::make_unique<ASTNode>(AST::NumericConst{42L})}, {0, 0, 3, 5}};
@@ -552,6 +571,7 @@ TEST(LpcParserTest, AggregateListsPreserveNestedExpressions) {
 
 TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
     LpcCompiler compiler;
+    compiler.use_fabric(mount_test_fabric({"global", "late"}));
     ASSERT_TRUE(compiler.parse(R"(
         mount ("global" => Global);
         void f() {
@@ -601,6 +621,7 @@ TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
 
 TEST(LpcParserTest, MountCountsReserveImplicitSlotAndResetBetweenParses) {
     LpcCompiler compiler;
+    compiler.use_fabric(mount_test_fabric({"a", "named"}));
     for (const auto* source : {
         "mount (\"a\" => A); inherit \"b\" => B; int x; void f() {}",
         "mount (\"anonymous\"); int x; void f() {}",
