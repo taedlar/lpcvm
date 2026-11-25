@@ -4,6 +4,7 @@
 #include "code_generator.hpp"
 #include "const_pool.hpp"
 #include "lpc_compiler.hpp"
+#include "native_module.hpp"
 #include "object_class.hpp"
 #include "object_state.hpp"
 #include "vm_executor.hpp"
@@ -913,7 +914,15 @@ TEST(VMExecutorTest, MappingIndexRejectsInvalidBytecode) {
 }
 
 TEST(VMExecutorTest, CallsAllocateAndReuseLexicalMountFrames) {
+    class GlobalModule : public NativeModule {
+    public:
+        using NativeModule::NativeModule;
+        std::string_view name() const override { return "global"; }
+    };
+    auto fabric = std::make_shared<ManagedRuntime>();
+    auto global = fabric->emplace_object(lpcvm::create_shared<GlobalModule>(fabric));
     LpcCompiler compiler;
+    compiler.use_fabric(fabric);
     ASSERT_TRUE(compiler.parse(R"(
         mount ("global" => Global);
         int leaf(int fail) {
@@ -937,12 +946,13 @@ TEST(VMExecutorTest, CallsAllocateAndReuseLexicalMountFrames) {
     auto program = compiler.generate_code();
     ASSERT_NE(program, nullptr);
     EXPECT_EQ(program->num_mounts(), 2u);
+    EXPECT_EQ(lpcvm::ObjectHandle(program->get_mount(1)), global);
     EXPECT_EQ(program->get_method(0).num_mounts, 1u);
     EXPECT_EQ(program->get_method(1).num_mounts, 3u);
     EXPECT_EQ(program->get_method(2).num_mounts, 2u);
     EXPECT_EQ(program->get_method(3).num_mounts, 0u);
 
-    lpcvm::Execution code(std::make_shared<ManagedRuntime>());
+    lpcvm::Execution code(fabric);
     ASSERT_TRUE(program->lookup_method("root", &code));
     EXPECT_EQ(code.num_mounts_, 2u);
     lpcvm::ReturnStack control;
