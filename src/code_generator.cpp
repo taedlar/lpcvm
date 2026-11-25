@@ -142,9 +142,18 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
                 emit(F_POP_N, local_depth_ - loops_.back().local_depth);
             loops_.back().continues.push_back(emit_jump(F_JUMP));
         },
-        [&](const AST::Mount&) {
-            // Descriptor storage is allocated per call. Resource acquisition and
-            // mount branches still need lowering; this statement produces no value.
+        [&](const AST::Mount& mount) {
+            for (const auto& declaration : std::get<AST::List>(mount.res_decl->node).elts) {
+                const auto* resource = std::get_if<AST::ResourceDecl>(&declaration.node);
+                if (!resource || !resource->entry->signature.b.is_local)
+                    throw std::runtime_error("Native mounts require an explicit function-local alias");
+                emit_expression(*resource->path);
+                set_source_location(declaration);
+                emit(F_BIND_MOUNT, std::get<uint32_t>(*resource->entry->value));
+            }
+            // Binding captures names, not resource availability. Acquisition occurs at :: calls.
+            if (mount.body)
+                emit_statement(*mount.body);
         },
         [&](const std::monostate&) {
             // empty statement
@@ -347,6 +356,29 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             emit_expression(*bin_op.rhs);
             set_source_location(expr);
             emit(F_BINARY_OP, bin_op.arg);
+        },
+        [&](const AST::ResourceCall& call) {
+            const auto& acquisition = std::get<AST::ResourceAcquire>(call.acquisition->node);
+            const auto& entry = acquisition.res_entry;
+            if (!entry || entry->signature.b.data_type != T_RESOURCE || !entry->signature.b.is_local)
+                throw std::runtime_error("Native calls require an explicit function-local resource alias");
+            emit(F_LOAD_MOUNT, std::get<uint32_t>(*entry->value));
+            emit(F_CONST_STR, acquisition.res_name_idx);
+            const auto& args = std::get<AST::List>(call.arguments->node).elts;
+            std::size_t keywords = 0;
+            for (const auto& arg : args) {
+                if (const auto* keyword = std::get_if<AST::KeywordArgument>(&arg.node)) {
+                    emit(F_CONST_STR, keyword->idx);
+                    emit_expression(*keyword->value);
+                    ++keywords;
+                } else {
+                    emit_expression(arg);
+                }
+            }
+            if (keywords)
+                emit(F_AGGREGATE_MAPPING, keywords);
+            set_source_location(expr);
+            emit(F_CALL_NATIVE, args.size() - keywords + (keywords != 0) + 2);
         },
         [&](const AST::FunctionCall& func_call) {
             auto func_idx = std::get<uint32_t>(*func_call.entry->value);

@@ -142,7 +142,9 @@ at the callee's base and restores the caller's base from `ReturnStack`. Recursiv
 calls therefore have independent descriptor slots. Host method lookup supplies
 the same count for allocation at `execute()` entry. Class mounts remain separate;
 local mount indices are relative to `mnt0_`. Execution unwinding destroys the
-mount stack and releases its owning references.
+mount stack and releases its owning string references. Local descriptors bind
+module names; resource calls acquire the current module separately (see
+[Function Calling](vm-function-call.md#function-local-native-mounts)).
 
 Compiled function bodies begin with `F_ADJUST_ARGS`, whose operand is the formal
 parameter count. It pads missing arguments with void values and discards surplus

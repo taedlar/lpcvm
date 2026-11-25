@@ -277,6 +277,7 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code(lpcvm::CodeGenerationOpt
     catch (const std::exception& e) {
         SPDLOG_ERROR("code generation failed: {}", e.what());
         messages_.push_back({-1, -1, e.what()});
+        return nullptr;
     }
     return prog;
 }
