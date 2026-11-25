@@ -288,13 +288,14 @@ public:
         const uint8_t* pc;          // program counter (address of next instruction)
         std::size_t fp;             // frame pointer for the current frame (position of first argument in data stack)
         std::size_t vbp;            // variable base pointer (position of global variable #0 in self_)
+        std::size_t mbp;            // mount base pointer (position of first local mount in the execution-owned mount stack)
         const uint8_t* start;       // start of the bytecode segment
         const uint8_t* end;         // end of the bytecode segment
-        lpcvm::ObjectHandle obj;  // handle to the current object
+        lpcvm::ObjectHandle obj;    // handle to the current object
     };
 
-    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, const uint8_t* start, const uint8_t* end, lpcvm::ObjectHandle obj) {
-        stack_.push_back({pc, fp, vbp, start, end, obj});
+    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, std::size_t mbp, const uint8_t* start, const uint8_t* end, lpcvm::ObjectHandle obj) {
+        stack_.push_back({pc, fp, vbp, mbp, start, end, obj});
     }
 
     void pop() {
@@ -368,10 +369,11 @@ struct Execution {
         start_ = bytecode;
         end_ = bytecode + size;
         prog_ = prog;
+        num_mounts_ = 0;
         return *this;
     }
 
-    Execution& as_with(ObjectState* self, std::size_t offset = 0);
+    Execution& as_with(ObjectState* self, std::size_t vbp = 0, std::size_t mbp = 0);
 
     int execute(ReturnStack& control, DataStack& stack, std::size_t num_args = 0);
 
@@ -380,6 +382,8 @@ struct Execution {
     const ObjectClass* prog_ = nullptr; // bytecode site to get F_CALL entry
     ObjectState* self_ = nullptr;
     std::size_t var0_ = 0; // position of global variable #0 in self_ (inheritance offset)
+    std::size_t mnt0_ = 0; // mount base pointer (position of first local mount in the execution-owned mount stack)
+    uint32_t num_mounts_ = 0; // local mount slots for the host-entered method
     std::shared_ptr<FabricType> fabric_; // fabric associated with the execution context
     lpcvm::ObjectRef obj_ref_;  // holds a strong reference when constructed with lpcvm::ObjectRef
 };

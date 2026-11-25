@@ -10,6 +10,7 @@
 #include <vector>
 #include "const_pool.hpp"
 #include "virtual_table.hpp"
+#include "vm_object.hpp"
 
 namespace lpcvm {
 struct Execution;
@@ -24,6 +25,7 @@ public:
     ObjectClass(std::size_t num_vars = 0, ConstTable* consts = nullptr, SymbolTable* globals = nullptr);
     ~ObjectClass() = default;
 
+    std::size_t num_mounts() const { return mounts_.size(); }
     std::size_t num_variables() const { return num_variables_; }
     std::size_t num_variables_inheriting() const {
         std::size_t total = num_variables_;
@@ -54,6 +56,7 @@ private:
     friend class LpcCompiler;
     std::vector<uint8_t> bytecode_;
     std::vector<std::shared_ptr<ObjectClass>> inherits_;
+    std::vector<lpcvm::ObjectRef> mounts_;
     std::shared_ptr<ConstPool> const_pool_;
     std::shared_ptr<VirtualTable> virtual_table_;
     std::size_t num_variables_; // (not including inherited variables)

@@ -11,6 +11,7 @@
 #include "vm_opcodes.hpp"
 #include "vm_sandbox.hpp"
 #include <cstdint>
+#include <limits>
 #include <gtest/gtest.h>
 
 TEST(VMExecutorTest, DefaultExecutionIsEmpty) {
@@ -909,4 +910,94 @@ TEST(VMExecutorTest, MappingIndexRejectsInvalidBytecode) {
             stack.push(int32_t{42});
         EXPECT_THROW(code.execute(control, stack, stack.size()), std::runtime_error);
     }
+}
+
+TEST(VMExecutorTest, CallsAllocateAndReuseLexicalMountFrames) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        mount ("global" => Global);
+        int leaf(int fail) {
+            mount ("leaf" => Leaf);
+            if (fail) return 1 / 0;
+            return 7;
+        }
+        int middle(int fail) {
+            mount ("middle" => Middle);
+            { mount ("a" => A, "b" => B); }
+            return leaf(fail);
+        }
+        int root(int fail) {
+            mount ("root" => Root, "other" => Other);
+            middle(0);
+            middle(0);
+            return middle(fail);
+        }
+        void empty() {}
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    EXPECT_EQ(program->num_mounts(), 2u);
+    EXPECT_EQ(program->get_method(0).num_mounts, 1u);
+    EXPECT_EQ(program->get_method(1).num_mounts, 3u);
+    EXPECT_EQ(program->get_method(2).num_mounts, 2u);
+    EXPECT_EQ(program->get_method(3).num_mounts, 0u);
+
+    lpcvm::Execution code;
+    ASSERT_TRUE(program->lookup_method("root", &code));
+    EXPECT_EQ(code.num_mounts_, 2u);
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push(int32_t{0});
+    EXPECT_EQ(code.execute(control, stack, 1), 1);
+    EXPECT_EQ(std::get<uint32_t>(stack.top()), 7u);
+    EXPECT_EQ(code.mnt0_, 0u);
+    EXPECT_TRUE(control.empty());
+    stack.pop();
+
+    stack.push(int32_t{1});
+    EXPECT_THROW(code.execute(control, stack, 1), std::runtime_error);
+    // The completed sibling calls must release their mount slots before reuse.
+    EXPECT_EQ(code.mnt0_, 5u); // root's 2 + middle's 3
+    ASSERT_EQ(control.size(), 2u);
+    EXPECT_EQ(control.top().mbp, 2u);
+    control.pop();
+    EXPECT_EQ(control.top().mbp, 0u);
+    ASSERT_TRUE(program->lookup_method("empty", &code));
+    EXPECT_EQ(code.num_mounts_, 0u);
+}
+
+TEST(VMExecutorTest, RecursiveCallsHaveIndependentMountFrames) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        int recurse(int n) {
+            mount ("a" => A, "b" => B);
+            if (n) return recurse(n - 1);
+            return 1 / 0;
+        }
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    lpcvm::Execution code;
+    ASSERT_TRUE(program->lookup_method("recurse", &code));
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    stack.push(int32_t{3});
+    EXPECT_THROW(code.execute(control, stack, 1), std::runtime_error);
+    EXPECT_EQ(code.mnt0_, 6u);
+    ASSERT_EQ(control.size(), 3u);
+    for (std::size_t base : {4u, 2u, 0u}) {
+        EXPECT_EQ(control.top().mbp, base);
+        control.pop();
+    }
+}
+
+TEST(VMExecutorTest, MountAllocationChecksBaseOverflow) {
+    const uint8_t bytecode[] = {F_RETURN, 0};
+    lpcvm::Execution code(bytecode, sizeof(bytecode));
+    code.mnt0_ = std::numeric_limits<std::size_t>::max();
+    code.num_mounts_ = 1;
+    lpcvm::ReturnStack control;
+    lpcvm::DataStack stack;
+    EXPECT_THROW(code.execute(control, stack), std::length_error);
+    EXPECT_TRUE(control.empty());
 }

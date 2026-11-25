@@ -53,6 +53,9 @@ public:
         uint32_t next_func_idx; // index for the next function
         uint32_t next_global;
         uint32_t next_local;
+        uint32_t next_mount{1}; // class aliases; slot zero is the implicit mount
+        uint32_t next_local_mount{0}; // relative to the call frame mount base
+        uint32_t max_local_mounts{0};
         uint32_t switch_depth{0}; // number of enclosing switch statements
         SymbolSignature variable_signature{};
 
@@ -107,6 +110,7 @@ private:
     std::shared_ptr<ConstTable> consts_;
     std::shared_ptr<SymbolTable> globals_;
     std::shared_ptr<ASTNode> ast_;
+    std::size_t num_mounts_{1};
 
     bool init();
 

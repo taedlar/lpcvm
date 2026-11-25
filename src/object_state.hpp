@@ -3,6 +3,7 @@
 
 #pragma once
 #include <vector>
+#include "vm_object.hpp"
 #include "vm_svalue.hpp"
 
 class ObjectState {

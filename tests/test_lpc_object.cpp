@@ -34,7 +34,7 @@ TEST(LpcObjectTest, CallMethodExecutesWithArgumentsStateAndFabric) {
     ASSERT_TRUE(std::holds_alternative<uint32_t>(stack.top()));
     EXPECT_EQ(std::get<uint32_t>(stack.pop()), 42u);
     stack.push(int32_t{99}); // caller's stack prefix
-    control.push(nullptr, 0, 0, nullptr, nullptr, {});
+    control.push(nullptr, 0, 0, 0, nullptr, nullptr, {});
     stack.push(int32_t{17});
     EXPECT_EQ(call("set", 1), 0);
     ASSERT_EQ(stack.size(), 1u);
@@ -56,7 +56,7 @@ TEST(LpcObjectTest, CallMethodRejectsInvalidRequestsWithoutChangingStacks) {
     lpcvm::DataStack stack;
     lpcvm::ReturnStack control;
     stack.push_temp_string("argument");
-    control.push(nullptr, 7, 3, nullptr, nullptr, {});
+    control.push(nullptr, 7, 3, 0, nullptr, nullptr, {});
     EXPECT_EQ(object->call_method(&*id, &stack, &control, 1), -1);
     EXPECT_EQ(object->call_method(nullptr, &stack, &control, 1), -1);
     EXPECT_EQ(object->call_method(&*id, nullptr, &control, 1), -1);

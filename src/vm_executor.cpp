@@ -82,9 +82,10 @@ static SValue container_value(const lpcvm::DataStack& stack, std::size_t slot,
     return value;
 }
 
-lpcvm::Execution& lpcvm::Execution::as_with(ObjectState* self, std::size_t offset) {
+lpcvm::Execution& lpcvm::Execution::as_with(ObjectState* self, std::size_t vbp, std::size_t mbp) {
     self_ = self;
-    var0_ = offset;
+    var0_ = vbp;
+    mnt0_ = mbp;
     return *this;
 }
 
@@ -175,6 +176,10 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         bool entry_keywords = false;
         SValue result;
         std::string string_accumulator;
+        std::vector<lpcvm::ObjectRef> mounts;
+        if (mnt0_ > mounts.max_size() || num_mounts_ > mounts.max_size() - mnt0_)
+            throw std::length_error("Mount stack size out of range");
+        mounts.resize(mnt0_ + num_mounts_);
         bool string_active = false;
         VM_LOOP_START()
 
@@ -549,8 +554,15 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                     throw std::runtime_error("Expected a keyword argument mapping");
             }
             auto func_index = std::get<uint32_t>(stack[stack.size() - oparg]);
+            if (!prog_)
+                throw std::runtime_error("Function call requires a program");
             auto binding = prog_->get_method(func_index);
-            control.push(pc, fp, var0_, start_, end_, lpcvm::ObjectHandle(obj_ref_)); // save the current execution context on the return stack
+            const auto mount_base = mounts.size();
+            if (binding.num_mounts > mounts.max_size() - mount_base)
+                throw std::length_error("Mount stack size out of range");
+            mounts.resize(mount_base + binding.num_mounts);
+            control.push(pc, fp, var0_, mnt0_, start_, end_, lpcvm::ObjectHandle(obj_ref_)); // save the current execution context on the return stack
+            mnt0_ = mount_base;
             fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
             pc = start_ = prog_->bytecode() + binding.bytecode_offset;
             end_ = start_ + binding.bytecode_length;
@@ -602,6 +614,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
                 fp--; // if we are returning from F_CALL, adjust the frame pointer accordingly
             stack.pop_i(fp, stack.size() - oparg - fp); // clean up the stack for the current frame
 
+            mounts.resize(mnt0_); // release this call's lexical mount descriptors
             if (control.size() == entry_frame) {
                 // we are done with the VM execution, now return to C++ caller.
                 return oparg;
@@ -609,6 +622,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             pc = control.top().pc;
             fp = control.top().fp;
             var0_ = control.top().vbp;
+            mnt0_ = control.top().mbp;
             start_ = control.top().start;
             end_ = control.top().end;
             obj_ref_ = control.top().obj.lock();

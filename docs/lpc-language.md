@@ -97,6 +97,20 @@ A resource descriptor (e.g. `Channel` in above example) is a handle to a resourc
 to the LPC `object` type but cannot be used in ordinary expressions. It can be bound to
 a resource with `mount`, used with a `using` clause, or specificed directly in a function calling.
 
+Global `mount` paths must be compile-time strings: string literals (including
+adjacent literals and macro-expanded literals) or `+` concatenations of those
+strings. The parser folds these concatenations into string literal AST nodes.
+Function-local mounts may use dynamic path expressions.
+
+Mount slots are separate from variable slots. Class slot 0 is reserved for the
+anonymous (implicit) mount. Named `mount` and `inherit` aliases receive slots in their symbol
+entries. Unaliased `inherit` and `mount` declarations retain a string literal in
+the AST without creating an alias or allocating an alias slot. Class aliases occupy
+persistent slots. Function-local aliases start at local slot 0 in a separate
+overlay relative to the call frame mount base, reusing slots when their enclosing block or loop scope ends. Each method
+binding records its peak local mount count. The class mount count includes only
+slot 0 and class aliases.
+
 ### LPC packages and modules
 
 We borrow the concepts of **package** and **module** from Python to allow LPC code to

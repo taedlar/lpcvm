@@ -108,8 +108,8 @@ TEST(LpcParserTest, ResourceDeclarationListsPreserveNodesAndOrder) {
             const auto& entry = std::get<AST::ResourceDecl>(declarations[1].node).entry;
             ASSERT_NE(entry, nullptr);
             EXPECT_EQ(entry->name, "Weather");
-            // ASSERT_TRUE(entry->value.has_value());
-            // EXPECT_TRUE(std::holds_alternative<SymbolTable::TokenIndex>(*entry->value));
+            ASSERT_TRUE(entry->value.has_value());
+            EXPECT_EQ(std::get<uint32_t>(*entry->value), 0u);
             EXPECT_EQ(std::get<AST::StringLiteral>(declarations[2].node).idx,
                       compiler.get_consts()->find("storage"));
             EXPECT_LT(declarations[0].src.column, declarations[1].src.column);
@@ -362,7 +362,7 @@ TEST(LpcParserTest, NonemptyDeclarationPrefixes) {
     }
 }
 
-TEST(LpcParserTest, InheritanceBuildsEntriesForPathsAndAliases) {
+TEST(LpcParserTest, InheritanceUsesResourceDeclarationsOnlyForExplicitAliases) {
     for (bool aliased : {false, true}) {
         for (bool modified : {false, true}) {
             const std::string source = std::string(modified ? "public nomask " : "") +
@@ -372,15 +372,33 @@ TEST(LpcParserTest, InheritanceBuildsEntriesForPathsAndAliases) {
             ASSERT_TRUE(compiler.parse(source));
             const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
             ASSERT_EQ(defs.size(), 1u);
-            const auto& entry = std::get<AST::Inheritance>(defs[0].node).entry;
-            ASSERT_NE(entry, nullptr);
-            EXPECT_EQ(entry->name, aliased ? "base::parent" : "/std/parent");
-            EXPECT_EQ(compiler.get_globals()->lookup(entry->name), entry);
-            // ASSERT_TRUE(entry->value.has_value());
-            // EXPECT_EQ(compiler.get_globals()->token_text(std::get<SymbolTable::TokenIndex>(*entry->value)),
-            //           "/std/parent");
-            EXPECT_EQ(entry->signature.b.is_public, modified);
-            EXPECT_EQ(entry->signature.b.is_nomask, modified);
+            const auto& inheritance = std::get<AST::Inheritance>(defs[0].node);
+            ASSERT_NE(inheritance.res_decl, nullptr);
+            const ASTNode* path = inheritance.res_decl.get();
+            EXPECT_EQ(compiler.get_globals()->lookup("/std/parent"), nullptr);
+            if (aliased) {
+                const auto& resource = std::get<AST::ResourceDecl>(path->node);
+                const auto& entry = resource.entry;
+                ASSERT_NE(entry, nullptr);
+                EXPECT_EQ(entry->name, "base::parent");
+                EXPECT_EQ(compiler.get_globals()->lookup(entry->name), entry);
+                ASSERT_TRUE(entry->value.has_value());
+                EXPECT_EQ(std::get<uint32_t>(*entry->value), 1u);
+                EXPECT_EQ(entry->signature.b.data_type, T_RESOURCE);
+                EXPECT_EQ(entry->signature.b.is_public, modified);
+                EXPECT_EQ(entry->signature.b.is_nomask, modified);
+                path = resource.path.get();
+            } else {
+                EXPECT_EQ(compiler.get_globals()->size(), 0u);
+            }
+            ASSERT_NE(path, nullptr);
+            EXPECT_EQ(std::get<AST::StringLiteral>(path->node).idx,
+                      compiler.get_consts()->find("/std/parent"));
+            EXPECT_EQ(inheritance.signature.b.is_public, modified);
+            EXPECT_EQ(inheritance.signature.b.is_nomask, modified);
+            auto program = compiler.generate_code();
+            ASSERT_NE(program, nullptr);
+            EXPECT_EQ(program->num_mounts(), aliased ? 2u : 1u);
             EXPECT_EQ(defs[0].src.lineno, 1);
             EXPECT_EQ(defs[0].src.column, 1);
         }
@@ -529,4 +547,122 @@ TEST(LpcParserTest, AggregateListsPreserveNestedExpressions) {
     ASSERT_NE(addition.rhs, nullptr);
     EXPECT_EQ(std::get<AST::Variable>(addition.lhs->node).entry->name, "b");
     EXPECT_TRUE(std::holds_alternative<AST::NumericConst>(addition.rhs->node));
+}
+
+
+TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        mount ("global" => Global);
+        void f() {
+            mount ("outer" => Outer);
+            { mount ("inner" => Inner, "deep" => Deep); }
+            { mount ("reuse" => Reuse); }
+            for (;;) mount ("loop" => Loop);
+            mount ("after" => After);
+        }
+        inherit "base" => Base;
+        void g() { mount ("other" => Other); }
+        mount ("late" => Late);
+    )"));
+    const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+    auto slot = [](const ASTNode& node, std::size_t index = 0) {
+        const auto& mount = std::get<AST::Mount>(node.node);
+        const auto& decls = std::get<AST::List>(mount.res_decl->node).elts;
+        const auto& entry = std::get<AST::ResourceDecl>(decls.at(index).node).entry;
+        EXPECT_EQ(entry->signature.b.data_type, T_RESOURCE);
+        return std::get<uint32_t>(*entry->value);
+    };
+    auto statements = [](const ASTNode& node) -> const std::vector<ASTNode>& {
+        return std::get<AST::List>(std::get<AST::Block>(node.node).stmts->node).elts;
+    };
+    EXPECT_EQ(slot(defs[0]), 1u);
+    EXPECT_EQ(std::get<uint32_t>(*std::get<AST::ResourceDecl>(std::get<AST::Inheritance>(defs[2].node).res_decl->node).entry->value), 2u);
+    EXPECT_EQ(slot(defs[4]), 3u);
+    const auto& body = statements(*std::get<AST::FunctionDef>(defs[1].node).body);
+    EXPECT_EQ(slot(body[0]), 0u);
+    EXPECT_EQ(slot(statements(body[1])[0]), 1u);
+    EXPECT_EQ(slot(statements(body[1])[0], 1), 2u);
+    EXPECT_EQ(slot(statements(body[2])[0]), 1u);
+    EXPECT_EQ(slot(*std::get<AST::PreTestedLoop>(body[3].node).body), 1u);
+    EXPECT_EQ(slot(body[4]), 1u);
+    EXPECT_EQ(slot(statements(*std::get<AST::FunctionDef>(defs[3].node).body)[0]), 0u);
+    EXPECT_EQ(compiler.get_globals()->lookup("Outer"), nullptr);
+    EXPECT_EQ(compiler.get_globals()->lookup("Loop"), nullptr);
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    EXPECT_EQ(program->num_mounts(), 4u);
+    EXPECT_EQ(program->num_variables(), 0u);
+    EXPECT_EQ(std::get<AST::FunctionDef>(defs[1].node).num_mounts, 3u);
+    EXPECT_EQ(std::get<AST::FunctionDef>(defs[3].node).num_mounts, 1u);
+    EXPECT_EQ(program->get_method(0).num_mounts, 3u);
+    EXPECT_EQ(program->get_method(1).num_mounts, 1u);
+}
+
+TEST(LpcParserTest, MountCountsReserveImplicitSlotAndResetBetweenParses) {
+    LpcCompiler compiler;
+    for (const auto* source : {
+        "mount (\"a\" => A); inherit \"b\" => B; int x; void f() {}",
+        "mount (\"anonymous\"); int x; void f() {}",
+        "inherit \"base\"; inherit \"base\"; mount (\"named\" => Named); inherit \"other\" => Other; int x; void f() {}",
+        "int x; void f() {}"
+    }) {
+        SCOPED_TRACE(source);
+        ASSERT_TRUE(compiler.parse(source));
+        auto program = compiler.generate_code();
+        ASSERT_NE(program, nullptr);
+        EXPECT_EQ(program->num_mounts(), std::string_view(source).find("=>") != std::string_view::npos ? 3u : 1u);
+        EXPECT_EQ(program->num_variables(), 1u);
+    }
+}
+
+
+TEST(LpcParserTest, GlobalMountPathsResolveToStaticStrings) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        #define ROOT "/std/"
+        mount ("implicit", ROOT "first" => First,
+               (ROOT + ("sub/" + "second")) => Second);
+    )"));
+    const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+    const auto& mount = std::get<AST::Mount>(defs[0].node);
+    const auto& declarations = std::get<AST::List>(mount.res_decl->node).elts;
+    ASSERT_EQ(declarations.size(), 3u);
+    const auto pool = compiler.get_consts()->freeze();
+    for (std::size_t i = 1; i < declarations.size(); ++i) {
+        const auto& resource = std::get<AST::ResourceDecl>(declarations[i].node);
+        const auto& path = std::get<AST::StringLiteral>(resource.path->node);
+        EXPECT_EQ(pool->fetch_string(path.idx)->view(), i == 1 ? "/std/first" : "/std/sub/second");
+    }
+}
+
+TEST(LpcParserTest, GlobalMountRejectsDynamicAndNonStringPaths) {
+    for (const char* expression : {"path", "get_path()", "42", "\"prefix\" + path",
+                                   "\"prefix\" + 42", "path = \"changed\""}) {
+        SCOPED_TRACE(expression);
+        LpcCompiler compiler;
+        const std::string declarations = "string path; string get_path();\n";
+        EXPECT_FALSE(compiler.parse(declarations + "mount (\"valid\" => Valid, " + expression + " => Resource);"));
+        ASSERT_FALSE(compiler.messages().empty());
+        EXPECT_NE(compiler.messages().back().text.find("Global mount path must be a compile-time string"),
+                  std::string::npos);
+        EXPECT_EQ(compiler.messages().back().lineno, 2);
+    }
+}
+
+TEST(LpcParserTest, FunctionMountPathsCanRemainDynamic) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        string get_path();
+        void f(string path) {
+            mount (path => First, get_path() => Second, "prefix" + path => Third);
+        }
+    )"));
+    const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+    const auto& body = std::get<AST::Block>(std::get<AST::FunctionDef>(defs[1].node).body->node);
+    const auto& mount = std::get<AST::Mount>(std::get<AST::List>(body.stmts->node).elts[0].node);
+    const auto& declarations = std::get<AST::List>(mount.res_decl->node).elts;
+    EXPECT_TRUE(std::holds_alternative<AST::Variable>(std::get<AST::ResourceDecl>(declarations[0].node).path->node));
+    EXPECT_TRUE(std::holds_alternative<AST::FunctionCall>(std::get<AST::ResourceDecl>(declarations[1].node).path->node));
+    EXPECT_TRUE(std::holds_alternative<AST::BinaryOp>(std::get<AST::ResourceDecl>(declarations[2].node).path->node));
 }

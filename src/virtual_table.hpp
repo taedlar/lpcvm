@@ -28,6 +28,7 @@ public:
         int32_t inheriting;
         int32_t bytecode_offset;
         uint32_t bytecode_length;
+        uint32_t num_mounts{0}; // peak number of lexical mount descriptors per call
     };
 
     using Binding = binding_s;
