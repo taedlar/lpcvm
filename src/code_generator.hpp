@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include "ast_node.hpp"
@@ -50,6 +51,7 @@ namespace lpcvm {
         std::vector<LoopContext> loops_;
         std::size_t local_depth_ = 0; // number of block locals currently allocated
         CodeGenerationOptions options_;
+        std::function<void(ConstPool::IndexType)> import_native_method_;
 
         void grow_bytecode(std::size_t length);
         void emit_string_terms(const std::vector<const ASTNode*>& terms, const ASTNode& expr);
@@ -68,9 +70,10 @@ namespace lpcvm {
          * @param options Code generation options.
          */
         Bytecode(std::vector<uint8_t>& bytecode, ObjectClass* prog = nullptr,
-                CodeGenerationOptions options = {})
+                CodeGenerationOptions options = {},
+                std::function<void(ConstPool::IndexType)> import_native_method = {})
                 : bytecode_(bytecode), prog_(prog), context_(STATEMENT),
-                    options_(options) {}
+                    options_(options), import_native_method_(std::move(import_native_method)) {}
 
         std::size_t position() const { return bytecode_.size(); }
 

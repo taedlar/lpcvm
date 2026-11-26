@@ -14,6 +14,27 @@
 
 static_assert(!std::is_copy_constructible_v<ManagedRuntime>);
 
+TEST(LpcSharedPtrTest, DynamicCastRetainsSuccessfulCastsOnly) {
+    struct Derived : lpcvm::Object {
+        using Object::Object;
+    };
+    struct Other : lpcvm::Object {
+        using Object::Object;
+    };
+    lpcvm::ObjectRef object = lpcvm::create_shared<Derived>(nullptr);
+    lpcvm::ObjectHandle handle(object);
+    EXPECT_FALSE(object.dynamic_pointer_cast<Other>());
+    EXPECT_EQ(handle.use_count(), 1u);
+    auto derived = object.dynamic_pointer_cast<Derived>();
+    ASSERT_TRUE(derived);
+    EXPECT_EQ(handle.use_count(), 2u);
+    object.reset();
+    EXPECT_FALSE(handle.expired());
+    EXPECT_FALSE(object.dynamic_pointer_cast<Derived>());
+    derived.reset();
+    EXPECT_TRUE(handle.expired());
+}
+
 TEST(LpcObjectTest, CallMethodExecutesWithArgumentsStateAndFabric) {
     auto runtime = std::make_shared<ManagedRuntime>();
     LpcCompiler compiler;

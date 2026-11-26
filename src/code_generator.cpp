@@ -360,10 +360,17 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
         [&](const AST::ResourceCall& call) {
             const auto& acquisition = std::get<AST::ResourceAcquire>(call.acquisition->node);
             const auto& entry = acquisition.res_entry;
-            if (!entry || entry->signature.b.data_type != T_RESOURCE)
-                throw std::runtime_error("Native calls require an explicit resource alias");
-            emit(entry->signature.b.is_local ? F_LOAD_MOUNT : F_LOAD_GLOBAL_MOUNT,
-                 std::get<uint32_t>(*entry->value));
+            if (!entry) {
+                if (!import_native_method_)
+                    throw std::runtime_error("Native call requires an unaliased global mount");
+                import_native_method_(acquisition.res_name_idx);
+                emit(F_LOAD_GLOBAL_MOUNT, 0);
+            } else {
+                if (entry->signature.b.data_type != T_RESOURCE)
+                    throw std::runtime_error("Native calls require a resource alias");
+                emit(entry->signature.b.is_local ? F_LOAD_MOUNT : F_LOAD_GLOBAL_MOUNT,
+                     std::get<uint32_t>(*entry->value));
+            }
             emit(F_CONST_STR, acquisition.res_name_idx);
             const auto& args = std::get<AST::List>(call.arguments->node).elts;
             std::size_t keywords = 0;

@@ -9,6 +9,7 @@
 #include "native_module.hpp"
 #include "preprocessor.hpp"
 #include "object_class.hpp"
+#include <algorithm>
 #include <cstdio>
 #include <stdexcept>
 
@@ -257,8 +258,9 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code(lpcvm::CodeGenerationOpt
         prog->mounts_.resize(num_mounts_);
         prog->virtual_table_->static_bindings_.resize(num_functions);
 
-        // generate code for each top-level definition in the program
-        lpcvm::Bytecode codegen(prog->bytecode_, prog.get(), options);
+        // Collect global resources before emitting functions, regardless of declaration order.
+        std::vector<std::string> unaliased_mounts;
+        lpcvm::SharedPtr<NativeModule> implicit_mount;
         for(auto& elt: prog_node.defs) {
             std::visit (overloaded {
                 [&](AST::Inheritance& inh) {
@@ -268,30 +270,64 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code(lpcvm::CodeGenerationOpt
                 [&](AST::Mount& mount) {
                     for (const auto& declaration : std::get<AST::List>(mount.res_decl->node).elts) {
                         const auto* resource = std::get_if<AST::ResourceDecl>(&declaration.node);
-                        if (!resource)
-                            continue; // anonymous mounts are not implemented yet
                         if (!std::holds_alternative<std::monostate>(mount.body->node) ||
                             !std::holds_alternative<std::monostate>(mount.else_body->node))
                             throw std::runtime_error("Global native mounts do not support a body or else clause");
-                        const auto& literal = std::get<AST::StringLiteral>(resource->path->node);
+                        const auto& literal = std::get<AST::StringLiteral>(
+                            resource ? resource->path->node : declaration.node);
                         const auto name = prog->const_pool_->fetch_string(literal.idx)->view();
                         const auto object = fabric_->find_object(name).lock();
                         if (!object)
                             throw std::runtime_error("Global native module not found: " + std::string(name));
                         if (!dynamic_cast<NativeModule*>(&**object))
                             throw std::runtime_error("Global resource is not a native module: " + std::string(name));
-                        prog->mounts_.at(std::get<uint32_t>(*resource->entry->value)) = *object;
+                        if (resource) {
+                            prog->mounts_.at(std::get<uint32_t>(*resource->entry->value)) = *object;
+                        } else {
+                            unaliased_mounts.emplace_back(name);
+                            if (!implicit_mount) {
+                                implicit_mount = lpcvm::create_shared<NativeModule>(fabric_);
+                                prog->mounts_[0] = implicit_mount;
+                            }
+                        }
                     }
-                },
-                [&](AST::FunctionDef& func_def) {
-                    if (!func_def.body)
-                        return; // forward declaration
-                    LpcCompiler::FunctionBuilder func(*this, codegen, *prog->virtual_table_);
-                    func.build(func_def);
                 },
                 [&](auto&) { /* ignore other node types */ }
             }, elt.node);
         }
+        std::set<std::string> imported_methods;
+        const auto import_method = [&](ConstPool::IndexType index) {
+            const auto name = prog->const_pool_->fetch_string(index)->view();
+            if (imported_methods.count(std::string(name)))
+                return;
+            bool found = false;
+            for (const auto& resource_name : unaliased_mounts) {
+                const auto object = fabric_->find_object(resource_name).lock();
+                auto* module = object ? dynamic_cast<NativeModule*>(&**object) : nullptr;
+                if (!module)
+                    throw std::runtime_error("Global native module unavailable: " + resource_name);
+                const auto exported = module->export_methods();
+                if (std::any_of(exported.begin(), exported.end(), [name](const auto& method) {
+                        return method.name->view() == name;
+                    })) {
+                    // A second matching resource triggers the duplicate-name diagnostic.
+                    implicit_mount->import_method(object->dynamic_pointer_cast<NativeModule>(), name);
+                    found = true;
+                }
+            }
+            if (!found)
+                throw std::runtime_error("Method not found in unaliased global mounts: " + std::string(name));
+            imported_methods.emplace(name);
+        };
+        lpcvm::Bytecode codegen(prog->bytecode_, prog.get(), options, import_method);
+        for (const auto& elt : prog_node.defs) {
+            if (const auto* func_def = std::get_if<AST::FunctionDef>(&elt.node); func_def && func_def->body) {
+                LpcCompiler::FunctionBuilder func(*this, codegen, *prog->virtual_table_);
+                func.build(*func_def);
+            }
+        }
+        if (implicit_mount)
+            implicit_mount->finalize_methods();
     }
     catch (const std::exception& e) {
         SPDLOG_ERROR("code generation failed: {}", e.what());
