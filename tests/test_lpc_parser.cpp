@@ -687,3 +687,19 @@ TEST(LpcParserTest, FunctionMountPathsCanRemainDynamic) {
     EXPECT_TRUE(std::holds_alternative<AST::FunctionCall>(std::get<AST::ResourceDecl>(declarations[1].node).path->node));
     EXPECT_TRUE(std::holds_alternative<AST::BinaryOp>(std::get<AST::ResourceDecl>(declarations[2].node).path->node));
 }
+
+TEST(LpcParserTest, FunctionMountRejectsUnaliasedResources) {
+    for (const char* source : {
+        "void f() { mount (\"local\"); }",
+        "void f() { { mount (\"local\"); } }",
+        "void f() { if (1) mount (\"local\"); }",
+        "void f() { mount (\"named\" => Named, \"local\"); }"
+    }) {
+        SCOPED_TRACE(source);
+        LpcCompiler compiler;
+        EXPECT_FALSE(compiler.parse(source));
+        ASSERT_FALSE(compiler.messages().empty());
+        EXPECT_NE(compiler.messages().back().text.find(
+            "Function-local mounts require an explicit resource alias"), std::string::npos);
+    }
+}

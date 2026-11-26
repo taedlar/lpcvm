@@ -394,6 +394,11 @@ mount
                     }
                     resource->path->node = AST::StringLiteral{path, *lpcc->consts};
                 }
+            } else {
+                for (const auto& declaration : std::get<AST::List>($3.node).elts) {
+                    if (!std::holds_alternative<AST::ResourceDecl>(declaration.node))
+                        throw parse_error("Function-local mounts require an explicit resource alias", yyscanner);
+                }
             }
             ASSIGN_AST($$, @$, AST::Mount{
                 std::make_unique<ASTNode>(std::move($3)),
