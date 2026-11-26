@@ -9,6 +9,7 @@
 #include <functional>
 #include <limits>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #include "vm_executor.hpp"
@@ -98,6 +99,50 @@ void NativeModule::add_method(std::string_view name, SymbolSignature signature, 
     methods_.push_back(std::move(entry));
 }
 
+std::vector<NativeModule::ExportedMethod> NativeModule::export_methods() const {
+    if (!finalized_)
+        throw std::logic_error("NativeModule must be finalized before exporting methods");
+    std::vector<ExportedMethod> exported;
+    exported.reserve(methods_.size());
+    for (const auto& entry : methods_)
+        exported.push_back({entry.name, entry.signature});
+    return exported;
+}
+
+void NativeModule::import_method(lpcvm::SharedPtr<NativeModule> source, std::string_view name) {
+    if (!source || std::addressof(*source) == this)
+        throw std::invalid_argument("NativeModule import requires a non-null source other than itself");
+    if (finalized_)
+        throw std::logic_error("NativeModule method table already finalized");
+
+    const auto exported = source->export_methods();
+    const auto method = std::find_if(exported.begin(), exported.end(), [name](const ExportedMethod& entry) {
+        return entry.name->view() == name;
+    });
+    if (method == exported.end())
+        throw std::invalid_argument("NativeModule source does not export the requested method");
+    if (std::any_of(methods_.begin(), methods_.end(), [name](const MethodEntry& entry) {
+            return entry.name->view() == name;
+        }))
+        throw std::invalid_argument("NativeModule method '" + std::string(name) +
+                                    "' already exists; use an aliased mount instead");
+    const auto original = std::lower_bound(
+        source->methods_.begin(), source->methods_.end(), std::addressof(*method->name),
+        [](const MethodEntry& entry, const LpcString* identity) {
+            return std::less<const LpcString*>{}(entry.identity(), identity);
+        });
+    auto fabric = retain_fabric();
+    if (!fabric)
+        throw std::runtime_error("NativeModule requires a live fabric to intern method names");
+
+    MethodEntry entry;
+    entry.name = fabric->make_shared_string(name);
+    entry.signature = method->signature;
+    entry.method = original->method;
+    entry.source = original->source ? original->source : std::move(source);
+    methods_.push_back(std::move(entry));
+}
+
 void NativeModule::finalize_methods() {
     const auto by_identity = [](const MethodEntry& lhs, const MethodEntry& rhs) {
         return std::less<const LpcString*>{}(lhs.identity(), rhs.identity());
@@ -132,8 +177,11 @@ int NativeModule::call_method(void* func_identity, lpcvm::DataStack* data_stack,
         return -1;
 
     const std::size_t fp = data_stack->size() - static_cast<std::size_t>(num_args);
-    const auto fabric = retain_fabric();
+    auto* receiver = it->source ? std::addressof(*it->source) : this;
+    const auto fabric = receiver->retain_fabric();
+    if (it->source && !fabric)
+        throw std::runtime_error("NativeModule import requires a live source fabric");
     const int adjusted = adjust_call_arguments(it->signature, *data_stack, fp, num_args, fabric);
-    return it->method(this, data_stack, return_stack, adjusted);
+    return it->method(receiver, data_stack, return_stack, adjusted);
 }
 

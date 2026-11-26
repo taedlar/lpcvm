@@ -153,6 +153,24 @@ connection, without making their lifetimes depend on every LPC variable that
 refers to them. The runtime's object table can be shared across multiple fabric
 implementations or scopes, enabling flexible object lifecycle management.
 
+`NativeModule` registers native functions with `add_method()` and can import a
+function with `import_method(source, name)`, where `source` is an owning
+`lpcvm::SharedPtr<NativeModule>`. `export_methods()` returns names and signatures
+from a finalized module, including its imported methods. Importing requests this
+list and rejects names the source does not export. Register and import methods
+before calling `finalize_methods()`; all names share one namespace. Imports reject
+duplicate names immediately and suggest using an aliased mount instead. Other
+duplicates are rejected at finalization.
+
+Imports copy the resolved native function pointer and retain the module that
+originally registered it, including when importing an imported method.
+`call_method()` performs one lookup, then invokes that pointer with the original
+module argument and adjusts arguments using its fabric. Method names are interned
+in the importing fabric, so imports also work across fabrics. The original
+module's fabric must remain alive.
+Self-imports are rejected. Requiring sources to be finalized before importing,
+and disallowing imports into finalized modules, also prevents indirect cycles.
+
 ### Exceptions
 
 LPCVM supports RAII and native C++ exceptions. Bytecode execution reports runtime

@@ -105,6 +105,110 @@ TEST_F(NativeCallTest, CallsRegisteredModuleThroughDynamicLocalMount) {
     )")), 26);
 }
 
+TEST_F(NativeCallTest, ImportedMethodsRetainSourceAndRelayAcrossFabricsAndImports) {
+    class DirectCallModule : public TestModule {
+    public:
+        using TestModule::TestModule;
+        int call_method(void*, lpcvm::DataStack*, lpcvm::ReturnStack*, int) override {
+            throw std::logic_error("Imported calls must use the resolved native function pointer");
+        }
+    };
+    auto source_fabric = std::make_shared<ManagedRuntime>();
+    auto source = lpcvm::create_shared<DirectCallModule>(source_fabric, "source", 42);
+    lpcvm::ObjectHandle handle(source);
+    auto intermediate = lpcvm::create_shared<NativeModule>(fabric);
+    for (const auto& method : source->export_methods())
+        intermediate->import_method(source, method.name->view());
+    intermediate->finalize_methods();
+    NativeModule destination(fabric);
+    destination.import_method(intermediate, "value");
+    destination.import_method(intermediate, "add");
+    destination.import_method(intermediate, "options");
+    destination.finalize_methods();
+    source = {};
+    intermediate = {};
+    EXPECT_FALSE(handle.expired());
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    const auto call = [&](const char* name, int count) {
+        auto identity = fabric->make_shared_string(name);
+        return destination.call_method(std::addressof(*identity), &stack, &control, count);
+    };
+    ASSERT_EQ(call("value", 0), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 42);
+    stack.pop();
+    stack.push(int32_t{5});
+    ASSERT_EQ(call("add", 1), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 5);
+    stack.pop();
+    stack.push(int32_t{10});
+    stack.push(int32_t{20});
+    ASSERT_EQ(call("options", 2), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 2);
+    stack.pop();
+    source_fabric.reset();
+    EXPECT_THROW(call("value", 0), std::runtime_error);
+    EXPECT_TRUE(stack.empty());
+}
+
+TEST_F(NativeCallTest, ExportsSignaturesAndRejectsInvalidImports) {
+    auto source = lpcvm::create_shared<TestModule>(fabric, "source", 42);
+    const auto exported = source->export_methods();
+    ASSERT_EQ(exported.size(), 7u);
+    const auto add = std::find_if(exported.begin(), exported.end(), [](const auto& entry) {
+        return entry.name->view() == "add";
+    });
+    ASSERT_NE(add, exported.end());
+    EXPECT_EQ(add->signature.b.num_formal_params, 2u);
+    auto destination = lpcvm::create_shared<NativeModule>(fabric);
+    EXPECT_THROW(destination->export_methods(), std::logic_error);
+    EXPECT_THROW(destination->import_method({}, "value"), std::invalid_argument);
+    EXPECT_THROW(destination->import_method(destination, "value"), std::invalid_argument);
+    EXPECT_THROW(destination->import_method(source, "missing"), std::invalid_argument);
+    auto unfinished = lpcvm::create_shared<NativeModule>(fabric);
+    EXPECT_THROW(destination->import_method(unfinished, "value"), std::logic_error);
+    destination->import_method(source, "value");
+    destination->finalize_methods();
+    EXPECT_THROW(destination->import_method(source, "add"), std::logic_error);
+    // A back edge into an already finalized source cannot be added.
+    EXPECT_THROW(source->import_method(destination, "value"), std::logic_error);
+}
+
+TEST_F(NativeCallTest, ImportedAndLocalMethodsShareOneNamespace) {
+    auto source = lpcvm::create_shared<TestModule>(fabric, "source", 42);
+    const auto local = +[](NativeModule*, lpcvm::DataStack*, lpcvm::ReturnStack*, int) { return 0; };
+    NativeModule destination(fabric);
+    destination.add_method("local", {}, local);
+    destination.import_method(source, "value");
+    destination.finalize_methods();
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    auto identity = fabric->make_shared_string("local");
+    EXPECT_EQ(destination.call_method(std::addressof(*identity), &stack, &control, 0), 0);
+    for (bool imported_duplicate : {false, true}) {
+        NativeModule duplicate(fabric);
+        if (imported_duplicate)
+            duplicate.import_method(source, "value");
+        else
+            duplicate.add_method("value", {}, local);
+        try {
+            duplicate.import_method(source, "value");
+            FAIL() << "Duplicate import should fail immediately";
+        } catch (const std::invalid_argument& error) {
+            const std::string message = error.what();
+            EXPECT_NE(message.find("value"), std::string::npos);
+            EXPECT_NE(message.find("aliased mount"), std::string::npos);
+        }
+        // A rejected import must leave the existing table usable.
+        EXPECT_NO_THROW(duplicate.finalize_methods());
+        EXPECT_EQ(duplicate.export_methods().size(), 1u);
+    }
+    NativeModule duplicate(fabric);
+    duplicate.import_method(source, "value");
+    duplicate.add_method("value", {}, local);
+    EXPECT_THROW(duplicate.finalize_methods(), std::invalid_argument);
+}
+
 TEST_F(NativeCallTest, GlobalMountsRetainCompileTimeObjectsAcrossCallsAndReplacement) {
     auto original = fabric->find_object("test");
     auto execution_fabric = std::make_shared<ManagedRuntime>();
