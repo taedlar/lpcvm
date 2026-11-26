@@ -54,6 +54,10 @@ namespace AST {
         std::unique_ptr<ASTNode> body; // do this when mounted successfully
         std::unique_ptr<ASTNode> else_body; // optional else body
     };
+    struct Using {
+        std::shared_ptr<SymbolTable::Entry> mount;
+        std::unique_ptr<ASTNode> body;
+    };
     struct Inheritance {
         std::unique_ptr<ASTNode> res_decl; // ResourceDecl or StringLiteral, as in Mount
         SymbolSignature signature{}; // inheritance modifiers, including unaliased clauses
@@ -150,6 +154,7 @@ namespace AST {
     struct ResourceAcquire {
         std::shared_ptr<SymbolTable::Entry> res_entry; // Resource entry
         ConstPool::IndexType res_name_idx;
+        enum class Context : uint8_t { INHERITANCE, OBJECT, MODULE } context{Context::MODULE};
     };
     struct ResourceCall {
         std::unique_ptr<ASTNode> acquisition; // Resource acquisition
@@ -192,6 +197,7 @@ struct ASTNode {
         AST::Program,
         AST::ResourceDecl,
         AST::Mount,
+        AST::Using,
         AST::Inheritance,
         AST::FunctionDef,
         AST::FunctionDecl,

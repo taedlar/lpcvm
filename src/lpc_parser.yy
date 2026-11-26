@@ -394,6 +394,11 @@ mount
                     }
                     resource->path->node = AST::StringLiteral{path, *lpcc->consts};
                 }
+            } else {
+                for (const auto& declaration : std::get<AST::List>($3.node).elts) {
+                    if (!std::holds_alternative<AST::ResourceDecl>(declaration.node))
+                        throw parse_error("Function-local mounts require an explicit resource alias", yyscanner);
+                }
             }
             ASSIGN_AST($$, @$, AST::Mount{
                 std::make_unique<ASTNode>(std::move($3)),
@@ -425,6 +430,7 @@ res_alias
             if (!lpcc->current_scope->lookup($alias)) {
                 auto entry = std::make_shared<SymbolTable::Entry>($alias, SymbolSignature{0}); // alias symbol
                 entry->signature.b.data_type = T_RESOURCE;
+                entry->resource_kind = SymbolTable::Entry::ResourceKind::MOUNT;
                 if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::GLOBAL) {
                     entry->value = lpcc->next_mount++;
                 } else {
@@ -472,6 +478,8 @@ inheritance
 inheritance_decl
     : L_INHERIT res_declare ';'
         {
+            if (auto* resource = std::get_if<AST::ResourceDecl>(&$2.node))
+                resource->entry->resource_kind = SymbolTable::Entry::ResourceKind::INHERITANCE;
             ASSIGN_AST($$, @$, AST::Inheritance{ std::make_unique<ASTNode>(std::move($2)) });
         }
     ;
@@ -611,8 +619,18 @@ stmt
     : label stmt
         { $$ = $2; }
     | comma_expr ';'
-    | L_USING '(' expr4 ')' stmt[body]
-        { $$ = $body; }
+    | L_USING '(' expr4[context] ')' stmt[body]
+        {
+            auto lpcc = yyget_extra(yyscanner);
+            const auto* variable = std::get_if<AST::Variable>(&$context.node);
+            if (!variable || !variable->entry ||
+                variable->entry->resource_kind != SymbolTable::Entry::ResourceKind::MOUNT)
+                throw parse_error("using currently requires a mount alias", yyscanner);
+            ASSIGN_AST($$, @$, AST::Using{
+                variable->entry,
+                std::make_unique<ASTNode>(std::move($body))
+            });
+        }
     | mount
     | return_stmt
     | local_decl_list
@@ -1006,17 +1024,15 @@ defined_id
     | defined_id '.' L_IDENTIFIER
     ;
 
-call_prefix
-    : '.'               // member access
-    | L_ARROW           // context object access
-    | L_COLON_COLON     // context namespace/resource access
-    ;
-
 res_acquire
     : defined_id L_COLON_COLON L_IDENTIFIER
-        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ std::move($1), yyget_extra(yyscanner)->consts->find_or_add($3) }); }
-    | call_prefix L_IDENTIFIER
-        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ nullptr, yyget_extra(yyscanner)->consts->find_or_add($2) }); }
+        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ std::move($1), yyget_extra(yyscanner)->consts->find_or_add($3), AST::ResourceAcquire::Context::MODULE }); }
+    | '.' L_IDENTIFIER
+        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ nullptr, yyget_extra(yyscanner)->consts->find_or_add($2), AST::ResourceAcquire::Context::INHERITANCE }); }
+    | L_ARROW L_IDENTIFIER
+        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ nullptr, yyget_extra(yyscanner)->consts->find_or_add($2), AST::ResourceAcquire::Context::OBJECT }); }
+    | L_COLON_COLON L_IDENTIFIER
+        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ nullptr, yyget_extra(yyscanner)->consts->find_or_add($2), AST::ResourceAcquire::Context::MODULE }); }
     ;
 
 function_call

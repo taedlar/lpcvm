@@ -45,11 +45,13 @@ namespace lpcvm {
         /// Tracks an enclosing loop so break/continue can be patched and locals unwound.
         struct LoopContext {
             std::size_t local_depth; // number of block locals allocated when entering the loop
+            std::size_t using_depth; // active using contexts that survive break/continue
             std::vector<std::size_t> breaks;
             std::vector<std::size_t> continues;
         };
         std::vector<LoopContext> loops_;
         std::size_t local_depth_ = 0; // number of block locals currently allocated
+        std::size_t using_depth_ = 0;
         CodeGenerationOptions options_;
         std::function<void(ConstPool::IndexType)> import_native_method_;
 

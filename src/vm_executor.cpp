@@ -178,6 +178,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
         SValue result;
         std::string string_accumulator;
         std::vector<LpcStringRef> mounts; // bound module names; acquired only at a resource call
+        std::vector<lpcvm::ObjectRef> using_contexts;
+        std::size_t using_base = 0;
         if (mnt0_ > mounts.max_size() || num_mounts_ > mounts.max_size() - mnt0_)
             throw std::length_error("Mount stack size out of range");
         mounts.resize(mnt0_ + num_mounts_);
@@ -584,6 +586,62 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             VM_DISPATCH();
         }
 
+        VM_HANDLER(F_ENTER_USING) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing using operand");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg != 0)
+                throw std::runtime_error("Invalid using operand");
+            if (stack.size() <= fp)
+                throw std::runtime_error("Using requires a mounted resource");
+
+            lpcvm::ObjectRef resource;
+            if (const auto* object = std::get_if<lpcvm::ObjectRef>(&stack.top())) {
+                resource = *object;
+            } else if (is_string(stack.top())) {
+                if (!fabric_)
+                    throw std::runtime_error("Using a mounted resource requires a fabric");
+                const auto name = stack.top_string();
+                resource = fabric_->find_object(name).lock();
+                if (!resource)
+                    throw std::runtime_error("Native module not found: " + std::string(name));
+            } else {
+                throw std::runtime_error("Using requires a mounted resource");
+            }
+
+            if (!resource)
+                throw std::runtime_error("Using resource is null");
+            if (!dynamic_cast<NativeModule*>(&*resource))
+                throw std::runtime_error("Using resource is not a native module");
+            using_contexts.push_back(std::move(resource));
+            stack.pop();
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_EXIT_USING) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing using operand");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg != 0)
+                throw std::runtime_error("Invalid using operand");
+            if (using_contexts.size() <= using_base)
+                throw std::runtime_error("Using context stack underflow");
+            using_contexts.pop_back();
+            VM_DISPATCH();
+        }
+
+        VM_HANDLER(F_LOAD_USING) {
+            if (pc >= end_)
+                throw std::runtime_error("Missing using operand");
+            oparg = (extended_arg << 8) | *pc++;
+            if (oparg != 0)
+                throw std::runtime_error("Invalid using operand");
+            if (using_contexts.size() <= using_base)
+                throw std::runtime_error("No active using context");
+            stack.push(using_contexts.back());
+            VM_DISPATCH();
+        }
+
         VM_HANDLER(F_CALL_NATIVE) {
             if (string_active)
                 throw std::runtime_error("Cannot call with an active string accumulator");
@@ -654,7 +712,8 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             if (binding.num_mounts > mounts.max_size() - mount_base)
                 throw std::length_error("Mount stack size out of range");
             mounts.resize(mount_base + binding.num_mounts);
-            control.push(pc, fp, var0_, mnt0_, start_, end_, lpcvm::ObjectHandle(obj_ref_)); // save the current execution context on the return stack
+            control.push(pc, fp, var0_, mnt0_, start_, end_, lpcvm::ObjectHandle(obj_ref_), using_base); // save the current execution context on the return stack
+            using_base = using_contexts.size();
             mnt0_ = mount_base;
             fp = stack.size() - oparg + 1; // set the frame pointer for the new function call (fp -> first argument)
             pc = start_ = prog_->bytecode() + binding.bytecode_offset;
@@ -708,6 +767,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             stack.pop_i(fp, stack.size() - oparg - fp); // clean up the stack for the current frame
 
             mounts.resize(mnt0_); // release this call's lexical mount descriptors
+            using_contexts.resize(using_base); // release this call's lexical using contexts
             if (control.size() == entry_frame) {
                 // we are done with the VM execution, now return to C++ caller.
                 return oparg;
@@ -716,6 +776,7 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             fp = control.top().fp;
             var0_ = control.top().vbp;
             mnt0_ = control.top().mbp;
+            using_base = control.top().ubp;
             start_ = control.top().start;
             end_ = control.top().end;
             obj_ref_ = control.top().obj.lock();

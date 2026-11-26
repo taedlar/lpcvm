@@ -77,9 +77,16 @@ public:
     using Definition = std::variant<int32_t, uint32_t, int64_t, uint64_t, float, double, TokenIndex>;
 
     struct Entry {
+        enum class ResourceKind {
+            NONE,
+            MOUNT,
+            INHERITANCE
+        };
+
         std::string name;
         SymbolSignature signature;
         std::optional<Definition> value; // compile-time symbol definition if available
+        ResourceKind resource_kind{ResourceKind::NONE};
         Entry() = default;
         Entry(std::string name, SymbolSignature signature)
             : name(std::move(name)), signature(signature) {}

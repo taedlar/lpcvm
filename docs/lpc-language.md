@@ -66,60 +66,115 @@ are visible through aliases. Indexed expressions can be nested.
 The current statement set covers blocks with local variables, `if`/`else`,
 `while`, `do`/`while`, `for`, `break`, `continue`, and `return`.
 
-### `call_other` hardening
+### Resource descriptors and module calls
 
-LPC's `call_other` can both invoke methods on existing objects and load objects
-from LPC source, implicitly invoking the compiler as a side effect. LPCVM
-separates these operations to make object loading explicit.
+LPCVM separates naming a dependency from acquiring and calling it. A resource
+descriptor is a compile-time name for a binding, not an ordinary LPC value: it
+cannot be assigned, passed as an argument, or stored in a variable. A mount
+alias can only be established by a `mount` declaration. This makes resource
+dependencies visible to code inspection and policy checks.
 
-In LPCVM, `call_other` targets an existing object. Loading an object requires
-explicit **resource acquisition** through a `using` statement or the `::`
-operator on a resource descriptor.
+`call_other` targets an existing object; it does not implicitly load an LPC
+blueprint or invoke the compiler. Loading and binding resources are explicit.
 
-For example, a resource call finds or loads the object before invoking its method:
-
-```
-mount ("/daemon/channel" => Channel); // Declare a LPC module using resource descriptor.
-Channel::chat("hello"); // Find or load the Channel object, then invoke chat.
-```
-
-The `using` statement acquires the resource for calls within its block, subject
-to policy checks:
+An aliased mount declares the name that LPC code uses:
 
 ```
-using(Channel) { // Enter the block after acquisition succeeds and policy permits access.
-  ::join(self);
-  ::chat("hello");
+mount ("/daemon/channel" => Channel);
+
+using (Channel) {
+    ::chat("hello");
 }
 ```
 
-A resource descriptor (e.g. `Channel` in above example) is a handle to a resource, similar
-to the LPC `object` type but cannot be used in ordinary expressions. It can be bound to
-a resource with `mount`, used with a `using` clause, or specificed directly in a function calling.
+A function-local mount can defer binding until runtime, allowing policy to
+inspect the current instance:
 
-Global `mount` paths must be compile-time strings: string literals (including
-adjacent literals and macro-expanded literals) or `+` concatenations of those
-strings. The parser folds these concatenations into string literal AST nodes.
+```
+int send(string requested_channel) {
+    mount (requested_channel => Channel);
+    using (Channel) {
+        ::chat("hello");
+    }
+}
+```
+
+An explicit `using(Alias)` acquires the selected resource for its block, subject
+to policy, and establishes the module context for non-prefixed `::` calls.
+`::method()` calls a method on that selected module. It does not search other
+mounts or fall through to the global EFUN context when the selected module lacks
+the method. Nested `using` blocks select the innermost context. The context is
+lexical and is not inherited by functions called from inside the block.
+
+Unaliased global mounts provide the implicit root EFUN namespace:
+
+```
+mount ("efun://console");
+
+int example() {
+    ::write("hello");
+    return 1;
+}
+```
+
+The root namespace can combine methods from multiple unaliased global mounts.
+Two providers for the same referenced method are ambiguous and are rejected.
+An explicit `using` context selects one module instead; it does not merge that
+module with the root namespace. An explicit EFUN-bypass syntax, if provided, is
+a separate language and policy decision.
+
+Local unaliased mounts are rejected by design. A local mount must have an alias
+so `using` can select one policy-mediated binding rather than search an
+unspecified set of resources. Function-local mount paths may be dynamic. At
+runtime, policy can inspect the requested identity and current object instance,
+then bind the alias to the requested resource or to a compatible LPC wrapper
+that preserves the declared method interface while applying additional
+restrictions. Global dependency decisions are made while loading the blueprint
+and belong to that class generation; local
+decisions are made when the mount executes and belong to that execution frame.
+Hot reload therefore re-evaluates class-owned bindings, while local bindings
+can reflect per-instance state.
+
+Inheritance aliases are object-scoped descriptors, similar to mounted-module
+aliases, and are not ordinary values either. An inherited function can be
+called by name through normal method resolution or explicitly through an
+inheritance alias followed by `.` (for example, `Parent.update()`). `::` is
+reserved for selecting the active module context, not for inherited calls.
+
+### Current resource implementation
+
+The current compiler requires global `mount` paths to be compile-time strings:
+string literals (including adjacent literals and macro-expanded literals) or
+`+` concatenations of those strings. The parser folds these concatenations into
+string literal AST nodes.
 Aliased global mounts currently resolve registered native modules during code
 generation and retain them in the class; missing or non-native modules are errors.
 Unaliased global mounts also resolve registered native modules. Calls such as
 `::method()` search their exported methods during code generation and import only
 the referenced methods into a class-owned `NativeModule` in mount slot 0. Repeated
 calls reuse the same import. Missing methods are compile errors; if multiple
-unaliased mounts export a referenced name, use an aliased mount to disambiguate.
+unaliased mounts export a referenced name, code generation rejects the ambiguity.
 All global mounts are collected before functions are generated, so their position
 relative to function definitions does not affect this search. Unreferenced exports
 are not imported and do not cause duplicate-name errors.
-Function-local mounts may use dynamic path expressions.
+Function-local aliased mounts may use dynamic path expressions. Their current
+binding stores the resource name, and direct `Alias::method()` calls look up
+the native module when called. `using(Alias)` resolves the alias on entry,
+requires a `NativeModule`, and holds a strong reference until the context exits.
+Unprefixed `::method()` calls in that context dispatch only through the held
+module; they do not fall back to the root EFUN namespace. Local unaliased mounts
+are not supported. Runtime policy substitution, LPC-module dispatch through a
+mount, and inheritance/object `using` contexts are not implemented.
 
 Mount slots are separate from variable slots. Class slot 0 is reserved for the
-anonymous (implicit) mount. Named `mount` and `inherit` aliases receive slots in their symbol
-entries. Unaliased `inherit` and `mount` declarations retain a string literal in
-the AST without creating an alias or allocating an alias slot. Class aliases occupy
-persistent slots. Function-local aliases start at local slot 0 in a separate
-overlay relative to the call frame mount base, reusing slots when their enclosing block or loop scope ends. Each method
-binding records its peak local mount count. The class mount count includes only
-slot 0 and class aliases.
+anonymous (implicit) mount. Named `mount` and `inherit` aliases receive slots in
+their symbol entries. Unaliased `inherit` and `mount` declarations retain a
+string literal in the AST without creating an alias or allocating an alias slot.
+Class aliases occupy persistent slots. Function-local aliases start at local
+slot 0 in a separate overlay relative to the call-frame mount base, reusing
+slots when their enclosing block or loop scope ends. Each method binding records
+its peak local mount count. The class mount count includes only slot 0 and class
+aliases.
 
 ### LPC packages and modules
 
@@ -135,11 +190,15 @@ cannot be cloned.
 
 LPC modules and packages can be represented with resource descriptors in LPCVM.
 
-Traditional LPMud SimulEfun can be implemented as modules or packages.
+Simul-efuns can be implemented as modules or packages. An explicit `using`
+context provides a scoped, policy-inspectable simul-efun selection rather than
+an ambient object-wide override.
 
 ### EFUN packages
 
-In LPCVM, all EFUNs are provided as modules and must be mount before use.
+In LPCVM, EFUNs are provided as modules. Unaliased global mounts contribute to
+the implicit root EFUN namespace; an explicit `using` context selects a
+policy-bound module for `::` calls within its block.
 
 ## Compiler Outline
 
