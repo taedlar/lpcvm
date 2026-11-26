@@ -99,7 +99,7 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
                 emit_expression(*loop.condition);
                 exit_jump = emit_jump(F_JUMP_IF_FALSE);
             }
-            loops_.push_back({local_depth_, {}, {}});
+            loops_.push_back({local_depth_, using_depth_, {}, {}});
             emit_statement(*loop.body);
             auto ctx = std::move(loops_.back());
             loops_.pop_back();
@@ -115,7 +115,7 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
         },
         [&](const AST::PostTestedLoop& loop) {
             const auto top = position();
-            loops_.push_back({local_depth_, {}, {}});
+            loops_.push_back({local_depth_, using_depth_, {}, {}});
             emit_statement(*loop.body);
             auto ctx = std::move(loops_.back());
             loops_.pop_back();
@@ -133,6 +133,8 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
                 throw std::runtime_error("break statement outside of loop");
             if (local_depth_ > loops_.back().local_depth)
                 emit(F_POP_N, local_depth_ - loops_.back().local_depth);
+            for (auto depth = using_depth_; depth > loops_.back().using_depth; --depth)
+                emit(F_EXIT_USING);
             loops_.back().breaks.push_back(emit_jump(F_JUMP));
         },
         [&](const AST::Continue&) {
@@ -140,6 +142,8 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
                 throw std::runtime_error("continue statement outside of loop");
             if (local_depth_ > loops_.back().local_depth)
                 emit(F_POP_N, local_depth_ - loops_.back().local_depth);
+            for (auto depth = using_depth_; depth > loops_.back().using_depth; --depth)
+                emit(F_EXIT_USING);
             loops_.back().continues.push_back(emit_jump(F_JUMP));
         },
         [&](const AST::Mount& mount) {
@@ -154,6 +158,20 @@ Bytecode& Bytecode::emit_statement(const ASTNode& stmt) {
             // Binding captures names, not resource availability. Acquisition occurs at :: calls.
             if (mount.body)
                 emit_statement(*mount.body);
+        },
+        [&](const AST::Using& using_stmt) {
+            const auto& mount = using_stmt.mount;
+            if (!mount || mount->resource_kind != SymbolTable::Entry::ResourceKind::MOUNT ||
+                !mount->value || !std::holds_alternative<uint32_t>(*mount->value))
+                throw std::runtime_error("Using requires a mounted resource alias");
+            const auto slot = std::get<uint32_t>(*mount->value);
+            emit(mount->signature.b.is_local ? F_LOAD_MOUNT : F_LOAD_GLOBAL_MOUNT, slot);
+            set_source_location(stmt);
+            emit(F_ENTER_USING);
+            ++using_depth_;
+            emit_statement(*using_stmt.body);
+            --using_depth_;
+            emit(F_EXIT_USING);
         },
         [&](const std::monostate&) {
             // empty statement
@@ -361,12 +379,21 @@ Bytecode& Bytecode::emit_expression(const ASTNode& expr) {
             const auto& acquisition = std::get<AST::ResourceAcquire>(call.acquisition->node);
             const auto& entry = acquisition.res_entry;
             if (!entry) {
-                if (!import_native_method_)
-                    throw std::runtime_error("Native call requires an unaliased global mount");
-                import_native_method_(acquisition.res_name_idx);
-                emit(F_LOAD_GLOBAL_MOUNT, 0);
+                if (acquisition.context == AST::ResourceAcquire::Context::MODULE && using_depth_) {
+                    emit(F_LOAD_USING);
+                } else if (acquisition.context == AST::ResourceAcquire::Context::MODULE) {
+                    if (!import_native_method_)
+                        throw std::runtime_error("Native call requires an unaliased global mount");
+                    import_native_method_(acquisition.res_name_idx);
+                    emit(F_LOAD_GLOBAL_MOUNT, 0);
+                } else if (acquisition.context == AST::ResourceAcquire::Context::INHERITANCE) {
+                    throw std::runtime_error("Inherited method calls are not implemented");
+                } else {
+                    throw std::runtime_error("Object-context method calls are not implemented");
+                }
             } else {
-                if (entry->signature.b.data_type != T_RESOURCE)
+                if (entry->signature.b.data_type != T_RESOURCE ||
+                    entry->resource_kind != SymbolTable::Entry::ResourceKind::MOUNT)
                     throw std::runtime_error("Native calls require a resource alias");
                 emit(entry->signature.b.is_local ? F_LOAD_MOUNT : F_LOAD_GLOBAL_MOUNT,
                      std::get<uint32_t>(*entry->value));

@@ -105,6 +105,141 @@ TEST_F(NativeCallTest, CallsRegisteredModuleThroughDynamicLocalMount) {
     )")), 26);
 }
 
+TEST_F(NativeCallTest, UsingMountAliasHoldsModuleAndRoutesContextCalls) {
+    const auto original = fabric->find_object("test");
+    EXPECT_EQ(std::get<int32_t>(run(R"(
+        int main() {
+            mount ("test" => Module);
+            using (Module) {
+                return ::replace() + ::value();
+            }
+        }
+    )")), 14);
+    EXPECT_TRUE(original.expired());
+}
+
+TEST_F(NativeCallTest, UsingMountAliasReleasesModuleOnExecutionError) {
+    const auto original = fabric->find_object("test");
+    EXPECT_THROW(run(R"(
+        int main() {
+            mount ("test" => Module);
+            using (Module) {
+                ::replace();
+                return ::missing();
+            }
+        }
+    )"), std::runtime_error);
+    EXPECT_TRUE(original.expired());
+}
+
+TEST_F(NativeCallTest, UsingGlobalMountAliasLoadsClassOwnedModule) {
+    LpcCompiler compiler;
+    compiler.use_fabric(fabric);
+    ASSERT_TRUE(compiler.parse(R"(
+        mount ("test" => Module);
+        int main() {
+            using (Module) {
+                return ::value();
+            }
+        }
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    lpcvm::Execution code(fabric);
+    ASSERT_TRUE(program->lookup_method("main", &code));
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 7);
+    EXPECT_TRUE(control.empty());
+}
+
+TEST_F(NativeCallTest, UsingContextDoesNotFallBackToGlobalMounts) {
+    class LimitedModule : public NativeModule {
+    public:
+        using NativeModule::NativeModule;
+        std::string_view name() const override { return "limited"; }
+    };
+    auto source = fabric->find_object("test").lock()->dynamic_pointer_cast<NativeModule>();
+    auto limited = lpcvm::create_shared<LimitedModule>(fabric);
+    limited->import_method(source, "nothing");
+    limited->finalize_methods();
+    fabric->emplace_object(limited);
+
+    LpcCompiler compiler;
+    compiler.use_fabric(fabric);
+    ASSERT_TRUE(compiler.parse(R"(
+        mount ("test");
+        int main() {
+            mount ("limited" => Module);
+            using (Module) {
+                return ::value();
+            }
+        }
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    auto* implicit = dynamic_cast<NativeModule*>(&*program->get_mount(0));
+    ASSERT_NE(implicit, nullptr);
+    EXPECT_TRUE(implicit->export_methods().empty());
+
+    lpcvm::Execution code(fabric);
+    ASSERT_TRUE(program->lookup_method("main", &code));
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    EXPECT_THROW(code.execute(control, stack), std::runtime_error);
+}
+
+TEST_F(NativeCallTest, UsingContextsAreNestedAndNotInheritedByCalledFunctions) {
+    LpcCompiler compiler;
+    compiler.use_fabric(fabric);
+    ASSERT_TRUE(compiler.parse(R"(
+        mount ("other");
+        int helper() { return ::value(); }
+        int main() {
+            int result = 0;
+            mount ("test" => Outer, "other" => Inner);
+            using (Outer) {
+                result = ::value();
+                using (Inner) {
+                    result += ::value();
+                }
+                result += ::value();
+                result += helper();
+            }
+            return result;
+        }
+    )"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    lpcvm::Execution code(fabric);
+    ASSERT_TRUE(program->lookup_method("main", &code));
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 54);
+    EXPECT_TRUE(control.empty());
+}
+
+TEST_F(NativeCallTest, BreakAndContinueExitUsingContexts) {
+    EXPECT_EQ(std::get<int32_t>(run(R"(
+        int main() {
+            int count = 0;
+            int result = 0;
+            mount ("test" => Module);
+            while (count < 2) {
+                using (Module) {
+                    result += ::value();
+                    count++;
+                    if (count == 1) continue;
+                    break;
+                }
+            }
+            return result;
+        }
+    )")), 14);
+}
+
 TEST_F(NativeCallTest, UnaliasedGlobalMountImportsOnlyReferencedMethodsIntoSlotZero) {
     std::shared_ptr<ObjectClass> program;
     {
@@ -469,7 +604,9 @@ TEST_F(NativeCallTest, ValidatesNativeCallAndMountOperands) {
     for (const auto& bytes : std::vector<std::vector<uint8_t>>{
         {F_CALL_NATIVE}, {F_CALL_NATIVE, 0}, {F_CALL_NATIVE, 2},
         {F_BIND_MOUNT}, {F_BIND_MOUNT, 0}, {F_LOAD_MOUNT}, {F_LOAD_MOUNT, 0},
-        {F_LOAD_GLOBAL_MOUNT}, {F_LOAD_GLOBAL_MOUNT, 0}
+        {F_LOAD_GLOBAL_MOUNT}, {F_LOAD_GLOBAL_MOUNT, 0},
+        {F_ENTER_USING}, {F_ENTER_USING, 1}, {F_EXIT_USING}, {F_EXIT_USING, 0},
+        {F_LOAD_USING}, {F_LOAD_USING, 0}
     }) {
         lpcvm::Execution code(bytes.data(), bytes.size());
         code.fabric_ = fabric;

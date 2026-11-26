@@ -23,11 +23,11 @@ int add (int x, int y, string, ... argv) {
         ::show_weather(); // call a method on the mounted WEATHER_D resource
     }
 
-    using (sword) { // acquires strong reference of object, preventing premature destruction
-        ->set_name("steel broadsword"); // call a method on the sword object
-        ->set_damage(10);
-        base.equip(sword);
-    }
+    // using (sword) { // acquires strong reference of object, preventing premature destruction
+    //     ->set_name("steel broadsword"); // call a method on the sword object
+    //     ->set_damage(10);
+    //     base.equip(sword);
+    // }
 
     // exception handling example
     mixed e = catch (sword->get_price());

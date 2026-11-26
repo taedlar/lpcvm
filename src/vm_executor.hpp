@@ -289,13 +289,16 @@ public:
         std::size_t fp;             // frame pointer for the current frame (position of first argument in data stack)
         std::size_t vbp;            // variable base pointer (position of global variable #0 in self_)
         std::size_t mbp;            // mount base pointer (position of first local mount in the execution-owned mount stack)
+        std::size_t ubp;            // base of this function's lexical using contexts
         const uint8_t* start;       // start of the bytecode segment
         const uint8_t* end;         // end of the bytecode segment
         lpcvm::ObjectHandle obj;    // handle to the current object
     };
 
-    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, std::size_t mbp, const uint8_t* start, const uint8_t* end, lpcvm::ObjectHandle obj) {
-        stack_.push_back({pc, fp, vbp, mbp, start, end, obj});
+    void push(const uint8_t* pc, std::size_t fp, std::size_t vbp, std::size_t mbp,
+              const uint8_t* start, const uint8_t* end, lpcvm::ObjectHandle obj,
+              std::size_t ubp = 0) {
+        stack_.push_back({pc, fp, vbp, mbp, ubp, start, end, obj});
     }
 
     void pop() {

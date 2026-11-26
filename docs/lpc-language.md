@@ -158,10 +158,13 @@ All global mounts are collected before functions are generated, so their positio
 relative to function definitions does not affect this search. Unreferenced exports
 are not imported and do not cause duplicate-name errors.
 Function-local aliased mounts may use dynamic path expressions. Their current
-binding stores the resource name, and native-module lookup occurs when a method
-is called. Local unaliased mounts are not supported. The current implementation
-does not yet implement runtime policy substitution, LPC-module dispatch through
-a mount, or the `using` context semantics described above.
+binding stores the resource name, and direct `Alias::method()` calls look up
+the native module when called. `using(Alias)` resolves the alias on entry,
+requires a `NativeModule`, and holds a strong reference until the context exits.
+Unprefixed `::method()` calls in that context dispatch only through the held
+module; they do not fall back to the root EFUN namespace. Local unaliased mounts
+are not supported. Runtime policy substitution, LPC-module dispatch through a
+mount, and inheritance/object `using` contexts are not implemented.
 
 Mount slots are separate from variable slots. Class slot 0 is reserved for the
 anonymous (implicit) mount. Named `mount` and `inherit` aliases receive slots in

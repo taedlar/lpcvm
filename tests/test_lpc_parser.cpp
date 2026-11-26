@@ -110,13 +110,10 @@ TEST(LpcParserTest, ResourceDeclarationListsPreserveNodesAndOrder) {
     }) {
         SCOPED_TRACE(source);
         LpcCompiler compiler;
-        ASSERT_TRUE(compiler.parse(std::string("void f() { ") + source + " }"));
+        ASSERT_TRUE(compiler.parse(source));
         const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
         ASSERT_EQ(defs.size(), 1u);
-        const auto& body = *std::get<AST::FunctionDef>(defs.front().node).body;
-        const auto& statements = std::get<AST::List>(std::get<AST::Block>(body.node).stmts->node).elts;
-        ASSERT_EQ(statements.size(), 1u);
-        const auto& mount = std::get<AST::Mount>(statements.front().node);
+        const auto& mount = std::get<AST::Mount>(defs.front().node);
         ASSERT_NE(mount.res_decl, nullptr);
         const auto& declarations = std::get<AST::List>(mount.res_decl->node).elts;
         const bool multiple = std::string_view(source).find(',') != std::string_view::npos;
@@ -128,7 +125,7 @@ TEST(LpcParserTest, ResourceDeclarationListsPreserveNodesAndOrder) {
             ASSERT_NE(entry, nullptr);
             EXPECT_EQ(entry->name, "Weather");
             ASSERT_TRUE(entry->value.has_value());
-            EXPECT_EQ(std::get<uint32_t>(*entry->value), 0u);
+            EXPECT_EQ(std::get<uint32_t>(*entry->value), 1u);
             EXPECT_EQ(std::get<AST::StringLiteral>(declarations[2].node).idx,
                       compiler.get_consts()->find("storage"));
             EXPECT_LT(declarations[0].src.column, declarations[1].src.column);
@@ -474,10 +471,41 @@ TEST(LpcParserTest, OptionalFunctionCallPrefixes) {
         ASSERT_NE(call.acquisition, nullptr);
         const auto& acquisition = std::get<AST::ResourceAcquire>(call.acquisition->node);
         EXPECT_EQ(acquisition.res_name_idx, compiler.get_consts()->find("f")); // resource name is interned in the constants table
+        EXPECT_EQ(acquisition.context, *prefix == '.' ? AST::ResourceAcquire::Context::INHERITANCE :
+            *prefix == '-' ? AST::ResourceAcquire::Context::OBJECT : AST::ResourceAcquire::Context::MODULE);
         const auto& arguments = std::get<AST::List>(call.arguments->node).elts;
         ASSERT_EQ(arguments.size(), 2);
         EXPECT_EQ(std::get<AST::Variable>(arguments[0].node).entry->name, "x");
         EXPECT_TRUE(std::holds_alternative<AST::KeywordArgument>(arguments[1].node));
+    }
+}
+
+TEST(LpcParserTest, UsingRequiresAMountAlias) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        void f() {
+            mount ("module" => Module);
+            using (Module) { ::call(); }
+        }
+    )"));
+    const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+    const auto& body = std::get<AST::Block>(std::get<AST::FunctionDef>(defs[0].node).body->node);
+    const auto& statements = std::get<AST::List>(body.stmts->node).elts;
+    ASSERT_EQ(statements.size(), 2u);
+    const auto& using_stmt = std::get<AST::Using>(statements[1].node);
+    ASSERT_NE(using_stmt.mount, nullptr);
+    EXPECT_EQ(using_stmt.mount->name, "Module");
+
+    for (const char* source : {
+        "int f() { int value; using (value) ; }",
+        "inherit \"parent\" => Parent; int f() { using (Parent) ; }"
+    }) {
+        SCOPED_TRACE(source);
+        LpcCompiler invalid;
+        EXPECT_FALSE(invalid.parse(source));
+        ASSERT_FALSE(invalid.messages().empty());
+        EXPECT_NE(invalid.messages().back().text.find("using currently requires a mount alias"),
+                  std::string::npos);
     }
 }
 

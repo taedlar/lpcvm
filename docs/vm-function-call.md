@@ -64,6 +64,28 @@ stack size and return-stack depth. Missing modules or methods, unbound descripto
 non-native resources, and invalid callback stack results raise execution errors.
 Owning references created for acquisition are released on return or exception.
 
+### Mount-alias `using` contexts
+
+```lpc
+mount (module_name => Module);
+using (Module) {
+    return ::add(2, 3);
+}
+```
+
+`using(Module)` resolves a local mount name or loads a class-owned mount object
+on entry and holds a strong reference to its `NativeModule` for the context.
+`F_ENTER_USING` establishes the context, `F_LOAD_USING` supplies its module to
+`F_CALL_NATIVE`, and `F_EXIT_USING` releases it on normal exit. Returns,
+`break`, `continue`, and execution errors also release active references.
+Nested contexts select the innermost module. A function called from within a
+context does not inherit it; its `::method()` calls use that function's own
+lexical context or the global implicit mount.
+
+An unprefixed `::method()` inside `using` dispatches only through the selected
+module. A missing method is an error rather than a fallback to the implicit
+global mount. Inheritance-alias and object `using` contexts are not implemented.
+
 ### Global native mounts
 
 ```lpc
@@ -80,8 +102,8 @@ The module's fabric must remain alive when calling it. Global and local aliases
 can be used in the same function; local aliases retain their dynamic lookup behavior.
 Global native mount bodies and `else` clauses are not supported.
 
-Anonymous mounts, anonymous `::` dispatch, and LPC resource calls are not
-implemented by this opcode.
+LPC resource-call dispatch and `using` contexts for inheritance aliases or
+ordinary LPC objects are not implemented by these native-call opcodes.
 
 ## `lpcvm::Execution`
 1. Prepare bytecode of `ObjectClass`
