@@ -595,26 +595,28 @@ int lpcvm::Execution::execute (ReturnStack& control, DataStack& stack, std::size
             if (stack.size() <= fp)
                 throw std::runtime_error("Using requires a mounted resource");
 
-            lpcvm::ObjectRef resource;
-            if (const auto* object = std::get_if<lpcvm::ObjectRef>(&stack.top())) {
-                resource = *object;
-            } else if (is_string(stack.top())) {
-                if (!fabric_)
-                    throw std::runtime_error("Using a mounted resource requires a fabric");
-                const auto name = stack.top_string();
-                resource = fabric_->find_object(name).lock();
-                if (!resource)
-                    throw std::runtime_error("Native module not found: " + std::string(name));
-            } else {
-                throw std::runtime_error("Using requires a mounted resource");
-            }
+            {
+                lpcvm::ObjectRef resource;
+                if (const auto* object = std::get_if<lpcvm::ObjectRef>(&stack.top())) {
+                    resource = *object;
+                } else if (is_string(stack.top())) {
+                    if (!fabric_)
+                        throw std::runtime_error("Using a mounted resource requires a fabric");
+                    const auto name = stack.top_string();
+                    resource = fabric_->find_object(name).lock();
+                    if (!resource)
+                        throw std::runtime_error("Native module not found: " + std::string(name));
+                } else {
+                    throw std::runtime_error("Using requires a mounted resource");
+                }
 
-            if (!resource)
-                throw std::runtime_error("Using resource is null");
-            if (!dynamic_cast<NativeModule*>(&*resource))
-                throw std::runtime_error("Using resource is not a native module");
-            using_contexts.push_back(std::move(resource));
-            stack.pop();
+                if (!resource)
+                    throw std::runtime_error("Using resource is null");
+                if (!dynamic_cast<NativeModule*>(&*resource))
+                    throw std::runtime_error("Using resource is not a native module");
+                using_contexts.push_back(std::move(resource));
+                stack.pop();
+            }
             VM_DISPATCH();
         }
 
