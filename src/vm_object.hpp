@@ -161,6 +161,14 @@ struct SharedPtr {
         }
     }
 
+    template <typename U>
+    SharedPtr<U> dynamic_pointer_cast() const {
+        auto* cast = dynamic_cast<U*>(ptr);
+        if (cast && static_cast<const void*>(cast) != static_cast<const void*>(ptr))
+            throw std::runtime_error("SharedPtr only supports casts with zero offset");
+        return SharedPtr<U>::retain(cast);
+    }
+
 private:
     T* ptr;
 

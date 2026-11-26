@@ -105,6 +105,106 @@ TEST_F(NativeCallTest, CallsRegisteredModuleThroughDynamicLocalMount) {
     )")), 26);
 }
 
+TEST_F(NativeCallTest, UnaliasedGlobalMountImportsOnlyReferencedMethodsIntoSlotZero) {
+    std::shared_ptr<ObjectClass> program;
+    {
+        LpcCompiler compiler;
+        compiler.use_fabric(fabric);
+        ASSERT_TRUE(compiler.parse(R"(
+            mount ("other" => Other);
+            int leaf() { return ::value(); }
+            int main() {
+                return ::add(leaf(), ::value()) + Other::value() + ::options(10, label = 42);
+            }
+            mount ("test");
+        )"));
+        program = compiler.generate_code();
+        ASSERT_NE(program, nullptr);
+    }
+    ASSERT_EQ(program->num_mounts(), 2u);
+    auto* implicit = dynamic_cast<NativeModule*>(&*program->get_mount(0));
+    ASSERT_NE(implicit, nullptr);
+    const auto exported = implicit->export_methods();
+    ASSERT_EQ(exported.size(), 3u);
+    for (const auto& entry : exported)
+        EXPECT_TRUE(entry.name->view() == "value" || entry.name->view() == "add" ||
+                    entry.name->view() == "options");
+    const auto original = fabric->find_object("test");
+    fabric->destruct_object(original);
+    EXPECT_FALSE(original.expired());
+    // The class owns its imports, independently of execution-fabric registrations.
+    auto execution_fabric = std::make_shared<ManagedRuntime>();
+    lpcvm::Execution code(execution_fabric);
+    ASSERT_TRUE(program->lookup_method("main", &code));
+    lpcvm::DataStack stack;
+    lpcvm::ReturnStack control;
+    ASSERT_EQ(code.execute(control, stack), 1);
+    EXPECT_EQ(std::get<int32_t>(stack.top()), 36);
+    EXPECT_TRUE(control.empty());
+    program.reset();
+    EXPECT_TRUE(original.expired());
+}
+
+TEST_F(NativeCallTest, UnaliasedGlobalMountRejectsMissingAndAmbiguousMethods) {
+    for (const auto& [source, diagnostic] : std::vector<std::pair<std::string, std::string>>{
+        {"int main() { return ::value(); }", "value"},
+        {"mount (\"test\"); int main() { return ::missing(); }", "missing"},
+        {"mount (\"test\", \"other\"); int main() { return ::value(); }", "aliased mount"},
+        {"mount (\"missing\");", "not found"},
+        {"mount (\"test\") {}", "do not support a body"}
+    }) {
+        SCOPED_TRACE(source);
+        const auto before = fabric->find_object("test").use_count();
+        LpcCompiler compiler;
+        compiler.use_fabric(fabric);
+        ASSERT_TRUE(compiler.parse(source));
+        EXPECT_EQ(compiler.generate_code(), nullptr);
+        ASSERT_FALSE(compiler.messages().empty());
+        EXPECT_NE(compiler.messages().back().text.find(diagnostic), std::string::npos);
+        EXPECT_EQ(fabric->find_object("test").use_count(), before);
+    }
+}
+
+TEST_F(NativeCallTest, UnreferencedGlobalMountsDoNotImportOrRetainMethods) {
+    LpcCompiler compiler;
+    compiler.use_fabric(fabric);
+    const auto before = fabric->find_object("test").use_count();
+    ASSERT_TRUE(compiler.parse("mount (\"test\", \"other\"); int main() { return 1; }"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    auto* implicit = dynamic_cast<NativeModule*>(&*program->get_mount(0));
+    ASSERT_NE(implicit, nullptr);
+    EXPECT_TRUE(implicit->export_methods().empty());
+    EXPECT_EQ(fabric->find_object("test").use_count(), before);
+    // Each generation and parse starts with a fresh import set.
+    ASSERT_NE(compiler.generate_code(), nullptr);
+    ASSERT_TRUE(compiler.parse("int main() { return ::value(); }"));
+    EXPECT_EQ(compiler.generate_code(), nullptr);
+}
+
+TEST_F(NativeCallTest, UnaliasedGlobalMountSearchesPastModulesWithoutTheMethod) {
+    auto extra = lpcvm::create_shared<TestModule>(fabric, "extra", 99);
+    // An earlier mount with no matching export must not prevent resolution.
+    class NamedModule : public NativeModule {
+    public:
+        using NativeModule::NativeModule;
+        std::string_view name() const override { return "limited"; }
+    };
+    auto limited = lpcvm::create_shared<NamedModule>(fabric);
+    limited->import_method(extra, "nothing");
+    limited->finalize_methods();
+    fabric->emplace_object(limited);
+    LpcCompiler compiler;
+    compiler.use_fabric(fabric);
+    ASSERT_TRUE(compiler.parse("mount (\"limited\", \"test\"); int main() { return ::value(); }"));
+    auto program = compiler.generate_code();
+    ASSERT_NE(program, nullptr);
+    auto* implicit = dynamic_cast<NativeModule*>(&*program->get_mount(0));
+    ASSERT_NE(implicit, nullptr);
+    ASSERT_EQ(implicit->export_methods().size(), 1u);
+    EXPECT_EQ(implicit->export_methods()[0].name->view(), "value");
+}
+
 TEST_F(NativeCallTest, ImportedMethodsRetainSourceAndRelayAcrossFabricsAndImports) {
     class DirectCallModule : public TestModule {
     public:

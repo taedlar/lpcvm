@@ -621,7 +621,7 @@ TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
 
 TEST(LpcParserTest, MountCountsReserveImplicitSlotAndResetBetweenParses) {
     LpcCompiler compiler;
-    compiler.use_fabric(mount_test_fabric({"a", "named"}));
+    compiler.use_fabric(mount_test_fabric({"a", "named", "anonymous"}));
     for (const auto* source : {
         "mount (\"a\" => A); inherit \"b\" => B; int x; void f() {}",
         "mount (\"anonymous\"); int x; void f() {}",

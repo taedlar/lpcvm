@@ -102,6 +102,14 @@ adjacent literals and macro-expanded literals) or `+` concatenations of those
 strings. The parser folds these concatenations into string literal AST nodes.
 Aliased global mounts currently resolve registered native modules during code
 generation and retain them in the class; missing or non-native modules are errors.
+Unaliased global mounts also resolve registered native modules. Calls such as
+`::method()` search their exported methods during code generation and import only
+the referenced methods into a class-owned `NativeModule` in mount slot 0. Repeated
+calls reuse the same import. Missing methods are compile errors; if multiple
+unaliased mounts export a referenced name, use an aliased mount to disambiguate.
+All global mounts are collected before functions are generated, so their position
+relative to function definitions does not affect this search. Unreferenced exports
+are not imported and do not cause duplicate-name errors.
 Function-local mounts may use dynamic path expressions.
 
 Mount slots are separate from variable slots. Class slot 0 is reserved for the
