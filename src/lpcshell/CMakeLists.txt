@@ -3,6 +3,7 @@
 
 add_executable(lpcshell
     main.cpp
+    console_module.cpp
 )
 
 target_link_libraries(lpcshell PRIVATE spdlog argparse lpcvm)

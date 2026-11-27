@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Ted Chang <taedlar@gmail.com>
 
+mount ("efun://console");
+
 void main() {
+    ::write("Name: ");
+    mixed line = ::read_line();
+    if (line)
+        ::write("Hello, " + line + "\n");
 }
