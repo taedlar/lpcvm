@@ -65,7 +65,7 @@ module. To run another startup file, specify its path relative to your sandbox:
 ./build/src/lpcshell/lpcshell --start examples/demo.lpc /path/to/mudlib
 ```
 
-### Shell console
+### Shell console EFUN
 
 `lpcshell` registers `efun://console` before loading the startup object and
 calling `main`. Mount it to access stdin and stdout:
