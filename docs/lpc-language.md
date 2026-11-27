@@ -204,6 +204,187 @@ In LPCVM, EFUNs are provided as modules. Unaliased global mounts contribute to
 the implicit root EFUN namespace; an explicit `using` context selects a
 policy-bound module for `::` calls within its block.
 
+### Inheritance
+
+Inheritance lets an object blueprint acquire state and behavior from other
+blueprints. The following rules define the intended language design; inheritance
+loading, lookup, and dispatch are not yet fully implemented by the compiler.
+
+#### Declarations and policy binding
+
+Inheritance declarations are object-scoped and name a compile-time string path,
+with an optional alias:
+
+```lpc
+inherit "/std/base";
+private inherit "/std/helper" => Helper;
+```
+
+Like global mounts, inheritance requests can pass through policy inspection
+while loading the blueprint. Policy may reject a request or substitute a
+different blueprint identity. The selected blueprint is resolved before method
+lookup and state layout; its actual interface is used to check calls. The
+binding belongs to that class generation, is retained for its lifetime, and
+is re-evaluated when loading a new generation. It cannot vary per call or per
+instance of the same generation.
+
+Every declaration creates a distinct direct inheritance slot and state subtree,
+even if several requests select the same actual blueprint. An alias names its
+declaration's slot, not the requested or selected blueprint identity. Aliases
+are lexical to the declaring blueprint and are not inherited as names.
+Inherited method bodies retain their original alias bindings.
+
+Cyclic inheritance is rejected using the actual blueprint identities selected
+after policy inspection along each ancestry path. Repeated siblings and diamonds
+are allowed; neither is a cycle. Substitution cannot bypass cycle detection.
+
+#### Static method lookup
+
+Calls without an explicit object receiver are resolved at compile time:
+
+| Call | Resolution |
+| --- | --- |
+| `f()` | Local method first, then accessible inherited methods |
+| `Parent.f()` | Accessible methods through the direct slot named by `Parent` |
+| `obj->f()` | Public virtual table of the receiving object at runtime |
+| `self->f()` | Public virtual table of the actual receiving object at runtime |
+
+For `f()` compiled in blueprint `X`, first look for a method declared in `X`.
+Otherwise, search its direct parents in reverse declaration order. Search each
+parent's exposed methods recursively, depth-first, before proceeding to the
+next parent. A parent's own public method precedes methods exposed through its
+public inheritance edges. Inaccessible methods are excluded from the search.
+All declarations participate regardless of their position in the source file.
+
+For example, if `D` inherits `B`, then `C`, and `C` publicly inherits `A.f`,
+lookup selects `A.f` through `C` before considering `B.f`, even if `B` defines
+`f` directly. Lookup is by name, not argument types or arity. After selecting a
+method, an invalid call is an error; lookup does not retry another parent.
+
+`Parent.f()` applies the same recursive search to the selected parent's exposed
+methods, bypassing local methods and all sibling inheritance paths. It cannot
+access a private method of that parent. There is no implicit `.f()` shorthand;
+use an explicit alias to select a parent. `::` remains module-call syntax.
+
+#### Visibility and private inheritance
+
+Methods and inheritance edges are public by default. Instance variables are
+private by default. Explicit visibility replaces the default; contradictory
+visibility modifiers are errors.
+
+A private method is callable only by static calls compiled in its defining
+blueprint. It is unavailable to descendant lookup and never enters the public
+virtual table. A private local method declaration that collides with a public
+method exposed by a publicly inherited parent is an error: a child cannot reduce
+the visibility of an inherited public method.
+
+A private inheritance edge still makes the parent's exposed methods available
+for static calls inside the blueprint declaring that edge, both by name and
+through its alias. The edge does not expose those methods to descendants or
+contribute them to that blueprint's public virtual table. Existing static calls
+inside inherited method bodies remain valid across this boundary.
+
+For example, if `B` privately inherits `A`, a public `B.run()` may statically call
+`A.f`. A descendant can call `run`, but cannot directly reach `A.f` through that
+private edge. A public wrapper is the explicit way to expose selected behavior.
+
+#### Dynamic dispatch and binding lifetime
+
+Every `->` call uses the receiving object's public virtual table, consistent
+with the public method interface used for native modules. `self` grants no
+additional access: `self->f()` cannot call a private method. A missing public
+method is a dynamic lookup error, with no fallback to private methods or module
+contexts.
+
+For each name, the public virtual table uses the same local-first,
+reverse-parent, depth-first precedence, considering only public methods and
+crossing only public inheritance edges. Each selected entry identifies both
+the implementation and its inheritance path.
+
+Static calls retain the binding established when their defining blueprint was
+compiled; inheriting that blueprint does not rebind its method bodies. `self`
+always denotes the complete receiving object, including inside inherited methods:
+
+```lpc
+// A
+int f() { return 1; }
+int run() { return f(); }
+int dynamic_run() { return self->f(); }
+
+// D (a separate source file)
+inherit "A";
+int f() { return 2; }
+```
+
+On an instance of `D`, `run()` returns `1`, while `dynamic_run()` returns `2`.
+
+#### Replicated state
+
+Inheritance replicates state. If `D` inherits `B` and `C`, both of which inherit
+`A`, the two paths have independent copies of `A`'s instance variables. Repeated
+direct inheritance likewise creates independent copies; unqualified lookup
+favors the last declaration, and aliases can select each copy explicitly.
+
+A static binding identifies an implementation and its relative inheritance
+path. Execution preserves that path when the defining blueprint is inherited,
+so a static call through `B` uses `B`'s copy of `A`'s state. A dynamic call uses
+the state path selected by the receiver's virtual table, which may differ from
+the calling method's path. In either case, `self` still denotes the complete
+receiver.
+
+### Composition models
+
+LPC supports two complementary composition models: assembling components into
+a blueprint through inheritance, and connecting separate objects through object
+members. A virtual-world object can use both models together.
+
+**Blueprint composition** uses private replicated inheritance and aliases to
+assemble state and behavior when a blueprint is loaded. Each inheritance slot
+provides independent component state, while aliases select component methods
+at compile time. Private inheritance keeps those methods out of the host's
+public interface unless the host exposes them through public wrappers.
+
+```lpc
+private inherit "/components/counter" => Hits;
+private inherit "/components/counter" => Misses;
+
+void record_hit() { Hits.increment(); }
+void record_miss() { Misses.increment(); }
+int hit_count() { return Hits.value(); }
+```
+
+The two counters have separate state but share the containing object's identity
+and lifetime. Inside either component, `self` denotes the host. An ordinary
+internal call remains statically bound; `self->method()` deliberately calls the
+host's public virtual table. Components are fixed for the class generation and
+cannot be independently shared or replaced per instance.
+
+Blueprint composition also makes policy inspection easier at compile time,
+during blueprint loading. Explicit inheritance declarations expose the requested
+dependencies before method binding and state layout. Through the loading policy,
+administrators can inspect each dependency, reject disallowed blueprints, or
+substitute approved implementations, including for transitive inheritance
+requests. Compilation then checks calls against the selected implementations
+and retains those bindings for the class generation. This gives administrators
+control over which component implementations untrusted code can incorporate.
+Private inheritance itself is an encapsulation mechanism, not a separate
+security boundary; runtime resource access and dynamic object calls remain
+subject to their applicable policies.
+
+**Object composition** stores references to separate objects in object members.
+Calls through those references use `->` and the component object's public
+virtual table. Each component has its own identity: `self` inside it denotes
+that component rather than its owner. References allow components to be shared
+between owners or replaced per instance, and component lifetimes are not
+intrinsically tied to one owner. Acquiring and using these objects remains
+subject to runtime policy; storing a reference does not implicitly load or
+compile a blueprint.
+
+Use blueprint composition for embedded components with a shared identity and
+lifetime, and object composition when separate identity, sharing, or runtime
+replacement is needed. For example, a world object may embed counters through
+private inheritance while holding object references to its location and owner.
+
 ## Compiler Outline
 
 ### Preprocessing
