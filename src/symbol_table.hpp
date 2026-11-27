@@ -24,6 +24,7 @@ enum LpcDataType {
     T_OBJECT,
     T_MIXED,
     T_RESOURCE, // for mounted resources, represented as a lpcvm::ObjectRef
+    T_INHERITANCE, // for inherited object class
     T_VARARG = 0xf // for catch-all argument collection (keyword arguments and surplus positional arguments)
 };
 

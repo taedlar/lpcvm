@@ -93,6 +93,7 @@ bool LpcCompiler::init() {
     impl_->ctx.current_scope = globals_;
     impl_->ctx.switch_depth = 0;
     impl_->ctx.next_mount = 1;
+    impl_->ctx.next_inheriting = 0;
     impl_->ctx.next_local_mount = 0;
     impl_->ctx.max_local_mounts = 0;
     num_mounts_ = 1;
@@ -250,7 +251,8 @@ std::shared_ptr<ObjectClass> LpcCompiler::generate_code(lpcvm::CodeGenerationOpt
             if (entry->signature.b.is_function) {
                 if (entry->signature.b.is_const)
                     ++num_functions;
-            } else if (entry->signature.b.data_type != T_RESOURCE && !entry->signature.b.is_const) {
+            } else if (entry->signature.b.data_type != T_RESOURCE &&
+                       entry->signature.b.data_type != T_INHERITANCE && !entry->signature.b.is_const) {
                 ++num_global_vars;
             }
         }

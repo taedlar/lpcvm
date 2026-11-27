@@ -366,7 +366,7 @@ new_var
     ;
 
 mount
-    : L_MOUNT '(' res_decl_list ')' stmt opt_else_stmt
+    : L_MOUNT '(' res_decl_list ')'
         {
             auto lpcc = yyget_extra(yyscanner);
             if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::GLOBAL) {
@@ -400,10 +400,31 @@ mount
                         throw parse_error("Function-local mounts require an explicit resource alias", yyscanner);
                 }
             }
+            // Bind mounts before parsing their bodies, so nested scopes reserve
+            // slots after these aliases and using statements see their mount kind.
+            for (auto& declaration : std::get<AST::List>($3.node).elts) {
+                auto* resource = std::get_if<AST::ResourceDecl>(&declaration.node);
+                if (!resource)
+                    continue;
+                auto& entry = resource->entry;
+                entry->signature.b.data_type = T_RESOURCE;
+                entry->resource_kind = SymbolTable::Entry::ResourceKind::MOUNT;
+                if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::GLOBAL) {
+                    entry->value = lpcc->next_mount++;
+                } else {
+                    entry->signature.b.is_local = 1;
+                    entry->value = lpcc->next_local_mount++;
+                    if (lpcc->next_local_mount > lpcc->max_local_mounts)
+                        lpcc->max_local_mounts = lpcc->next_local_mount;
+                }
+            }
+        }
+      stmt opt_else_stmt
+        {
             ASSIGN_AST($$, @$, AST::Mount{
                 std::make_unique<ASTNode>(std::move($3)),
-                std::make_unique<ASTNode>(std::move($5)),
-                std::make_unique<ASTNode>(std::move($6))
+                std::make_unique<ASTNode>(std::move($6)),
+                std::make_unique<ASTNode>(std::move($7))
             });
         }
     ;
@@ -429,16 +450,6 @@ res_alias
             auto lpcc = yyget_extra(yyscanner);
             if (!lpcc->current_scope->lookup($alias)) {
                 auto entry = std::make_shared<SymbolTable::Entry>($alias, SymbolSignature{0}); // alias symbol
-                entry->signature.b.data_type = T_RESOURCE;
-                entry->resource_kind = SymbolTable::Entry::ResourceKind::MOUNT;
-                if (lpcc->current_scope->scope_type() == SymbolTable::ScopeType::GLOBAL) {
-                    entry->value = lpcc->next_mount++;
-                } else {
-                    entry->signature.b.is_local = 1;
-                    entry->value = lpcc->next_local_mount++;
-                    if (lpcc->next_local_mount > lpcc->max_local_mounts)
-                        lpcc->max_local_mounts = lpcc->next_local_mount;
-                }
                 lpcc->current_scope->emplace($alias, entry); // add the pseudo entry to current scope
                 ASSIGN_AST($$, @$, AST::ResourceDecl{ entry, std::make_unique<ASTNode>(std::move($path)) });
             }
@@ -478,9 +489,15 @@ inheritance
 inheritance_decl
     : L_INHERIT res_declare ';'
         {
-            if (auto* resource = std::get_if<AST::ResourceDecl>(&$2.node))
+            auto lpcc = yyget_extra(yyscanner);
+            const auto slot = lpcc->next_inheriting++;
+            if (auto* resource = std::get_if<AST::ResourceDecl>(&$2.node)) {
+                resource->entry->signature.b.data_type = T_INHERITANCE;
                 resource->entry->resource_kind = SymbolTable::Entry::ResourceKind::INHERITANCE;
-            ASSIGN_AST($$, @$, AST::Inheritance{ std::make_unique<ASTNode>(std::move($2)) });
+                resource->entry->value = slot;
+            }
+            ASSIGN_AST($$, @$, AST::Inheritance{
+                std::make_unique<ASTNode>(std::move($2)), {}, slot });
         }
     ;
 
@@ -1026,7 +1043,11 @@ defined_id
 
 res_acquire
     : defined_id L_COLON_COLON L_IDENTIFIER
-        { ASSIGN_AST($$, @$, AST::ResourceAcquire{ std::move($1), yyget_extra(yyscanner)->consts->find_or_add($3), AST::ResourceAcquire::Context::MODULE }); }
+        {
+            if ($1->signature.b.data_type != LpcDataType::T_RESOURCE)
+                throw parse_error("Expected a resource type", @$, yyget_extra(yyscanner));
+            ASSIGN_AST($$, @$, AST::ResourceAcquire{ std::move($1), yyget_extra(yyscanner)->consts->find_or_add($3), AST::ResourceAcquire::Context::MODULE });
+        }
     | '.' L_IDENTIFIER
         { ASSIGN_AST($$, @$, AST::ResourceAcquire{ nullptr, yyget_extra(yyscanner)->consts->find_or_add($2), AST::ResourceAcquire::Context::INHERITANCE }); }
     | L_ARROW L_IDENTIFIER

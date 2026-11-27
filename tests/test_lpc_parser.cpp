@@ -399,8 +399,8 @@ TEST(LpcParserTest, InheritanceUsesResourceDeclarationsOnlyForExplicitAliases) {
                 EXPECT_EQ(entry->name, "base::parent");
                 EXPECT_EQ(compiler.get_globals()->lookup(entry->name), entry);
                 ASSERT_TRUE(entry->value.has_value());
-                EXPECT_EQ(std::get<uint32_t>(*entry->value), 1u);
-                EXPECT_EQ(entry->signature.b.data_type, T_RESOURCE);
+                EXPECT_EQ(std::get<uint32_t>(*entry->value), 0u);
+                EXPECT_EQ(entry->signature.b.data_type, T_INHERITANCE);
                 EXPECT_EQ(entry->signature.b.is_public, modified);
                 EXPECT_EQ(entry->signature.b.is_nomask, modified);
                 path = resource.path.get();
@@ -414,11 +414,52 @@ TEST(LpcParserTest, InheritanceUsesResourceDeclarationsOnlyForExplicitAliases) {
             EXPECT_EQ(inheritance.signature.b.is_nomask, modified);
             auto program = compiler.generate_code();
             ASSERT_NE(program, nullptr);
-            EXPECT_EQ(program->num_mounts(), aliased ? 2u : 1u);
+            EXPECT_EQ(program->num_mounts(), 1u);
+            EXPECT_EQ(inheritance.inheriting_slot, 0u);
             EXPECT_EQ(defs[0].src.lineno, 1);
             EXPECT_EQ(defs[0].src.column, 1);
         }
     }
+}
+
+TEST(LpcParserTest, DirectInheritanceSlotsAreIndependentAndResetBetweenParses) {
+    LpcCompiler compiler;
+    for (int iteration = 0; iteration < 2; ++iteration) {
+        ASSERT_TRUE(compiler.parse(R"(
+            inherit "first";
+            mount ("module" => Module);
+            public inherit "second" => Parent;
+            void f() { mount ("local" => Local); }
+            inherit "third";
+            inherit "fourth" => Last;
+            mount ("later" => Later);
+        )"));
+        const auto& defs = std::get<AST::Program>(compiler.get_ast()->node).defs;
+        uint32_t expected = 0;
+        for (const auto& def : defs) {
+            if (const auto* inheritance = std::get_if<AST::Inheritance>(&def.node)) {
+                EXPECT_EQ(inheritance->inheriting_slot, expected);
+                if (const auto* alias = std::get_if<AST::ResourceDecl>(&inheritance->res_decl->node)) {
+                    EXPECT_EQ(std::get<uint32_t>(*alias->entry->value), expected);
+                    EXPECT_EQ(alias->entry->resource_kind, SymbolTable::Entry::ResourceKind::INHERITANCE);
+                }
+                ++expected;
+            }
+        }
+        EXPECT_EQ(expected, 4u);
+        EXPECT_EQ(std::get<uint32_t>(*compiler.get_globals()->lookup("Module")->value), 1u);
+        EXPECT_EQ(std::get<uint32_t>(*compiler.get_globals()->lookup("Later")->value), 2u);
+    }
+}
+
+TEST(LpcParserTest, InheritanceAliasIsNotAModuleResource) {
+    LpcCompiler compiler;
+    EXPECT_FALSE(compiler.parse(R"(
+        inherit "base" => Parent;
+        void f() { Parent::call(); }
+    )"));
+    ASSERT_FALSE(compiler.messages().empty());
+    EXPECT_NE(compiler.messages().back().text.find("Expected a resource type"), std::string::npos);
 }
 
 TEST(LpcParserTest, RejectMissingOrRepeatedDeclarationTypes) {
@@ -597,6 +638,35 @@ TEST(LpcParserTest, AggregateListsPreserveNestedExpressions) {
 }
 
 
+TEST(LpcParserTest, MountSlotsAreBoundBeforeParsingNestedBodies) {
+    LpcCompiler compiler;
+    ASSERT_TRUE(compiler.parse(R"(
+        void f() {
+            mount ("outer" => Outer) {
+                using (Outer) { Outer::call(); }
+                mount ("inner" => Inner) using (Inner) { Inner::call(); }
+            }
+            mount ("after" => After);
+        }
+    )"));
+    const auto& function = std::get<AST::FunctionDef>(
+        std::get<AST::Program>(compiler.get_ast()->node).defs[0].node);
+    const auto& statements = std::get<AST::List>(
+        std::get<AST::Block>(function.body->node).stmts->node).elts;
+    const auto& outer = std::get<AST::Mount>(statements[0].node);
+    const auto& nested = std::get<AST::List>(
+        std::get<AST::Block>(outer.body->node).stmts->node).elts;
+    auto slot = [](const AST::Mount& mount) {
+        const auto& alias = std::get<AST::ResourceDecl>(
+            std::get<AST::List>(mount.res_decl->node).elts[0].node);
+        return std::get<uint32_t>(*alias.entry->value);
+    };
+    EXPECT_EQ(slot(outer), 0u);
+    EXPECT_EQ(slot(std::get<AST::Mount>(nested[1].node)), 1u);
+    EXPECT_EQ(slot(std::get<AST::Mount>(statements[1].node)), 1u);
+    EXPECT_EQ(function.num_mounts, 2u);
+}
+
 TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
     LpcCompiler compiler;
     compiler.use_fabric(mount_test_fabric({"global", "late"}));
@@ -625,8 +695,8 @@ TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
         return std::get<AST::List>(std::get<AST::Block>(node.node).stmts->node).elts;
     };
     EXPECT_EQ(slot(defs[0]), 1u);
-    EXPECT_EQ(std::get<uint32_t>(*std::get<AST::ResourceDecl>(std::get<AST::Inheritance>(defs[2].node).res_decl->node).entry->value), 2u);
-    EXPECT_EQ(slot(defs[4]), 3u);
+    EXPECT_EQ(std::get<uint32_t>(*std::get<AST::ResourceDecl>(std::get<AST::Inheritance>(defs[2].node).res_decl->node).entry->value), 0u);
+    EXPECT_EQ(slot(defs[4]), 2u);
     const auto& body = statements(*std::get<AST::FunctionDef>(defs[1].node).body);
     EXPECT_EQ(slot(body[0]), 0u);
     EXPECT_EQ(slot(statements(body[1])[0]), 1u);
@@ -639,7 +709,7 @@ TEST(LpcParserTest, MountSlotsOverlayScopesRelativeToEachFunction) {
     EXPECT_EQ(compiler.get_globals()->lookup("Loop"), nullptr);
     auto program = compiler.generate_code();
     ASSERT_NE(program, nullptr);
-    EXPECT_EQ(program->num_mounts(), 4u);
+    EXPECT_EQ(program->num_mounts(), 3u);
     EXPECT_EQ(program->num_variables(), 0u);
     EXPECT_EQ(std::get<AST::FunctionDef>(defs[1].node).num_mounts, 3u);
     EXPECT_EQ(std::get<AST::FunctionDef>(defs[3].node).num_mounts, 1u);
@@ -660,7 +730,7 @@ TEST(LpcParserTest, MountCountsReserveImplicitSlotAndResetBetweenParses) {
         ASSERT_TRUE(compiler.parse(source));
         auto program = compiler.generate_code();
         ASSERT_NE(program, nullptr);
-        EXPECT_EQ(program->num_mounts(), std::string_view(source).find("=>") != std::string_view::npos ? 3u : 1u);
+        EXPECT_EQ(program->num_mounts(), std::string_view(source).find("=>") != std::string_view::npos ? 2u : 1u);
         EXPECT_EQ(program->num_variables(), 1u);
     }
 }
