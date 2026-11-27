@@ -6,6 +6,8 @@ add_executable(test_lpcvm
     test_lpc_compiler.cpp
     test_lpc_lexer.cpp
     test_native_call.cpp
+    test_console_module.cpp
+    ../src/lpcshell/console_module.cpp
     test_lpc_object.cpp
     test_lpc_string.cpp
     test_lpc_buffer.cpp

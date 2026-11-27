@@ -4,6 +4,8 @@
 #include <argparse/argparse.hpp>
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
+#include "console_module.hpp"
 #include "vm_executor.hpp"
 #include "vm_sandbox.hpp"
 
@@ -27,6 +29,7 @@ int main (int argc, char* argv[]) {
         const std::string root_dir = program.get<std::string>("root");
         const std::string start_file = program.get<std::string>("--start");
         auto sandbox = std::make_shared<lpcvm::Sandbox>(root_dir);
+        sandbox->emplace_object(lpcvm::create_shared<ConsoleModule>(sandbox, std::cin, std::cout));
         auto obj_ref = sandbox->load_object(start_file).lock();
         if (auto obj = dynamic_cast<LpcObject*>(&*obj_ref.value()); obj) {
             lpcvm::DataStack data_stack;
