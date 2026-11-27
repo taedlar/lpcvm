@@ -140,6 +140,10 @@ aliases, and are not ordinary values either. An inherited function can be
 called by name through normal method resolution or explicitly through an
 inheritance alias followed by `.` (for example, `Parent.update()`). `::` is
 reserved for selecting the active module context, not for inherited calls.
+Each direct inheritance receives a zero-based inheriting slot in declaration
+order, whether or not it has an alias. An alias refers to that inheriting slot.
+These slots are independent of global and function-local mount slots;
+inheritance does not consume a resource slot.
 
 ### Current resource implementation
 

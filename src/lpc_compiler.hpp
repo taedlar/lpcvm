@@ -54,6 +54,7 @@ public:
         uint32_t next_global;
         uint32_t next_local;
         uint32_t next_mount{1}; // class aliases; slot zero is the implicit mount
+        uint32_t next_inheriting{0}; // direct inheritances, independent of mount slots
         uint32_t next_local_mount{0}; // relative to the call frame mount base
         uint32_t max_local_mounts{0};
         uint32_t switch_depth{0}; // number of enclosing switch statements

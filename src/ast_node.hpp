@@ -61,6 +61,7 @@ namespace AST {
     struct Inheritance {
         std::unique_ptr<ASTNode> res_decl; // ResourceDecl or StringLiteral, as in Mount
         SymbolSignature signature{}; // inheritance modifiers, including unaliased clauses
+        uint32_t inheriting_slot{0}; // zero-based direct inheritance index, independent of resources
     };
     struct FunctionDecl {
         std::shared_ptr<SymbolTable::Entry> entry;
